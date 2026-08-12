@@ -15,6 +15,7 @@ concurrency:
 jobs:
   validar-versao:
     name: Validar versão
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     outputs:
       versao: ${{ steps.versao.outputs.versao }}
@@ -40,6 +41,7 @@ jobs:
 
   frontend:
     name: Compilar frontend
+    if: ${{ github.server_url == 'https://github.com' }}
     needs: validar-versao
     runs-on: ubuntu-latest
     steps:
@@ -69,6 +71,7 @@ jobs:
 
   binarios:
     name: Binário ${{ matrix.nome }}
+    if: ${{ github.server_url == 'https://github.com' }}
     needs:
       - validar-versao
       - frontend
@@ -140,6 +143,7 @@ jobs:
 
   imagem:
     name: Imagem Docker multi-arquitetura
+    if: ${{ github.server_url == 'https://github.com' }}
     needs: validar-versao
     runs-on: ubuntu-latest
     permissions:
@@ -193,6 +197,7 @@ jobs:
 
   github-release:
     name: Publicar GitHub Release
+    if: ${{ github.server_url == 'https://github.com' }}
     needs:
       - validar-versao
       - binarios

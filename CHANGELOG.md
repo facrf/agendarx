@@ -5,6 +5,10 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Alterado
+
+- Workflows restritos ao GitHub, impedindo execuções duplicadas no Gitea e Forgejo.
+
 ## [0.1.0] - 2026-08-11
 
 ### Adicionado

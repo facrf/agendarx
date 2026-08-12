@@ -7,6 +7,21 @@ As versões publicadas ficam em
 O andamento de cada publicação aparece no
 [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
+## Execução exclusiva no GitHub
+
+As pastas `.gitea/workflows/` e `.forgejo/workflows/` existem sem arquivos YAML
+para impedir que Gitea e Forgejo usem `.github/workflows` como fallback. Os jobs
+também validam `github.server_url == 'https://github.com'`, protegendo instalações
+que tenham personalizado os diretórios de workflow.
+
+Para remover também a aba e o histórico de Actions, desative a unidade no servidor:
+
+- Gitea: **Settings > Enable Repository Actions** (desmarcar);
+- Forgejo: **Settings > Units > Overview > Actions** (desmarcar).
+
+Não use `[skip ci]` nos commits enviados ao Gitea neste projeto: a mesma mensagem é
+espelhada no GitHub e também impediria a CI desejada no destino.
+
 ## Artefatos gerados
 
 | Plataforma | Target Rust | Pacote no GitHub Release | Imagem GHCR |

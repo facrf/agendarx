@@ -17,6 +17,7 @@ concurrency:
 jobs:
   backend:
     name: Rust
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     steps:
       - name: Obter o código
@@ -38,6 +39,7 @@ jobs:
 
   frontend:
     name: React
+    if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
     defaults:
       run:
