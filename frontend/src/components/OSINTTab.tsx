@@ -118,11 +118,15 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
       );
       setResultado(resumo);
       setHistorico(await api.get(`/api/osint/historico/${pessoaId}`));
-      notify(
-        resumo.novos_achados > 0
-          ? `${resumo.novos_achados} novo(s) achado(s) arquivado(s)`
-          : "Varredura concluída sem novos achados",
-      );
+      if (resumo.situacao === "inconclusiva") {
+        notify("Varredura inconclusiva: consulte as fontes indisponíveis", "erro");
+      } else if (resumo.novos_achados > 0) {
+        notify(`${resumo.novos_achados} novo(s) achado(s) arquivado(s)`);
+      } else if (resumo.situacao === "parcial") {
+        notify("Varredura parcial concluída sem novos achados");
+      } else {
+        notify("Varredura concluída sem novos achados");
+      }
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -309,16 +313,53 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
 }
 
 function ResumoVarredura({ resultado }: { resultado: VarreduraPublicaResponse }) {
+  const situacoes = {
+    concluida: {
+      titulo: "Varredura concluída",
+      descricao: "As fontes consultadas responderam normalmente.",
+      classe: "border-emerald-200 bg-emerald-50 text-emerald-900",
+    },
+    parcial: {
+      titulo: "Varredura parcial",
+      descricao: "A pesquisa encontrou respostas, mas uma ou mais fontes ficaram indisponíveis.",
+      classe: "border-amber-200 bg-amber-50 text-amber-900",
+    },
+    inconclusiva: {
+      titulo: "Varredura inconclusiva",
+      descricao: "As fontes falharam; a ausência de resultados não confirma que não existam achados.",
+      classe: "border-rose-200 bg-rose-50 text-rose-900",
+    },
+  } as const;
+  const situacao = situacoes[resultado.situacao];
+
   return (
     <section className="rounded-2xl border border-slate-200 bg-white p-4">
-      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+      <div className={cn("mb-4 rounded-xl border p-3", situacao.classe)}>
+        <div className="flex items-start gap-2">
+          {resultado.situacao === "concluida" ? (
+            <ShieldCheck className="mt-0.5 size-4 shrink-0" />
+          ) : (
+            <AlertTriangle className="mt-0.5 size-4 shrink-0" />
+          )}
+          <div>
+            <p className="text-sm font-semibold">{situacao.titulo}</p>
+            <p className="mt-0.5 text-xs leading-5 opacity-80">{situacao.descricao}</p>
+          </div>
+        </div>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-3">
         <Metrica rotulo="Parâmetros" valor={resultado.parametros_processados} />
+        <Metrica rotulo="Inconclusivos" valor={resultado.parametros_inconclusivos} />
         <Metrica rotulo="Resultados lidos" valor={resultado.resultados_encontrados} />
         <Metrica rotulo="Novos achados" valor={resultado.novos_achados} destaque />
         <Metrica rotulo="PDFs arquivados" valor={resultado.pdfs_arquivados} />
+        <Metrica rotulo="Fontes indisponíveis" valor={resultado.fontes_indisponiveis} />
       </div>
       {resultado.avisos.length > 0 && (
-        <details className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900">
+        <details
+          className="mt-4 rounded-xl bg-amber-50 p-3 text-sm text-amber-900"
+          open={resultado.situacao === "inconclusiva"}
+        >
           <summary className="flex cursor-pointer list-none items-center gap-2 font-semibold">
             <AlertTriangle className="size-4" /> {resultado.avisos.length} aviso(s) da varredura
           </summary>

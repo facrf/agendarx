@@ -1,6 +1,7 @@
 use std::{
+    collections::{BTreeSet, HashSet},
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
-    time::Duration,
+    time::{Duration, Instant},
 };
 
 use axum::{
@@ -148,6 +149,7 @@ async fn varrer(
     State(state): State<AppState>,
     Path(pessoa_id): Path<i64>,
 ) -> Result<Json<VarreduraResponse>, AppError> {
+    let inicio_varredura = Instant::now();
     garantir_pessoa(&state, pessoa_id).await?;
     let parametros = sqlx::query_as::<_, ParametroBusca>(
         "SELECT id, pessoa_id, tipo, valor, ativo FROM parametro_busca \
@@ -182,60 +184,132 @@ async fn varrer(
         .map_err(|erro| AppError::interno(format!("falha ao configurar cliente HTTP: {erro}")))?;
 
     let mut resposta = VarreduraResponse {
+        situacao: "concluida".to_owned(),
         parametros_processados: parametros.len(),
+        parametros_inconclusivos: 0,
         resultados_encontrados: 0,
         novos_achados: 0,
         pdfs_arquivados: 0,
+        fontes_indisponiveis: 0,
         avisos: Vec::new(),
     };
+    let mut fontes_indisponiveis = HashSet::new();
+    let mut varredura_degradada = false;
 
     for parametro in parametros {
-        let consulta = consulta_para(&parametro);
-        let resultado_busca = cliente_busca
-            .get(endpoint.clone())
-            .header(reqwest::header::ACCEPT, "application/json")
-            .query(&[
-                ("q", consulta.as_str()),
-                ("format", "json"),
-                ("language", "pt-BR"),
-                ("safesearch", "0"),
-            ])
-            .send()
-            .await;
+        let inicio_parametro = Instant::now();
+        let consultas = consultas_para(&parametro);
+        let mut consultas_executadas = 0;
+        let mut recebeu_json_valido = false;
+        let mut falha_consulta = false;
+        let mut avisos_consulta = BTreeSet::new();
+        let mut fontes_parametro = BTreeSet::new();
+        let mut urls_encontradas = HashSet::new();
+        let mut resultados = Vec::new();
 
-        let response = match resultado_busca {
-            Ok(response) if response.status().is_success() => response,
-            Ok(response) => {
-                resposta
-                    .avisos
-                    .push(aviso_status_searxng(&parametro.tipo, response.status()));
-                continue;
+        for consulta in consultas {
+            if resultados.len() >= state.config.osint_max_results {
+                break;
             }
-            Err(erro) => {
-                resposta.avisos.push(format!(
-                    "{}: não foi possível consultar o SearXNG ({erro})",
-                    parametro.tipo
-                ));
-                continue;
-            }
-        };
+            consultas_executadas += 1;
+            let resultado_busca = cliente_busca
+                .get(endpoint.clone())
+                .header(reqwest::header::ACCEPT, "application/json")
+                .query(&[
+                    ("q", consulta.as_str()),
+                    ("format", "json"),
+                    ("language", "pt-BR"),
+                    ("safesearch", "0"),
+                ])
+                .send()
+                .await;
 
-        let dados: SearxResponse = match response.json().await {
-            Ok(dados) => dados,
-            Err(erro) => {
-                resposta.avisos.push(format!(
-                    "{}: resposta JSON inválida do SearXNG ({erro})",
-                    parametro.tipo
-                ));
-                continue;
+            let response = match resultado_busca {
+                Ok(response) if response.status().is_success() => response,
+                Ok(response) => {
+                    falha_consulta = true;
+                    avisos_consulta
+                        .insert(aviso_status_searxng(&parametro.tipo, response.status()));
+                    continue;
+                }
+                Err(erro) => {
+                    falha_consulta = true;
+                    avisos_consulta.insert(format!(
+                        "{}: não foi possível consultar o SearXNG ({erro})",
+                        parametro.tipo
+                    ));
+                    continue;
+                }
+            };
+
+            let dados: SearxResponse = match response.json().await {
+                Ok(dados) => dados,
+                Err(erro) => {
+                    falha_consulta = true;
+                    avisos_consulta.insert(format!(
+                        "{}: resposta JSON inválida do SearXNG ({erro})",
+                        parametro.tipo
+                    ));
+                    continue;
+                }
+            };
+            recebeu_json_valido = true;
+            for fonte in fontes_indisponiveis_da_resposta(&dados) {
+                fontes_indisponiveis.insert(fonte.0.clone());
+                fontes_parametro.insert(fonte);
             }
-        };
-        let resultados: Vec<_> = dados
-            .results
-            .into_iter()
-            .take(state.config.osint_max_results)
-            .collect();
+            for resultado in dados.results {
+                let url = resultado.url.trim();
+                if !url.is_empty() && urls_encontradas.insert(url.to_owned()) {
+                    resultados.push(resultado);
+                    if resultados.len() >= state.config.osint_max_results {
+                        break;
+                    }
+                }
+            }
+        }
+
+        if !fontes_parametro.is_empty() {
+            avisos_consulta.insert(aviso_fontes_indisponiveis(
+                &parametro.tipo,
+                &fontes_parametro,
+            ));
+        }
+        resposta.avisos.extend(avisos_consulta);
+
+        let parametro_inconclusivo =
+            !recebeu_json_valido || (resultados.is_empty() && !fontes_parametro.is_empty());
+        let parametro_degradado =
+            parametro_inconclusivo || falha_consulta || !fontes_parametro.is_empty();
+        if parametro_inconclusivo {
+            resposta.parametros_inconclusivos += 1;
+        }
+        varredura_degradada |= parametro_degradado;
         resposta.resultados_encontrados += resultados.len();
+
+        if parametro_inconclusivo {
+            tracing::warn!(
+                pessoa_id,
+                parametro_id = parametro.id,
+                tipo = %parametro.tipo,
+                consultas_executadas,
+                resultados = resultados.len(),
+                fontes_indisponiveis = fontes_parametro.len(),
+                duracao_ms = inicio_parametro.elapsed().as_millis(),
+                "parâmetro OSINT processado de forma inconclusiva"
+            );
+        } else {
+            tracing::info!(
+                pessoa_id,
+                parametro_id = parametro.id,
+                tipo = %parametro.tipo,
+                consultas_executadas,
+                resultados = resultados.len(),
+                fontes_indisponiveis = fontes_parametro.len(),
+                duracao_ms = inicio_parametro.elapsed().as_millis(),
+                "parâmetro OSINT processado"
+            );
+        }
 
         for resultado in resultados {
             let url_texto = resultado.url.trim();
@@ -302,6 +376,27 @@ async fn varrer(
             resposta.pdfs_arquivados += usize::from(pdf_salvo);
         }
     }
+
+    resposta.fontes_indisponiveis = fontes_indisponiveis.len();
+    resposta.situacao = classificar_varredura(
+        resposta.parametros_processados,
+        resposta.parametros_inconclusivos,
+        varredura_degradada,
+    )
+    .to_owned();
+    tracing::info!(
+        pessoa_id,
+        situacao = %resposta.situacao,
+        parametros_processados = resposta.parametros_processados,
+        parametros_inconclusivos = resposta.parametros_inconclusivos,
+        resultados_encontrados = resposta.resultados_encontrados,
+        novos_achados = resposta.novos_achados,
+        pdfs_arquivados = resposta.pdfs_arquivados,
+        fontes_indisponiveis = resposta.fontes_indisponiveis,
+        avisos = resposta.avisos.len(),
+        duracao_ms = inicio_varredura.elapsed().as_millis(),
+        "varredura OSINT concluída"
+    );
 
     Ok(Json(resposta))
 }
@@ -581,11 +676,145 @@ fn normalizar_parametro(input: ParametroBuscaInput) -> Result<(String, String, b
     Ok((tipo, valor, input.ativo.unwrap_or(true)))
 }
 
-fn consulta_para(parametro: &ParametroBusca) -> String {
-    if parametro.tipo == "TERMO" {
-        return parametro.valor.clone();
+fn consultas_para(parametro: &ParametroBusca) -> Vec<String> {
+    let valor = parametro.valor.replace('"', " ").trim().to_owned();
+    let mut valores = Vec::new();
+    adicionar_unico(&mut valores, valor.clone());
+
+    match parametro.tipo.as_str() {
+        "NOME" => adicionar_unico(&mut valores, valor.clone()),
+        "CPF" | "CNPJ" | "TELEFONE" => {
+            let digitos: String = valor.chars().filter(char::is_ascii_digit).collect();
+            if !digitos.is_empty() {
+                adicionar_unico(&mut valores, digitos.clone());
+                if let Some(formatado) = formatar_identificador(&parametro.tipo, &digitos) {
+                    adicionar_unico(&mut valores, formatado);
+                }
+            }
+        }
+        _ => {}
     }
-    format!("\"{}\"", parametro.valor.replace('"', " "))
+
+    if parametro.tipo == "TERMO" {
+        return valores;
+    }
+    if parametro.tipo == "NOME" {
+        let mut consultas = vec![format!("\"{valor}\"")];
+        adicionar_unico(&mut consultas, valor);
+        return consultas;
+    }
+    valores
+        .into_iter()
+        .map(|valor| format!("\"{valor}\""))
+        .collect()
+}
+
+fn adicionar_unico(valores: &mut Vec<String>, valor: String) {
+    if !valor.is_empty() && !valores.contains(&valor) {
+        valores.push(valor);
+    }
+}
+
+fn formatar_identificador(tipo: &str, digitos: &str) -> Option<String> {
+    match (tipo, digitos.len()) {
+        ("CPF", 11) => Some(format!(
+            "{}.{}.{}-{}",
+            &digitos[0..3],
+            &digitos[3..6],
+            &digitos[6..9],
+            &digitos[9..11]
+        )),
+        ("CNPJ", 14) => Some(format!(
+            "{}.{}.{}/{}-{}",
+            &digitos[0..2],
+            &digitos[2..5],
+            &digitos[5..8],
+            &digitos[8..12],
+            &digitos[12..14]
+        )),
+        ("TELEFONE", 10) => Some(format!(
+            "({}) {}-{}",
+            &digitos[0..2],
+            &digitos[2..6],
+            &digitos[6..10]
+        )),
+        ("TELEFONE", 11) => Some(format!(
+            "({}) {}-{}",
+            &digitos[0..2],
+            &digitos[2..7],
+            &digitos[7..11]
+        )),
+        ("TELEFONE", 12) if digitos.starts_with("55") => Some(format!(
+            "+55 ({}) {}-{}",
+            &digitos[2..4],
+            &digitos[4..8],
+            &digitos[8..12]
+        )),
+        ("TELEFONE", 13) if digitos.starts_with("55") => Some(format!(
+            "+55 ({}) {}-{}",
+            &digitos[2..4],
+            &digitos[4..9],
+            &digitos[9..13]
+        )),
+        _ => None,
+    }
+}
+
+fn fontes_indisponiveis_da_resposta(dados: &SearxResponse) -> Vec<(String, String)> {
+    dados
+        .unresponsive_engines
+        .iter()
+        .filter_map(|item| {
+            let fonte = item.first()?.trim();
+            if fonte.is_empty() {
+                return None;
+            }
+            let motivo = item
+                .get(1)
+                .map(|valor| valor.trim())
+                .filter(|valor| !valor.is_empty())
+                .unwrap_or("indisponível");
+            Some((fonte.to_owned(), motivo.to_owned()))
+        })
+        .collect()
+}
+
+fn aviso_fontes_indisponiveis(tipo: &str, fontes: &BTreeSet<(String, String)>) -> String {
+    let detalhes = fontes
+        .iter()
+        .map(|(fonte, motivo)| format!("{fonte} ({})", traduzir_motivo_fonte(motivo)))
+        .collect::<Vec<_>>()
+        .join(", ");
+    format!("{tipo}: fontes temporariamente indisponíveis: {detalhes}")
+}
+
+fn traduzir_motivo_fonte(motivo: &str) -> String {
+    let normalizado = motivo.to_ascii_lowercase();
+    if normalizado.contains("captcha") {
+        "CAPTCHA".to_owned()
+    } else if normalizado.contains("too many requests") || normalizado.contains("rate limit") {
+        "limite de requisições".to_owned()
+    } else if normalizado.contains("timeout") {
+        "tempo esgotado".to_owned()
+    } else if normalizado.contains("suspended") {
+        "temporariamente suspensa".to_owned()
+    } else {
+        truncar(motivo, 120)
+    }
+}
+
+fn classificar_varredura(
+    parametros_processados: usize,
+    parametros_inconclusivos: usize,
+    degradada: bool,
+) -> &'static str {
+    if parametros_processados > 0 && parametros_inconclusivos == parametros_processados {
+        "inconclusiva"
+    } else if degradada {
+        "parcial"
+    } else {
+        "concluida"
+    }
 }
 
 fn nome_pdf(url: &Url) -> String {
@@ -627,6 +856,8 @@ fn truncar(valor: &str, maximo: usize) -> String {
 struct SearxResponse {
     #[serde(default)]
     results: Vec<SearxResult>,
+    #[serde(default)]
+    unresponsive_engines: Vec<Vec<String>>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -658,14 +889,19 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 #[cfg(test)]
 mod tests {
     use super::{
-        aviso_status_searxng, consulta_para, endpoint_searxng, ipv4_publico, ipv6_publico,
+        SearxResponse, aviso_fontes_indisponiveis, aviso_status_searxng, classificar_varredura,
+        consultas_para, endpoint_searxng, fontes_indisponiveis_da_resposta, ipv4_publico,
+        ipv6_publico,
     };
     use crate::models::ParametroBusca;
     use axum::http::StatusCode;
-    use std::net::{Ipv4Addr, Ipv6Addr};
+    use std::{
+        collections::BTreeSet,
+        net::{Ipv4Addr, Ipv6Addr},
+    };
 
     #[test]
-    fn monta_consulta_com_aspas_exceto_termo() {
+    fn monta_variantes_para_nome_e_termo() {
         let mut parametro = ParametroBusca {
             id: 1,
             pessoa_id: 1,
@@ -673,9 +909,66 @@ mod tests {
             valor: "Maria Silva".to_owned(),
             ativo: true,
         };
-        assert_eq!(consulta_para(&parametro), "\"Maria Silva\"");
+        assert_eq!(
+            consultas_para(&parametro),
+            vec!["\"Maria Silva\"", "Maria Silva"]
+        );
         parametro.tipo = "TERMO".to_owned();
-        assert_eq!(consulta_para(&parametro), "Maria Silva");
+        assert_eq!(consultas_para(&parametro), vec!["Maria Silva"]);
+    }
+
+    #[test]
+    fn monta_variantes_formatadas_e_numericas() {
+        let mut parametro = ParametroBusca {
+            id: 1,
+            pessoa_id: 1,
+            tipo: "CPF".to_owned(),
+            valor: "123.456.789-01".to_owned(),
+            ativo: true,
+        };
+        assert_eq!(
+            consultas_para(&parametro),
+            vec!["\"123.456.789-01\"", "\"12345678901\""]
+        );
+
+        parametro.tipo = "TELEFONE".to_owned();
+        parametro.valor = "+55 11 99999-0000".to_owned();
+        assert_eq!(
+            consultas_para(&parametro),
+            vec![
+                "\"+55 11 99999-0000\"",
+                "\"5511999990000\"",
+                "\"+55 (11) 99999-0000\""
+            ]
+        );
+    }
+
+    #[test]
+    fn interpreta_e_resume_fontes_indisponiveis() {
+        let dados: SearxResponse = serde_json::from_str(
+            r#"{
+                "results": [],
+                "unresponsive_engines": [
+                    ["startpage", "Suspended: CAPTCHA"],
+                    ["duckduckgo", "timeout"]
+                ]
+            }"#,
+        )
+        .unwrap();
+        let fontes: BTreeSet<_> = fontes_indisponiveis_da_resposta(&dados)
+            .into_iter()
+            .collect();
+        let aviso = aviso_fontes_indisponiveis("NOME", &fontes);
+        assert!(aviso.contains("startpage (CAPTCHA)"));
+        assert!(aviso.contains("duckduckgo (tempo esgotado)"));
+    }
+
+    #[test]
+    fn classifica_resultado_da_varredura() {
+        assert_eq!(classificar_varredura(2, 0, false), "concluida");
+        assert_eq!(classificar_varredura(2, 0, true), "parcial");
+        assert_eq!(classificar_varredura(2, 1, true), "parcial");
+        assert_eq!(classificar_varredura(2, 2, true), "inconclusiva");
     }
 
     #[test]

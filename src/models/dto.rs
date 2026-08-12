@@ -184,9 +184,12 @@ pub struct HistoricoBuscaResponse {
 
 #[derive(Debug, Serialize)]
 pub struct VarreduraResponse {
+    pub situacao: String,
     pub parametros_processados: usize,
+    pub parametros_inconclusivos: usize,
     pub resultados_encontrados: usize,
     pub novos_achados: usize,
     pub pdfs_arquivados: usize,
+    pub fontes_indisponiveis: usize,
     pub avisos: Vec<String>,
 }

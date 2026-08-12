@@ -73,6 +73,28 @@ curl -i http://localhost:12000/api/auth/login \
 
 Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
 
+A varredura pesquisa nomes com e sem correspondência exata e normaliza CPF, CNPJ
+e telefone nas formas formatada e somente com dígitos. A resposta informa se a
+execução foi `concluida`, `parcial` ou `inconclusiva`:
+
+```json
+{
+  "situacao": "parcial",
+  "parametros_processados": 2,
+  "parametros_inconclusivos": 0,
+  "resultados_encontrados": 15,
+  "novos_achados": 4,
+  "pdfs_arquivados": 1,
+  "fontes_indisponiveis": 2,
+  "avisos": [
+    "NOME: fontes temporariamente indisponíveis: duckduckgo (tempo esgotado)"
+  ]
+}
+```
+
+Uma resposta `inconclusiva` significa que as fontes falharam; zero resultados
+nesse estado não comprova a ausência de achados.
+
 ### Credenciais do administrador
 
 ```json

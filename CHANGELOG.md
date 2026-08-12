@@ -5,6 +5,18 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- A varredura OSINT agora informa execuções concluídas, parciais ou inconclusivas,
+  identifica mecanismos temporariamente indisponíveis e registra métricas técnicas
+  sem incluir o valor pesquisado nos logs.
+
+### Alterado
+
+- Nomes são pesquisados com e sem correspondência exata; CPF, CNPJ e telefone são
+  consultados nas formas formatada e somente com dígitos, com eliminação de URLs
+  duplicadas entre as variantes.
+
 ## [0.2.0] - 2026-08-12
 
 ### Adicionado

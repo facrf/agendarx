@@ -169,9 +169,12 @@ export interface HistoricoBuscaPublica {
 }
 
 export interface VarreduraPublicaResponse {
+  situacao: "concluida" | "parcial" | "inconclusiva";
   parametros_processados: number;
+  parametros_inconclusivos: number;
   resultados_encontrados: number;
   novos_achados: number;
   pdfs_arquivados: number;
+  fontes_indisponiveis: number;
   avisos: string[];
 }
