@@ -20,7 +20,7 @@ jobs:
       versao: ${{ steps.versao.outputs.versao }}
     steps:
       - name: Obter o código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Conferir tag e Cargo.toml
         id: versao
@@ -44,7 +44,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: Obter o código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Preparar Node.js
         uses: actions/setup-node@v7
@@ -91,7 +91,7 @@ jobs:
             arquitetura: riscv64
     steps:
       - name: Obter o código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Preparar Rust e alvo
         run: |
@@ -148,7 +148,7 @@ jobs:
       id-token: write
     steps:
       - name: Obter o código
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: Normalizar nome da imagem
         id: imagem
