@@ -4,6 +4,9 @@ Agenda de contatos e dossiê interpessoal com autenticação, anexos multimídia
 grafo de relacionamentos e pesquisa em fontes públicas. O projeto reúne uma API
 Rust/Axum, SQLite embarcado e uma interface React responsiva em um único serviço.
 
+Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
+Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
+
 ## Funcionalidades
 
 - Cadastro de pessoas, categorias coloridas e meios de contato dinâmicos.
@@ -20,6 +23,8 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Requer Rust estável e Node.js 24.
 
 ```bash
+git clone https://github.com/facrf/agendarx.git
+cd agendarx
 cp .env.example .env
 # Defina JWT_SECRET, ADMIN_LOGIN e ADMIN_PASSWORD em .env.
 
@@ -46,6 +51,25 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 
 ## Docker
 
+Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
+
+```bash
+docker pull ghcr.io/facrf/agendarx:latest
+docker run --rm -p 12000:12000 \
+  -v agendarx-data:/app/data \
+  -e JWT_SECRET="$(openssl rand -hex 32)" \
+  -e ADMIN_LOGIN=admin \
+  -e ADMIN_PASSWORD='uma-senha-forte' \
+  ghcr.io/facrf/agendarx:latest
+```
+
+O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
+workflow, abra **Packages > agendarx > Package settings > Change visibility** no
+GitHub e marque-o como **Public** para permitir pulls anônimos. Essa alteração é
+permanente; se preferir mantê-lo privado, autentique o Docker/Portainer no GHCR.
+
+Para gerar a imagem a partir do código local:
+
 ```bash
 docker build -t agendarx .
 docker run --rm -p 12000:12000 \
@@ -67,7 +91,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/seu-usuario/agendarx:latest
+    image: ghcr.io/facrf/agendarx:latest
     restart: unless-stopped
     ports:
       - "12000:12000"

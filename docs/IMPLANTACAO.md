@@ -38,14 +38,21 @@ A aplicação fica em `http://localhost:12000`. Durante o desenvolvimento do Rea
 
 ## Docker
 
+Imagem gerada pelo workflow de versões: `ghcr.io/facrf/agendarx:latest`. É preciso
+publicar ao menos uma tag de versão antes do primeiro pull.
+
+Na primeira versão, confirme no GitHub que o pacote `agendarx` foi marcado como
+**Public**. O repositório público não torna automaticamente público um pacote GHCR
+novo; enquanto ele estiver privado, faça login no registry antes do pull.
+
 ```bash
-docker build -t agendarx .
+docker pull ghcr.io/facrf/agendarx:latest
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  agendarx
+  ghcr.io/facrf/agendarx:latest
 ```
 
 O contêiner executa sem privilégios e todo o estado fica em `/app/data`.
@@ -59,7 +66,7 @@ editor Web de uma Stack. No Portainer:
 2. acesse **Stacks > Add stack > Web editor**;
 3. cole o YAML de `deploy/portainer-stack.yml`;
 4. cadastre as variáveis de `deploy/portainer.env.example` na seção da Stack;
-5. troque `AGENDARX_IMAGE` pelo caminho real da imagem;
+5. mantenha `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:latest` ou fixe uma versão;
 6. implante e acesse `http://IP_DO_SERVIDOR:12000`.
 
 As variáveis `JWT_SECRET` e `ADMIN_PASSWORD` são obrigatórias. A Stack aplica

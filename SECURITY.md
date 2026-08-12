@@ -8,9 +8,9 @@ recebe correções de segurança.
 ## Relato de vulnerabilidades
 
 Não publique vulnerabilidades, credenciais ou dados pessoais em uma issue aberta.
-Use o recurso **Security > Report a vulnerability** do repositório no GitHub. Caso o
-relato privado não esteja habilitado, contate o mantenedor por um canal privado
-informado em seu perfil.
+Use [Security > Report a vulnerability](https://github.com/facrf/agendarx/security/advisories/new)
+no GitHub. Caso o relato privado não esteja habilitado, contate o mantenedor por um
+canal privado informado em seu perfil.
 
 Inclua, quando possível:
 

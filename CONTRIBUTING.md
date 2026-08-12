@@ -13,6 +13,8 @@ Requisitos de desenvolvimento:
 - Docker, opcional para validar a imagem final.
 
 ```bash
+git clone https://github.com/facrf/agendarx.git
+cd agendarx
 cp .env.example .env
 cd frontend && npm ci && npm run build && cd ..
 cargo run
@@ -42,3 +44,5 @@ publicadas. Ao alterar contratos HTTP, atualize os tipos TypeScript e a document
 - Relacione a issue correspondente quando existir.
 
 Não envie dados pessoais reais em testes, exemplos, capturas de tela ou fixtures.
+Abra propostas e correções em
+[github.com/facrf/agendarx/issues](https://github.com/facrf/agendarx/issues).

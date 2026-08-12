@@ -40,7 +40,8 @@ impl Config {
 
         let admin_login = env::var("ADMIN_LOGIN")
             .ok()
-            .filter(|v| !v.trim().is_empty());
+            .map(|valor| valor.trim().to_owned())
+            .filter(|valor| !valor.is_empty());
         let admin_password = env::var("ADMIN_PASSWORD")
             .ok()
             .filter(|v| !v.trim().is_empty());
@@ -50,10 +51,21 @@ impl Config {
             ));
         }
 
+        let jwt_ttl_minutos = parse_env("JWT_TTL_MINUTES", "480")?;
         let max_upload_bytes = parse_env("MAX_UPLOAD_BYTES", "26214400")?;
         let osint_timeout_seconds = parse_env("OSINT_TIMEOUT_SECONDS", "20")?;
         let osint_max_results = parse_env("OSINT_MAX_RESULTS", "15")?;
         let osint_max_pdf_bytes = parse_env("OSINT_MAX_PDF_BYTES", "20971520")?;
+        if !(1..=525_600).contains(&jwt_ttl_minutos) {
+            return Err(AppError::configuracao(
+                "JWT_TTL_MINUTES deve estar entre 1 e 525600",
+            ));
+        }
+        if max_upload_bytes == 0 {
+            return Err(AppError::configuracao(
+                "MAX_UPLOAD_BYTES deve ser maior que zero",
+            ));
+        }
         if osint_timeout_seconds == 0 || osint_max_results == 0 || osint_max_results > 100 {
             return Err(AppError::configuracao(
                 "OSINT_TIMEOUT_SECONDS deve ser maior que zero e OSINT_MAX_RESULTS deve estar entre 1 e 100",
@@ -69,7 +81,7 @@ impl Config {
             endereco,
             database_url,
             jwt_secret,
-            jwt_ttl_minutos: parse_env("JWT_TTL_MINUTES", "480")?,
+            jwt_ttl_minutos,
             max_upload_bytes,
             frontend_dir: env::var("FRONTEND_DIR")
                 .map(PathBuf::from)

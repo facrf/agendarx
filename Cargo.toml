@@ -3,6 +3,9 @@ name = "agendarx"
 version = "0.1.0"
 edition = "2024"
 publish = false
+description = "Agenda de contatos e dossiê interpessoal com grafo e pesquisa pública"
+homepage = "https://github.com/facrf/agendarx"
+repository = "https://github.com/facrf/agendarx"
 
 [dependencies]
 argon2 = "0.5"
@@ -18,7 +21,7 @@ rand_core = { version = "0.6", features = ["getrandom"] }
 reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
-sqlx = { version = "0.8", features = ["runtime-tokio", "sqlite", "migrate"] }
+sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
 thiserror = "2"
 tokio = { version = "1", features = ["macros", "rt-multi-thread", "net", "signal"] }
 tower-http = { version = "0.6", features = ["compression-gzip", "fs", "limit", "trace"] }

@@ -489,7 +489,9 @@ fn ip_publico(ip: IpAddr) -> bool {
 
 fn ipv4_publico(ip: Ipv4Addr) -> bool {
     let octetos = ip.octets();
-    !ip.is_private()
+    octetos[0] != 0
+        && octetos[0] < 240
+        && !ip.is_private()
         && !ip.is_loopback()
         && !ip.is_link_local()
         && !ip.is_broadcast()
@@ -502,7 +504,7 @@ fn ipv4_publico(ip: Ipv4Addr) -> bool {
 }
 
 fn ipv6_publico(ip: Ipv6Addr) -> bool {
-    if let Some(ipv4) = ip.to_ipv4_mapped() {
+    if let Some(ipv4) = ip.to_ipv4() {
         return ipv4_publico(ipv4);
     }
     let segmentos = ip.segments();
@@ -645,9 +647,9 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{consulta_para, endpoint_searxng, ipv4_publico};
+    use super::{consulta_para, endpoint_searxng, ipv4_publico, ipv6_publico};
     use crate::models::ParametroBusca;
-    use std::net::Ipv4Addr;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
     fn monta_consulta_com_aspas_exceto_termo() {
@@ -668,7 +670,16 @@ mod tests {
         assert!(!ipv4_publico(Ipv4Addr::new(127, 0, 0, 1)));
         assert!(!ipv4_publico(Ipv4Addr::new(10, 0, 0, 1)));
         assert!(!ipv4_publico(Ipv4Addr::new(100, 64, 0, 1)));
+        assert!(!ipv4_publico(Ipv4Addr::new(0, 1, 2, 3)));
+        assert!(!ipv4_publico(Ipv4Addr::new(240, 0, 0, 1)));
+        assert!(!ipv6_publico(Ipv6Addr::from_bits(
+            0x0000_0000_0000_0000_0000_ffff_7f00_0001,
+        )));
+        assert!(!ipv6_publico(Ipv6Addr::from_bits(
+            0x0000_0000_0000_0000_0000_0000_c0a8_0001,
+        )));
         assert!(ipv4_publico(Ipv4Addr::new(1, 1, 1, 1)));
+        assert!(ipv6_publico("2606:4700:4700::1111".parse().unwrap()));
     }
 
     #[test]

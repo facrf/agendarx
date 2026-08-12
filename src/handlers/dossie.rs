@@ -71,7 +71,7 @@ async fn enviar_anexo(
         .await
         .map_err(|erro| AppError::BadRequest(format!("multipart inválido: {erro}")))?
     {
-        if campo.file_name().is_none() && campo.name() != Some("arquivo") {
+        if campo.name() != Some("arquivo") {
             continue;
         }
         let nome_arquivo = campo.file_name().unwrap_or("arquivo.bin").to_owned();
