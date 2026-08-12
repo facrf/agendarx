@@ -12,17 +12,27 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Ícone visual configurável, compartilhado pelo menu, login e favicon.
 - Importação de contatos em vCard, Google/Outlook CSV e CSV genérico, além de
   exportação da agenda em CSV e vCard.
+- Pré-visualizador compartilhado para imagens, vídeos, áudio, PDFs, textos e outros
+  arquivos, com upload múltiplo e renomeação no dossiê.
+- Alteração protegida do usuário e da senha do administrador pelas configurações,
+  com revogação de todas as sessões.
+- Miniaturas WebP geradas no backend para imagens do dossiê e dos vínculos, com
+  cache SQLite e preenchimento automático dos anexos anteriores à atualização.
 
 ### Alterado
 
 - Workflows restritos ao GitHub, impedindo execuções duplicadas no Gitea e Forgejo.
 - A Stack do Portainer agora inclui um SearXNG privado com saída JSON habilitada e
   configura automaticamente a varredura, mantendo suporte a uma URL externa.
+- O painel aberto ao clicar em uma aresta do grafo agora edita a relação e permite
+  adicionar, visualizar, renomear e excluir anexos.
 
 ### Corrigido
 
 - O seletor de foto da pessoa agora implementa drag-and-drop real e aceita imagens
   reconhecidas mesmo quando o Linux não informa o MIME do arquivo.
+- O aviso HTTP 403 da varredura agora explica a saída JSON/limiter do SearXNG, e o
+  healthcheck da Stack rejeita um `settings.yml` sem o formato `json`.
 
 ## [0.1.0] - 2026-08-11
 

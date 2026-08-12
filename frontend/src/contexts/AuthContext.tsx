@@ -1,13 +1,14 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
 import { api } from "../services/api";
-import type { LoginResponse, UsuarioSessao } from "../types/api";
+import type { CredenciaisPayload, LoginResponse, UsuarioSessao } from "../types/api";
 
 interface AuthContextValue {
   usuario: UsuarioSessao | null;
   carregando: boolean;
   login: (login: string, senha: string) => Promise<void>;
   logout: () => Promise<void>;
+  atualizarCredenciais: (payload: CredenciaisPayload) => Promise<void>;
   verificarSessao: () => Promise<void>;
 }
 
@@ -52,9 +53,14 @@ export function AuthProvider({ children }: PropsWithChildren) {
     }
   }, []);
 
+  const atualizarCredenciais = useCallback(async (payload: CredenciaisPayload) => {
+    await api.put("/api/auth/credenciais", payload);
+    setUsuario(null);
+  }, []);
+
   const value = useMemo(
-    () => ({ usuario, carregando, login, logout, verificarSessao }),
-    [usuario, carregando, login, logout, verificarSessao],
+    () => ({ usuario, carregando, login, logout, atualizarCredenciais, verificarSessao }),
+    [usuario, carregando, login, logout, atualizarCredenciais, verificarSessao],
   );
 
   return <AuthContext.Provider value={value}>{children}</AuthContext.Provider>;
@@ -65,4 +71,3 @@ export function useAuth() {
   if (!context) throw new Error("useAuth deve ser usado dentro de AuthProvider");
   return context;
 }
-

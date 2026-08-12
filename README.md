@@ -10,12 +10,15 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 ## Funcionalidades
 
 - Cadastro de pessoas, categorias coloridas e meios de contato dinâmicos.
-- Fotos, áudio, PDFs, documentos e outros anexos armazenados no dossiê.
+- Upload múltiplo de imagens, vídeos, áudio, PDFs, textos e outros anexos, com
+  miniaturas, pré-visualização, renomeação e download no dossiê.
 - Streaming de mídia com suporte a HTTP Range.
-- Grafo interativo de vínculos com layouts de teia e hierárquico, histórico e
-  anexos próprios com galeria de fotos e reprodução de áudio.
+- Grafo interativo de vínculos com layouts de teia e hierárquico; ao selecionar
+  uma aresta, o painel permite editar a relação e gerenciar seus arquivos.
 - Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
 - Ícone visual configurável, aplicado também ao favicon do navegador.
+- Usuário e senha do administrador alteráveis nas configurações, com revogação
+  das sessões existentes.
 - Parâmetros OSINT por pessoa, histórico de achados e arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
@@ -115,6 +118,7 @@ services:
     restart: unless-stopped
     environment:
       SEARXNG_SECRET: troque-por-outro-segredo-com-32-ou-mais-caracteres
+      SEARXNG_LIMITER: "false"
     configs:
       - source: searxng_settings
         target: /etc/searxng/settings.yml
@@ -128,6 +132,8 @@ configs:
       use_default_settings: true
       search:
         formats: [html, json]
+      server:
+        limiter: false
 ```
 
 No Portainer, abra **Stacks > Add stack > Web editor**, cole o arquivo completo e
@@ -142,6 +148,13 @@ Em outros modos de instalação, defina essa variável com a URL-base de uma ins
 SearXNG que tenha a saída JSON habilitada. Nomes e identificadores são pesquisados
 entre aspas; termos livres são enviados como configurados. Achados são deduplicados
 pela URL.
+
+Se a varredura informar `HTTP 403 Forbidden`, verifique primeiro o `settings.yml`
+realmente carregado pelo contêiner. O SearXNG rejeita com 403 um formato que não
+esteja em `search.formats`; o padrão costuma habilitar somente HTML. A configuração
+deve conter `formats: [html, json]`. Se o limiter estiver ativo, os cabeçalhos do
+proxy (`X-Forwarded-For` e `X-Real-IP`) também precisam estar corretos. Consulte o
+[diagnóstico operacional](docs/IMPLANTACAO.md#erro-http-403-do-searxng).
 
 Downloads automáticos de PDF têm timeout e limite de tamanho, não seguem
 redirecionamentos, rejeitam destinos locais/privados/reservados, fixam a resolução

@@ -24,6 +24,13 @@ pub struct UsuarioSessao {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct CredenciaisInput {
+    pub login: String,
+    pub senha_atual: String,
+    pub nova_senha: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct CategoriaInput {
     pub nome_categoria: String,
     pub cor_hex: String,
@@ -82,6 +89,12 @@ pub struct AnexoResumo {
     pub data_upload: String,
     pub url_stream: String,
     pub url_download: String,
+    pub url_thumbnail: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct AnexoNomeInput {
+    pub nome_arquivo: String,
 }
 
 #[derive(Debug, Deserialize)]
@@ -102,6 +115,7 @@ pub struct AnexoVinculoResumo {
     pub data_upload: String,
     pub url_stream: String,
     pub url_download: String,
+    pub url_thumbnail: Option<String>,
 }
 
 #[derive(Debug, Serialize)]

@@ -10,7 +10,7 @@ use axum::{
 use crate::{
     AppState,
     error::AppError,
-    models::{AnexoDossie, AnexoResumo, MensagemResponse},
+    models::{AnexoDossie, AnexoNomeInput, AnexoResumo, MensagemResponse},
 };
 
 pub fn rotas() -> Router<AppState> {
@@ -19,9 +19,15 @@ pub fn rotas() -> Router<AppState> {
             "/pessoas/{pessoa_id}/anexos",
             get(listar_anexos).post(enviar_anexo),
         )
-        .route("/anexos/{id}", get(obter_metadados).delete(excluir_anexo))
+        .route(
+            "/anexos/{id}",
+            get(obter_metadados)
+                .put(atualizar_nome_anexo)
+                .delete(excluir_anexo),
+        )
         .route("/anexos/{id}/stream", get(stream_anexo))
         .route("/anexos/{id}/download", get(download_anexo))
+        .route("/anexos/{id}/thumbnail", get(obter_miniatura))
         .route(
             "/pessoas/{pessoa_id}/foto",
             get(obter_foto).put(atualizar_foto).delete(excluir_foto),
@@ -93,17 +99,19 @@ async fn enviar_anexo(
     if conteudo.is_empty() {
         return Err(AppError::BadRequest("o arquivo está vazio".to_owned()));
     }
-    if nome_arquivo.len() > 255 {
-        return Err(AppError::BadRequest(
-            "nome do arquivo excede 255 caracteres".to_owned(),
-        ));
-    }
+    let nome_arquivo = normalizar_nome_arquivo(&nome_arquivo)?;
 
-    let mime_type = mime_informado
-        .filter(|mime| mime.parse::<mime::Mime>().is_ok())
-        .or_else(|| infer::get(&conteudo).map(|tipo| tipo.mime_type().to_owned()))
+    let mime_type = infer::get(&conteudo)
+        .map(|tipo| tipo.mime_type().to_owned())
+        .or_else(|| mime_informado.filter(|mime| mime.parse::<mime::Mime>().is_ok()))
         .unwrap_or_else(|| "application/octet-stream".to_owned());
+    let miniatura = if super::miniaturas::mime_suportado(&mime_type) {
+        super::miniaturas::gerar(conteudo.clone()).await?
+    } else {
+        None
+    };
     let tamanho = conteudo.len() as i64;
+    let mut tx = state.pool.begin().await?;
     let linha = sqlx::query_as::<_, AnexoLinha>(
         "INSERT INTO anexo_dossie \
             (pessoa_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes) \
@@ -115,10 +123,43 @@ async fn enviar_anexo(
     .bind(mime_type)
     .bind(conteudo.as_ref())
     .bind(tamanho)
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+    if let Some(miniatura) = miniatura {
+        sqlx::query(
+            "INSERT INTO miniatura_anexo_dossie \
+                (anexo_id, conteudo_webp, largura, altura, tamanho_bytes) \
+             VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(linha.id)
+        .bind(&miniatura.conteudo)
+        .bind(i64::from(miniatura.largura))
+        .bind(i64::from(miniatura.altura))
+        .bind(miniatura.conteudo.len() as i64)
+        .execute(&mut *tx)
+        .await?;
+    }
+    tx.commit().await?;
 
     Ok((StatusCode::CREATED, Json(linha.into())))
+}
+
+async fn atualizar_nome_anexo(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<AnexoNomeInput>,
+) -> Result<Json<AnexoResumo>, AppError> {
+    let nome_arquivo = normalizar_nome_arquivo(&input.nome_arquivo)?;
+    let linha = sqlx::query_as::<_, AnexoLinha>(
+        "UPDATE anexo_dossie SET nome_arquivo = ? WHERE id = ? \
+         RETURNING id, pessoa_id, nome_arquivo, mime_type, tamanho_bytes, data_upload",
+    )
+    .bind(nome_arquivo)
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::nao_encontrado("anexo"))?;
+    Ok(Json(linha.into()))
 }
 
 async fn stream_anexo(
@@ -149,6 +190,47 @@ async fn download_anexo(
         true,
         headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
     ))
+}
+
+async fn obter_miniatura(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Response, AppError> {
+    if let Some(conteudo) = sqlx::query_scalar::<_, Vec<u8>>(
+        "SELECT conteudo_webp FROM miniatura_anexo_dossie WHERE anexo_id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?
+    {
+        return Ok(super::miniaturas::responder(conteudo));
+    }
+
+    let anexo = buscar_anexo(&state, id).await?;
+    if !super::miniaturas::mime_suportado(&anexo.mime_type) {
+        return Err(AppError::nao_encontrado("miniatura"));
+    }
+    let miniatura = super::miniaturas::gerar(Bytes::from(anexo.conteudo_blob))
+        .await?
+        .ok_or_else(|| AppError::nao_encontrado("miniatura"))?;
+    sqlx::query(
+        "INSERT INTO miniatura_anexo_dossie \
+            (anexo_id, conteudo_webp, largura, altura, tamanho_bytes) \
+         VALUES (?, ?, ?, ?, ?) \
+         ON CONFLICT(anexo_id) DO UPDATE SET \
+            conteudo_webp = excluded.conteudo_webp, largura = excluded.largura, \
+            altura = excluded.altura, tamanho_bytes = excluded.tamanho_bytes, \
+            data_geracao = CURRENT_TIMESTAMP",
+    )
+    .bind(id)
+    .bind(&miniatura.conteudo)
+    .bind(i64::from(miniatura.largura))
+    .bind(i64::from(miniatura.altura))
+    .bind(miniatura.conteudo.len() as i64)
+    .execute(&state.pool)
+    .await?;
+
+    Ok(super::miniaturas::responder(miniatura.conteudo))
 }
 
 async fn excluir_anexo(
@@ -259,6 +341,26 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
         return Err(AppError::nao_encontrado("pessoa"));
     }
     Ok(())
+}
+
+pub(super) fn normalizar_nome_arquivo(nome: &str) -> Result<String, AppError> {
+    let nome = nome.trim();
+    if nome.is_empty() {
+        return Err(AppError::BadRequest(
+            "nome_arquivo é obrigatório".to_owned(),
+        ));
+    }
+    if nome.chars().count() > 255 {
+        return Err(AppError::BadRequest(
+            "nome do arquivo excede 255 caracteres".to_owned(),
+        ));
+    }
+    if nome.chars().any(char::is_control) {
+        return Err(AppError::BadRequest(
+            "nome do arquivo contém caracteres inválidos".to_owned(),
+        ));
+    }
+    Ok(nome.to_owned())
 }
 
 pub(super) fn servir_blob(
@@ -375,6 +477,8 @@ struct AnexoLinha {
 
 impl From<AnexoLinha> for AnexoResumo {
     fn from(anexo: AnexoLinha) -> Self {
+        let url_thumbnail = super::miniaturas::mime_suportado(&anexo.mime_type)
+            .then(|| format!("/api/dossie/anexos/{}/thumbnail", anexo.id));
         Self {
             id: anexo.id,
             pessoa_id: anexo.pessoa_id,
@@ -384,13 +488,14 @@ impl From<AnexoLinha> for AnexoResumo {
             data_upload: anexo.data_upload,
             url_stream: format!("/api/dossie/anexos/{}/stream", anexo.id),
             url_download: format!("/api/dossie/anexos/{}/download", anexo.id),
+            url_thumbnail,
         }
     }
 }
 
 #[cfg(test)]
 mod tests {
-    use super::parse_range;
+    use super::{normalizar_nome_arquivo, parse_range};
 
     #[test]
     fn interpreta_ranges_http() {
@@ -399,5 +504,12 @@ mod tests {
         assert_eq!(parse_range("bytes=-100", 1000), Some((900, 999)));
         assert_eq!(parse_range("bytes=1000-", 1000), None);
         assert_eq!(parse_range("bytes=0-1,4-5", 1000), None);
+    }
+
+    #[test]
+    fn valida_nome_de_anexo() {
+        assert_eq!(normalizar_nome_arquivo(" foto.png ").unwrap(), "foto.png");
+        assert!(normalizar_nome_arquivo("   ").is_err());
+        assert!(normalizar_nome_arquivo("nome\nquebrado.jpg").is_err());
     }
 }

@@ -3,6 +3,7 @@ pub mod configuracoes;
 pub mod dossie;
 pub mod identidade;
 pub mod intercambio;
+pub mod miniaturas;
 pub mod osint;
 pub mod pessoas;
 pub mod vinculos;

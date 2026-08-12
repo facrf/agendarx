@@ -10,6 +10,12 @@ export interface LoginResponse {
   usuario: UsuarioSessao;
 }
 
+export interface CredenciaisPayload {
+  login: string;
+  senha_atual: string;
+  nova_senha?: string;
+}
+
 export interface Categoria {
   id: number;
   nome_categoria: string;
@@ -63,6 +69,7 @@ export interface AnexoDossie {
   data_upload: string;
   url_stream: string;
   url_download: string;
+  url_thumbnail: string | null;
 }
 
 export interface PessoaVinculo {
@@ -83,6 +90,7 @@ export interface AnexoVinculo {
   data_upload: string;
   url_stream: string;
   url_download: string;
+  url_thumbnail: string | null;
 }
 
 export interface VinculoPayload {

@@ -18,6 +18,7 @@ Erros usam o formato:
 | Auth | `POST /api/auth/login` | Iniciar sessão |
 | Auth | `POST /api/auth/logout` | Revogar sessão atual |
 | Auth | `GET /api/auth/sessao` | Verificar sessão |
+| Auth | `PUT /api/auth/credenciais` | Alterar login/senha e revogar todas as sessões |
 | Configurações | `GET, POST /api/configuracoes/categorias` | Listar/criar categorias |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/categorias/{id}` | CRUD de categoria |
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
@@ -32,16 +33,18 @@ Erros usam o formato:
 | Contatos | `GET, POST /api/pessoas/{pessoa_id}/contatos` | Listar/criar contatos |
 | Contatos | `GET, PUT, DELETE /api/pessoas/contatos/{id}` | CRUD de contato |
 | Dossiê | `GET, POST /api/dossie/pessoas/{id}/anexos` | Listar/upload multipart (`arquivo`) |
-| Dossiê | `GET, DELETE /api/dossie/anexos/{id}` | Metadados/exclusão |
+| Dossiê | `GET, PUT, DELETE /api/dossie/anexos/{id}` | Metadados/renomeação/exclusão |
 | Dossiê | `GET /api/dossie/anexos/{id}/stream` | Conteúdo inline com HTTP Range |
 | Dossiê | `GET /api/dossie/anexos/{id}/download` | Download com HTTP Range |
+| Dossiê | `GET /api/dossie/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
 | Foto | `GET, PUT, DELETE /api/dossie/pessoas/{id}/foto` | Foto principal em bytes brutos |
 | Vínculos | `GET, POST /api/vinculos` | Listar/criar vínculos |
 | Vínculos | `GET, PUT, DELETE /api/vinculos/{id}` | CRUD de vínculo |
 | Vínculos | `GET, POST /api/vinculos/{id}/anexos` | Listar/upload multipart (`arquivo`) |
-| Vínculos | `GET, DELETE /api/vinculos/anexos/{id}` | Metadados/exclusão de anexo |
+| Vínculos | `GET, PUT, DELETE /api/vinculos/anexos/{id}` | Metadados/renomeação/exclusão de anexo |
 | Vínculos | `GET /api/vinculos/anexos/{id}/stream` | Foto, áudio ou arquivo inline com HTTP Range |
 | Vínculos | `GET /api/vinculos/anexos/{id}/download` | Download do anexo com HTTP Range |
+| Vínculos | `GET /api/vinculos/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
@@ -70,6 +73,20 @@ curl -i http://localhost:12000/api/auth/login \
 
 Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
 
+### Credenciais do administrador
+
+```json
+{
+  "login": "novo-admin",
+  "senha_atual": "senha-em-uso",
+  "nova_senha": "nova-senha-forte"
+}
+```
+
+`nova_senha` pode ser omitida quando somente o login for alterado. A senha atual
+é sempre obrigatória. Após uma alteração válida, todas as sessões do usuário são
+revogadas e o cliente deve autenticar novamente.
+
 ### Grafo
 
 ```json
@@ -97,4 +114,10 @@ Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
 
 No `PUT` da foto ou do ícone, envie os bytes de uma imagem reconhecida. Uploads
 multipart devem usar o campo `arquivo`. A importação reconhece vCard (`.vcf`), CSV
-do Google Contacts, CSV do Outlook e CSV genérico com cabeçalho de nome.
+do Google Contacts, CSV do Outlook e CSV genérico com cabeçalho de nome. Para
+renomear um anexo do dossiê ou vínculo, o corpo é `{"nome_arquivo":"novo.pdf"}`.
+
+As respostas de metadados dos anexos incluem `url_thumbnail` para imagens raster
+suportadas e `null` para os demais formatos. A miniatura tem no máximo 512 px em
+cada lado; anexos anteriores à implantação geram e armazenam esse cache no
+primeiro acesso à URL.

@@ -1,10 +1,13 @@
-use argon2::{Argon2, PasswordHash, PasswordVerifier};
+use argon2::{
+    Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
+    password_hash::{SaltString, rand_core::OsRng},
+};
 use axum::{
     Extension, Json, Router,
     extract::State,
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
-    routing::{get, post},
+    routing::{get, post, put},
 };
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
@@ -14,7 +17,9 @@ use crate::{
     AppState,
     error::AppError,
     middleware::auth::{Claims, SessaoAutenticada},
-    models::{LoginInput, LoginResponse, Usuario, UsuarioSessao},
+    models::{
+        CredenciaisInput, LoginInput, LoginResponse, MensagemResponse, Usuario, UsuarioSessao,
+    },
 };
 
 pub fn rotas_publicas() -> Router<AppState> {
@@ -25,6 +30,7 @@ pub fn rotas_protegidas() -> Router<AppState> {
     Router::new()
         .route("/logout", post(logout))
         .route("/sessao", get(verificar_sessao))
+        .route("/credenciais", put(atualizar_credenciais))
 }
 
 async fn login(
@@ -148,9 +154,152 @@ async fn verificar_sessao(
     }))
 }
 
+async fn atualizar_credenciais(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Json(input): Json<CredenciaisInput>,
+) -> Result<Response, AppError> {
+    let login = input.login.trim();
+    validar_novo_login(login)?;
+    if input.senha_atual.is_empty() || input.senha_atual.chars().count() > 1024 {
+        return Err(AppError::BadRequest("informe a senha atual".to_owned()));
+    }
+
+    let usuario = sqlx::query_as::<_, Usuario>(
+        "SELECT id, login, senha_hash, data_criacao FROM usuario WHERE id = ?",
+    )
+    .bind(sessao.usuario.id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or(AppError::Unauthorized)?;
+
+    let senha_atual = input.senha_atual;
+    let hash_atual = usuario.senha_hash.clone();
+    let senha_valida = tokio::task::spawn_blocking(move || {
+        PasswordHash::new(&hash_atual).ok().is_some_and(|hash| {
+            Argon2::default()
+                .verify_password(senha_atual.as_bytes(), &hash)
+                .is_ok()
+        })
+    })
+    .await
+    .map_err(|_| AppError::interno("falha ao validar a senha atual"))?;
+    if !senha_valida {
+        return Err(AppError::BadRequest("senha atual incorreta".to_owned()));
+    }
+
+    let nova_senha = input
+        .nova_senha
+        .filter(|senha| !senha.is_empty())
+        .map(validar_nova_senha)
+        .transpose()?;
+    if login == usuario.login && nova_senha.is_none() {
+        return Err(AppError::BadRequest(
+            "altere o usuário ou informe uma nova senha".to_owned(),
+        ));
+    }
+
+    let novo_hash = if let Some(nova_senha) = nova_senha {
+        Some(
+            tokio::task::spawn_blocking(move || {
+                let salt = SaltString::generate(&mut OsRng);
+                Argon2::default()
+                    .hash_password(nova_senha.as_bytes(), &salt)
+                    .map(|hash| hash.to_string())
+            })
+            .await
+            .map_err(|_| AppError::interno("falha ao proteger a nova senha"))?
+            .map_err(|_| AppError::interno("falha ao proteger a nova senha"))?,
+        )
+    } else {
+        None
+    };
+
+    let mut tx = state.pool.begin().await?;
+    if let Some(novo_hash) = novo_hash {
+        sqlx::query("UPDATE usuario SET login = ?, senha_hash = ? WHERE id = ?")
+            .bind(login)
+            .bind(novo_hash)
+            .bind(usuario.id)
+            .execute(&mut *tx)
+            .await?;
+    } else {
+        sqlx::query("UPDATE usuario SET login = ? WHERE id = ?")
+            .bind(login)
+            .bind(usuario.id)
+            .execute(&mut *tx)
+            .await?;
+    }
+    // Claims já emitidos carregam o login antigo; revogar todas as sessões também
+    // encerra dispositivos que ainda conheçam a senha anterior.
+    sqlx::query("DELETE FROM sessao WHERE usuario_id = ?")
+        .bind(usuario.id)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+
+    let cookie = cookie_sessao("", 0, state.config.cookie_secure);
+    Ok((
+        [(
+            header::SET_COOKIE,
+            HeaderValue::from_str(&cookie)
+                .map_err(|_| AppError::interno("falha ao remover cookie de sessão"))?,
+        )],
+        Json(MensagemResponse {
+            mensagem: "credenciais atualizadas; entre novamente".to_owned(),
+        }),
+    )
+        .into_response())
+}
+
+fn validar_novo_login(login: &str) -> Result<(), AppError> {
+    let tamanho = login.chars().count();
+    if !(3..=64).contains(&tamanho) {
+        return Err(AppError::BadRequest(
+            "o usuário deve possuir entre 3 e 64 caracteres".to_owned(),
+        ));
+    }
+    if login.chars().any(char::is_control) {
+        return Err(AppError::BadRequest(
+            "o usuário contém caracteres inválidos".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn validar_nova_senha(senha: String) -> Result<String, AppError> {
+    let tamanho = senha.chars().count();
+    if !(8..=1024).contains(&tamanho) {
+        return Err(AppError::BadRequest(
+            "a nova senha deve possuir entre 8 e 1024 caracteres".to_owned(),
+        ));
+    }
+    Ok(senha)
+}
+
 fn cookie_sessao(token: &str, max_age: i64, secure: bool) -> String {
     format!(
         "agendarx_token={token}; Path=/api; HttpOnly; SameSite=Strict; Max-Age={max_age}{}",
         if secure { "; Secure" } else { "" }
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{cookie_sessao, validar_nova_senha, validar_novo_login};
+
+    #[test]
+    fn valida_novas_credenciais() {
+        assert!(validar_novo_login("admin").is_ok());
+        assert!(validar_novo_login("ab").is_err());
+        assert!(validar_nova_senha("senha-forte".to_owned()).is_ok());
+        assert!(validar_nova_senha("curta".to_owned()).is_err());
+    }
+
+    #[test]
+    fn cookie_removido_expira_imediatamente() {
+        let cookie = cookie_sessao("", 0, true);
+        assert!(cookie.contains("Max-Age=0"));
+        assert!(cookie.contains("; Secure"));
+    }
 }

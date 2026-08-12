@@ -1,14 +1,21 @@
 import {
   ContactRound,
   Download,
+  Eye,
+  EyeOff,
   FileArchive,
   ImageIcon,
+  LockKeyhole,
   RefreshCcw,
+  Save,
+  ShieldCheck,
   Trash2,
   Upload,
+  UserRound,
 } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, FormEvent } from "react";
+import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type { IdentidadeVisual, ImportacaoContatosResultado } from "../types/api";
@@ -79,13 +86,112 @@ export function BrandingManager() {
           <p className="text-sm leading-6 text-slate-600">Envie PNG, JPEG, WebP, GIF ou ICO. Para melhor resultado, use uma imagem quadrada de até 2 MB.</p>
           <p className="mt-1 text-xs text-slate-400">{identidade?.tem_icone ? "Ícone personalizado ativo" : "Ícone padrão ativo"}</p>
           <div className="mt-4 flex flex-wrap gap-2">
-            <input ref={inputRef} className="sr-only" type="file" accept="image/png,image/jpeg,image/webp,image/gif,image/x-icon,image/vnd.microsoft.icon" onChange={enviar} />
+            <input ref={inputRef} className="sr-only" type="file" accept="image/*,.ico" onChange={enviar} />
             <Button type="button" loading={salvando} onClick={() => inputRef.current?.click()}><Upload className="size-4" /> Trocar ícone</Button>
             {identidade?.tem_icone && <Button type="button" variant="secondary" disabled={salvando} onClick={() => void restaurar()}><Trash2 className="size-4" /> Restaurar padrão</Button>}
           </div>
         </div>
       </div>
     </section>
+  );
+}
+
+export function AdminCredentialsManager() {
+  const { usuario, atualizarCredenciais } = useAuth();
+  const [login, setLogin] = useState(usuario?.login || "");
+  const [senhaAtual, setSenhaAtual] = useState("");
+  const [novaSenha, setNovaSenha] = useState("");
+  const [confirmacao, setConfirmacao] = useState("");
+  const [mostrarSenhas, setMostrarSenhas] = useState(false);
+  const [salvando, setSalvando] = useState(false);
+  const { notify } = useToast();
+
+  const salvar = async (event: FormEvent) => {
+    event.preventDefault();
+    const loginNormalizado = login.trim();
+    if (loginNormalizado.length < 3) {
+      return notify("O usuário deve possuir ao menos 3 caracteres", "erro");
+    }
+    if (!senhaAtual) return notify("Informe a senha atual", "erro");
+    if (novaSenha && novaSenha.length < 8) {
+      return notify("A nova senha deve possuir ao menos 8 caracteres", "erro");
+    }
+    if (novaSenha !== confirmacao) {
+      return notify("A confirmação da nova senha não confere", "erro");
+    }
+    if (loginNormalizado === usuario?.login && !novaSenha) {
+      return notify("Altere o usuário ou informe uma nova senha", "erro");
+    }
+
+    setSalvando(true);
+    try {
+      await atualizarCredenciais({
+        login: loginNormalizado,
+        senha_atual: senhaAtual,
+        ...(novaSenha ? { nova_senha: novaSenha } : {}),
+      });
+      notify("Credenciais atualizadas. Entre novamente.");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+      setSalvando(false);
+    }
+  };
+
+  return (
+    <section className="panel overflow-hidden">
+      <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
+        <div className="grid size-11 place-items-center rounded-2xl bg-violet-50 text-violet-700"><ShieldCheck className="size-5" /></div>
+        <div><h2 className="font-display text-xl font-semibold">Administrador</h2><p className="text-sm text-slate-500">Altere o usuário e a senha de acesso.</p></div>
+      </header>
+      <form className="space-y-4 p-5 sm:p-6" onSubmit={salvar}>
+        <div>
+          <label className="field-label" htmlFor="admin-login">Usuário administrador</label>
+          <div className="relative">
+            <UserRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+            <input id="admin-login" className="field pl-10" autoComplete="username" minLength={3} maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />
+          </div>
+        </div>
+        <div>
+          <label className="field-label" htmlFor="admin-current-password">Senha atual</label>
+          <PasswordField id="admin-current-password" value={senhaAtual} onChange={setSenhaAtual} visible={mostrarSenhas} autoComplete="current-password" required />
+        </div>
+        <div className="grid gap-4 sm:grid-cols-2">
+          <div>
+            <label className="field-label" htmlFor="admin-new-password">Nova senha</label>
+            <PasswordField id="admin-new-password" value={novaSenha} onChange={setNovaSenha} visible={mostrarSenhas} autoComplete="new-password" placeholder="Deixe em branco para manter" />
+          </div>
+          <div>
+            <label className="field-label" htmlFor="admin-confirm-password">Confirmar nova senha</label>
+            <PasswordField id="admin-confirm-password" value={confirmacao} onChange={setConfirmacao} visible={mostrarSenhas} autoComplete="new-password" placeholder="Repita a nova senha" />
+          </div>
+        </div>
+        <div className="flex flex-wrap items-center justify-between gap-3">
+          <button type="button" className="inline-flex items-center gap-2 text-xs font-medium text-slate-500 hover:text-slate-800" onClick={() => setMostrarSenhas((value) => !value)}>
+            {mostrarSenhas ? <EyeOff className="size-4" /> : <Eye className="size-4" />}
+            {mostrarSenhas ? "Ocultar senhas" : "Mostrar senhas"}
+          </button>
+          <Button type="submit" loading={salvando}><Save className="size-4" /> Salvar credenciais</Button>
+        </div>
+        <p className="rounded-xl bg-amber-50 px-3 py-2 text-xs leading-5 text-amber-800">Ao salvar, todas as sessões serão encerradas e será necessário entrar novamente.</p>
+      </form>
+    </section>
+  );
+}
+
+function PasswordField({ id, value, onChange, visible, autoComplete, placeholder, required = false }: {
+  id: string;
+  value: string;
+  onChange: (value: string) => void;
+  visible: boolean;
+  autoComplete: string;
+  placeholder?: string;
+  required?: boolean;
+}) {
+  return (
+    <div className="relative">
+      <LockKeyhole className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+      <input id={id} className="field pl-10" type={visible ? "text" : "password"} autoComplete={autoComplete} required={required} maxLength={1024} value={value} placeholder={placeholder} onChange={(event) => onChange(event.target.value)} />
+    </div>
   );
 }
 

@@ -170,6 +170,18 @@ export function GraphPage() {
     }
   };
 
+  const renameRelationshipAttachment = async (attachment: AnexoVinculo) => {
+    const name = window.prompt("Novo nome do arquivo:", attachment.nome_arquivo)?.trim();
+    if (!name || name === attachment.nome_arquivo) return;
+    try {
+      const updated = await api.put<AnexoVinculo>(`/api/vinculos/anexos/${attachment.id}`, { nome_arquivo: name });
+      setRelationshipAttachments((items) => items.map((item) => item.id === updated.id ? updated : item));
+      notify("Anexo renomeado");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    }
+  };
+
   const deleteRelationship = async (relationship: PessoaVinculo) => {
     if (!window.confirm(`Excluir o vínculo “${relationship.tipo_vinculo}”?`)) return;
     try {
@@ -214,6 +226,7 @@ export function GraphPage() {
             onChange={setForm}
             onPendingFiles={setPendingRelationshipFiles}
             onDeleteAttachment={(attachment) => void deleteRelationshipAttachment(attachment)}
+            onRenameAttachment={(attachment) => void renameRelationshipAttachment(attachment)}
             onSubmit={submitRelationship}
             onCancel={() => {
               setEditingId(null);
@@ -292,7 +305,21 @@ export function GraphPage() {
         </section>
       </div>
 
-      <RelationshipDrawer edge={selectedEdge} nodes={graph.nodes} onClose={() => setSelectedEdge(null)} />
+      <RelationshipDrawer
+        edge={selectedEdge}
+        nodes={graph.nodes}
+        onClose={() => setSelectedEdge(null)}
+        onUpdated={async (relationship) => {
+          await loadGraphData();
+          setSelectedEdge({
+            id: relationship.id,
+            source: relationship.pessoa_origem_id,
+            target: relationship.pessoa_destino_id,
+            label: relationship.tipo_vinculo,
+            descricao: relationship.descricao,
+          });
+        }}
+      />
     </div>
   );
 }
@@ -308,11 +335,12 @@ interface RelationshipFormProps {
   onChange: (value: VinculoPayload) => void;
   onPendingFiles: (files: File[]) => void;
   onDeleteAttachment: (attachment: AnexoVinculo) => void;
+  onRenameAttachment: (attachment: AnexoVinculo) => void;
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
 }
 
-function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onSubmit, onCancel }: RelationshipFormProps) {
+function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onSubmit, onCancel }: RelationshipFormProps) {
   return (
     <section className="panel p-5">
       <div className="mb-4 flex items-center gap-2"><Plus className="size-5 text-coral" /><h2 className="font-display text-lg font-semibold">{editing ? "Editar vínculo" : "Novo vínculo"}</h2></div>
@@ -333,6 +361,7 @@ function RelationshipForm({ people, form, editing, saving, loadingAttachments, a
                 disabled={saving}
                 onPendingChange={onPendingFiles}
                 onDeleteExisting={onDeleteAttachment}
+                onRenameExisting={onRenameAttachment}
               />
             )}
           </div>

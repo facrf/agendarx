@@ -49,13 +49,22 @@ cresce junto com o dossiê; monitore o volume e faça backups regulares.
 Senhas são derivadas com Argon2. No login, a aplicação cria um JWT e uma sessão no
 SQLite. O cliente recebe um cookie `HttpOnly` com `SameSite=Strict`; clientes de API
 também podem usar `Authorization: Bearer`. O logout remove a sessão persistida e
-revoga o token antes da expiração.
+revoga o token antes da expiração. A troca de login ou senha exige a senha atual,
+gera um novo hash quando necessário e revoga todas as sessões do usuário. As
+variáveis `ADMIN_LOGIN` e `ADMIN_PASSWORD` atuam apenas no banco ainda sem usuários,
+evitando recriar a credencial de bootstrap depois que o login for alterado.
 
 ## Arquivos e mídia
 
 Uploads respeitam `MAX_UPLOAD_BYTES`. A API detecta o tipo do conteúdo, armazena o
 BLOB e disponibiliza streaming inline ou download. O streaming aceita um intervalo
-HTTP `Range`, permitindo reprodução de áudio e visualização de mídia pelo navegador.
+HTTP `Range`, permitindo reprodução de áudio e vídeo e visualização de mídia pelo
+navegador. O frontend compartilha o mesmo visualizador entre dossiê e vínculos,
+com miniaturas WebP de até 512 px para imagens raster e visualização inline de
+imagens, áudio, vídeo, PDF e texto. As miniaturas ficam em tabelas de cache
+separadas, são criadas junto com novos uploads e geradas sob demanda para anexos
+antigos. Uma falha de decodificação mantém o original disponível. Nomes de anexos
+podem ser alterados sem regravar o BLOB ou a miniatura.
 
 ## Pesquisa pública
 
@@ -72,8 +81,15 @@ privada por padrão e também permite apontar para um serviço externo. A varred
 Downloads automáticos bloqueiam endereços locais, privados e reservados, fixam a
 resolução DNS validada e não seguem redirecionamentos.
 
+A integração solicita explicitamente JSON. Um `403` recebe mensagem operacional
+específica porque o SearXNG retorna esse status quando `json` não está habilitado
+em `search.formats`. O healthcheck da Stack também verifica a presença desse formato
+no arquivo carregado antes de considerar o serviço pronto.
+
 ## Grafo de vínculos
 
 `PessoaVinculo` representa arestas direcionadas entre pessoas. O endpoint de grafo
 combina pessoas, categorias e vínculos em nós e arestas. O Cytoscape.js executa os
-layouts e filtros no navegador; nenhuma posição visual é persistida.
+layouts e filtros no navegador; nenhuma posição visual é persistida. O clique em
+uma aresta abre um drawer que atualiza a própria relação e gerencia anexos por meio
+dos mesmos endpoints REST usados pelo formulário de criação.

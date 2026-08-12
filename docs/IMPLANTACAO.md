@@ -22,7 +22,9 @@
 | `RUST_LOG` | `agendarx=info,tower_http=info` | Filtro de logs |
 
 `ADMIN_LOGIN` e `ADMIN_PASSWORD` devem ser informados juntos. Eles criam o usuário
-somente se o login ainda não existir; alterar a variável não redefine uma senha.
+somente quando a tabela de usuários ainda está vazia; depois disso, login e senha
+são alterados em **Configurações > Administrador**. Alterar as variáveis não redefine
+credenciais existentes nem recria o login antigo após uma troca pela interface.
 
 ## Desenvolvimento local
 
@@ -79,6 +81,49 @@ aplicação usa `http://searxng:8080`.
 
 O contêiner principal aplica filesystem raiz somente leitura, remove capabilities,
 impede elevação de privilégio e mantém apenas o volume de dados gravável.
+
+## Erro HTTP 403 do SearXNG
+
+A API de pesquisa usa `GET /search?format=json`. De acordo com a
+[documentação da API do SearXNG](https://docs.searxng.org/dev/search_api.html),
+solicitar um formato ausente da configuração resulta em `403 Forbidden`. Confirme
+o arquivo efetivo (ajuste o nome do contêiner se necessário):
+
+```bash
+docker compose -f deploy/portainer-stack.yml exec searxng \
+  sed -n '1,160p' /etc/searxng/settings.yml
+```
+
+Ele precisa conter, no mínimo:
+
+```yaml
+use_default_settings: true
+search:
+  formats:
+    - html
+    - json
+server:
+  limiter: false
+```
+
+Teste a API diretamente pela rede da Stack:
+
+```bash
+docker compose -f deploy/portainer-stack.yml exec searxng \
+  wget -qO- --proxy=off --header='X-Forwarded-For: 127.0.0.1' \
+  'http://127.0.0.1:8080/search?q=teste&format=json'
+```
+
+Se HTML funcionar e JSON retornar 403, o problema é `search.formats`, não o valor
+pesquisado (`NOME`, CPF etc.). Atualize o YAML da Stack com a versão deste repositório
+e recrie o serviço `searxng`. Em instalações antigas, remova o mapeamento de volume
+para `/etc/searxng` que esteja preservando um `settings.yml` gerado anteriormente;
+o arquivo deve vir do bloco `configs.searxng_settings` da Stack.
+
+Caso JSON já esteja habilitado e os logs mostrem ausência de `X-Forwarded-For` ou
+`X-Real-IP`, desative o limiter na instância privada como no exemplo acima ou
+configure esses cabeçalhos no proxy conforme a
+[documentação do limiter](https://docs.searxng.org/admin/searx.limiter.html).
 
 ## Proxy reverso e HTTPS
 

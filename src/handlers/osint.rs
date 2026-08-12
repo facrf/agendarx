@@ -193,6 +193,7 @@ async fn varrer(
         let consulta = consulta_para(&parametro);
         let resultado_busca = cliente_busca
             .get(endpoint.clone())
+            .header(reqwest::header::ACCEPT, "application/json")
             .query(&[
                 ("q", consulta.as_str()),
                 ("format", "json"),
@@ -205,11 +206,9 @@ async fn varrer(
         let response = match resultado_busca {
             Ok(response) if response.status().is_success() => response,
             Ok(response) => {
-                resposta.avisos.push(format!(
-                    "{}: o SearXNG respondeu com HTTP {}",
-                    parametro.tipo,
-                    response.status()
-                ));
+                resposta
+                    .avisos
+                    .push(aviso_status_searxng(&parametro.tipo, response.status()));
                 continue;
             }
             Err(erro) => {
@@ -305,6 +304,17 @@ async fn varrer(
     }
 
     Ok(Json(resposta))
+}
+
+fn aviso_status_searxng(tipo: &str, status: StatusCode) -> String {
+    if status == StatusCode::FORBIDDEN {
+        return format!(
+            "{tipo}: o SearXNG recusou a API JSON (HTTP 403). Habilite 'json' em \
+             search.formats no settings.yml e, se o limiter estiver ativo, configure \
+             corretamente os cabeçalhos do proxy"
+        );
+    }
+    format!("{tipo}: o SearXNG respondeu com HTTP {status}")
 }
 
 struct NovoAchado<'a> {
@@ -647,8 +657,11 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{consulta_para, endpoint_searxng, ipv4_publico, ipv6_publico};
+    use super::{
+        aviso_status_searxng, consulta_para, endpoint_searxng, ipv4_publico, ipv6_publico,
+    };
     use crate::models::ParametroBusca;
+    use axum::http::StatusCode;
     use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
@@ -690,5 +703,12 @@ mod tests {
                 .as_str(),
             "https://busca.exemplo.org/instancia/search"
         );
+    }
+
+    #[test]
+    fn explica_erro_403_do_searxng() {
+        let aviso = aviso_status_searxng("NOME", StatusCode::FORBIDDEN);
+        assert!(aviso.contains("API JSON"));
+        assert!(aviso.contains("search.formats"));
     }
 }

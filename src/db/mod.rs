@@ -50,8 +50,10 @@ async fn criar_admin_inicial(pool: &SqlitePool, config: &Config) -> Result<(), A
         return Ok(());
     };
 
-    let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM usuario WHERE login = ?)")
-        .bind(login)
+    // As variáveis ADMIN_* servem somente para o bootstrap. Depois que o usuário
+    // altera o login pela interface, uma reinicialização não deve recriar a conta
+    // antiga configurada no ambiente.
+    let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM usuario)")
         .fetch_one(pool)
         .await?;
     if existe {

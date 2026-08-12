@@ -49,7 +49,12 @@ services:
     volumes:
       - searxng_cache:/var/cache/searxng
     healthcheck:
-      test: ["CMD", "wget", "-q", "--spider", "--proxy=off", "--header=X-Forwarded-For: 127.0.0.1", "http://127.0.0.1:8080/healthz"]
+      test:
+        - CMD-SHELL
+        - >-
+          grep -qE '^[[:space:]]*-[[:space:]]+json[[:space:]]*$' /etc/searxng/settings.yml &&
+          wget -q --spider --proxy=off --header='X-Forwarded-For: 127.0.0.1'
+          http://127.0.0.1:8080/healthz
       interval: 30s
       timeout: 10s
       retries: 5
