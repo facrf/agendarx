@@ -19,10 +19,12 @@ import { useNavigate, useSearchParams } from "react-router-dom";
 import { GraphViewer } from "../components/GraphViewer";
 import type { GraphLayout } from "../components/GraphViewer";
 import { RelationshipDrawer } from "../components/RelationshipDrawer";
+import { RelationshipAttachmentEditor } from "../components/RelationshipMedia";
 import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type {
+  AnexoVinculo,
   Categoria,
   GrafoEdge,
   GrafoNode,
@@ -54,6 +56,9 @@ export function GraphPage() {
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
   const [selectedEdge, setSelectedEdge] = useState<GrafoEdge | null>(null);
+  const [relationshipAttachments, setRelationshipAttachments] = useState<AnexoVinculo[]>([]);
+  const [pendingRelationshipFiles, setPendingRelationshipFiles] = useState<File[]>([]);
+  const [loadingRelationshipAttachments, setLoadingRelationshipAttachments] = useState(false);
   const navigate = useNavigate();
   const { notify } = useToast();
 
@@ -102,16 +107,30 @@ export function GraphPage() {
         tipo_vinculo: form.tipo_vinculo.trim(),
         descricao: form.descricao?.trim() || null,
       };
+      let saved: PessoaVinculo;
       if (editingId) {
-        await api.put(`/api/vinculos/${editingId}`, payload);
-        notify("Vínculo atualizado");
+        saved = await api.put<PessoaVinculo>(`/api/vinculos/${editingId}`, payload);
       } else {
-        await api.post("/api/vinculos", payload);
-        notify("Vínculo criado");
+        saved = await api.post<PessoaVinculo>("/api/vinculos", payload);
+      }
+      const uploads = await Promise.allSettled(
+        pendingRelationshipFiles.map((file) => {
+          const data = new FormData();
+          data.append("arquivo", file);
+          return api.post<AnexoVinculo>(`/api/vinculos/${saved.id}/anexos`, data);
+        }),
+      );
+      const failedUploads = uploads.filter((result) => result.status === "rejected");
+      if (failedUploads.length > 0) {
+        notify(`Vínculo salvo, mas ${failedUploads.length} anexo(s) falharam`, "erro");
+      } else {
+        notify(editingId ? "Vínculo atualizado" : "Vínculo criado");
       }
       setForm(emptyRelationship);
       setEditingId(null);
       setSelectedEdge(null);
+      setRelationshipAttachments([]);
+      setPendingRelationshipFiles([]);
       await loadGraphData();
     } catch (error) {
       notify(errorMessage(error), "erro");
@@ -120,7 +139,7 @@ export function GraphPage() {
     }
   };
 
-  const editRelationship = (relationship: PessoaVinculo) => {
+  const editRelationship = async (relationship: PessoaVinculo) => {
     setEditingId(relationship.id);
     setForm({
       pessoa_origem_id: relationship.pessoa_origem_id,
@@ -128,6 +147,27 @@ export function GraphPage() {
       tipo_vinculo: relationship.tipo_vinculo,
       descricao: relationship.descricao || "",
     });
+    setPendingRelationshipFiles([]);
+    setRelationshipAttachments([]);
+    setLoadingRelationshipAttachments(true);
+    try {
+      setRelationshipAttachments(await api.get<AnexoVinculo[]>(`/api/vinculos/${relationship.id}/anexos`));
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    } finally {
+      setLoadingRelationshipAttachments(false);
+    }
+  };
+
+  const deleteRelationshipAttachment = async (attachment: AnexoVinculo) => {
+    if (!window.confirm(`Excluir “${attachment.nome_arquivo}” desta relação?`)) return;
+    try {
+      await api.delete(`/api/vinculos/anexos/${attachment.id}`);
+      setRelationshipAttachments((items) => items.filter((item) => item.id !== attachment.id));
+      notify("Anexo excluído");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    }
   };
 
   const deleteRelationship = async (relationship: PessoaVinculo) => {
@@ -168,11 +208,18 @@ export function GraphPage() {
             form={form}
             editing={editingId !== null}
             saving={saving}
+            loadingAttachments={loadingRelationshipAttachments}
+            attachments={relationshipAttachments}
+            pendingFiles={pendingRelationshipFiles}
             onChange={setForm}
+            onPendingFiles={setPendingRelationshipFiles}
+            onDeleteAttachment={(attachment) => void deleteRelationshipAttachment(attachment)}
             onSubmit={submitRelationship}
             onCancel={() => {
               setEditingId(null);
               setForm(emptyRelationship);
+              setRelationshipAttachments([]);
+              setPendingRelationshipFiles([]);
             }}
           />
 
@@ -190,7 +237,7 @@ export function GraphPage() {
                         </p>
                         <p className="mt-1 text-xs text-slate-500">{relationship.tipo_vinculo}</p>
                       </div>
-                      <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-teal-700" onClick={() => editRelationship(relationship)} aria-label="Editar vínculo"><Edit3 className="size-3.5" /></button>
+                      <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-teal-700" onClick={() => void editRelationship(relationship)} aria-label="Editar vínculo"><Edit3 className="size-3.5" /></button>
                       <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => void deleteRelationship(relationship)} aria-label="Excluir vínculo"><Trash2 className="size-3.5" /></button>
                     </div>
                   </article>
@@ -255,12 +302,17 @@ interface RelationshipFormProps {
   form: VinculoPayload;
   editing: boolean;
   saving: boolean;
+  loadingAttachments: boolean;
+  attachments: AnexoVinculo[];
+  pendingFiles: File[];
   onChange: (value: VinculoPayload) => void;
+  onPendingFiles: (files: File[]) => void;
+  onDeleteAttachment: (attachment: AnexoVinculo) => void;
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
 }
 
-function RelationshipForm({ people, form, editing, saving, onChange, onSubmit, onCancel }: RelationshipFormProps) {
+function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onSubmit, onCancel }: RelationshipFormProps) {
   return (
     <section className="panel p-5">
       <div className="mb-4 flex items-center gap-2"><Plus className="size-5 text-coral" /><h2 className="font-display text-lg font-semibold">{editing ? "Editar vínculo" : "Novo vínculo"}</h2></div>
@@ -272,6 +324,18 @@ function RelationshipForm({ people, form, editing, saving, onChange, onSubmit, o
           <div><label className="field-label">Pessoa destino</label><select className="field" value={form.pessoa_destino_id || ""} onChange={(event) => onChange({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione...</option>{people.map((person) => <option key={person.id} value={person.id}>{person.nome}</option>)}</select></div>
           <div><label className="field-label">Tipo de vínculo</label><input className="field" value={form.tipo_vinculo} onChange={(event) => onChange({ ...form, tipo_vinculo: event.target.value })} placeholder="Ex.: Sócio, Irmão" required /></div>
           <div><label className="field-label">Descrição</label><textarea className="field min-h-28 resize-y" value={form.descricao || ""} onChange={(event) => onChange({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação..." /></div>
+          <div>
+            <label className="field-label">Anexos da relação</label>
+            {loadingAttachments ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-400">Carregando anexos…</p> : (
+              <RelationshipAttachmentEditor
+                existing={attachments}
+                pending={pendingFiles}
+                disabled={saving}
+                onPendingChange={onPendingFiles}
+                onDeleteExisting={onDeleteAttachment}
+              />
+            )}
+          </div>
           <div className="flex gap-2">
             <Button className="flex-1" type="submit" loading={saving}>{editing ? <Save className="size-4" /> : <GitFork className="size-4" />}{editing ? "Salvar" : "Conectar"}</Button>
             {editing && <button className="icon-button" type="button" onClick={onCancel} aria-label="Cancelar edição"><X className="size-4" /></button>}

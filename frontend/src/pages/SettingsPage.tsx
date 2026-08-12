@@ -12,6 +12,7 @@ import {
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, EmptyState, PageHeader, Spinner } from "../components/ui";
+import { BrandingManager, ContactTransferManager } from "../components/SettingsTools";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type { Categoria, TipoMeioContato } from "../types/api";
@@ -38,10 +39,12 @@ export function SettingsPage() {
 
   return (
     <div>
-      <PageHeader eyebrow="Personalização" title="Configurações" description="Defina a linguagem visual das categorias e os meios de contato disponíveis nos perfis." />
+      <PageHeader eyebrow="Personalização" title="Configurações" description="Defina a identidade visual, organize categorias e transfira sua agenda." />
       <div className="grid gap-6 xl:grid-cols-2">
+        <BrandingManager />
         <CategoryManager categorias={categorias} setCategorias={setCategorias} />
         <ContactTypeManager tipos={tipos} setTipos={setTipos} />
+        <ContactTransferManager />
       </div>
     </div>
   );

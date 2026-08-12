@@ -56,6 +56,7 @@ async fn main() -> Result<(), AppError> {
     let app = Router::new()
         .route("/health", get(health))
         .nest("/api/auth", handlers::auth::rotas_publicas())
+        .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
         .layer(RequestBodyLimitLayer::new(config.max_upload_bytes))
         .layer(CompressionLayer::new())

@@ -12,7 +12,10 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Cadastro de pessoas, categorias coloridas e meios de contato dinâmicos.
 - Fotos, áudio, PDFs, documentos e outros anexos armazenados no dossiê.
 - Streaming de mídia com suporte a HTTP Range.
-- Grafo interativo de vínculos com layouts de teia e hierárquico.
+- Grafo interativo de vínculos com layouts de teia e hierárquico, histórico e
+  anexos próprios com galeria de fotos e reprodução de áudio.
+- Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
+- Ícone visual configurável, aplicado também ao favicon do navegador.
 - Parâmetros OSINT por pessoa, histórico de achados e arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
@@ -103,11 +106,28 @@ services:
       ADMIN_LOGIN: admin
       ADMIN_PASSWORD: troque-por-uma-senha-forte
       COOKIE_SECURE: "false"
+      SEARXNG_URL: http://searxng:8080
     volumes:
       - agendarx_data:/app/data
 
+  searxng:
+    image: docker.io/searxng/searxng:latest
+    restart: unless-stopped
+    environment:
+      SEARXNG_SECRET: troque-por-outro-segredo-com-32-ou-mais-caracteres
+    configs:
+      - source: searxng_settings
+        target: /etc/searxng/settings.yml
+
 volumes:
   agendarx_data:
+
+configs:
+  searxng_settings:
+    content: |
+      use_default_settings: true
+      search:
+        formats: [html, json]
 ```
 
 No Portainer, abra **Stacks > Add stack > Web editor**, cole o arquivo completo e
@@ -116,9 +136,12 @@ Se o pacote GHCR for privado, registre primeiro as credenciais em **Registries**
 
 ## Pesquisa pública
 
-Defina `SEARXNG_URL` com a URL-base de uma instância SearXNG que tenha a saída JSON
-habilitada. Nomes e identificadores são pesquisados entre aspas; termos livres são
-enviados como configurados. Achados são deduplicados pela URL.
+A Stack completa do Portainer já inclui uma instância SearXNG privada, acessível
+somente pela rede interna do Docker, e configura `SEARXNG_URL` automaticamente.
+Em outros modos de instalação, defina essa variável com a URL-base de uma instância
+SearXNG que tenha a saída JSON habilitada. Nomes e identificadores são pesquisados
+entre aspas; termos livres são enviados como configurados. Achados são deduplicados
+pela URL.
 
 Downloads automáticos de PDF têm timeout e limite de tamanho, não seguem
 redirecionamentos, rejeitam destinos locais/privados/reservados, fixam a resolução
@@ -138,10 +161,10 @@ GitHub Release e publica:
 | Intel/AMD 64 bits (`amd64`) | Sim | Sim |
 | ARM 64 bits (`arm64`) | Sim | Sim |
 | ARM 32 bits v7 (`armv7`) | Sim | Sim |
-| RISC-V 64 bits (`riscv64gc`) | Sim | Não |
+| RISC-V 64 bits (`riscv64gc`) | Sim | Sim |
 
 RISC-V é distribuído como pacote binário porque as imagens-base oficiais usadas no
-Dockerfile ainda não oferecem essa plataforma. Todos os pacotes recebem checksum
+Dockerfile. Todos os pacotes recebem checksum
 SHA-256. Consulte [Versões e arquiteturas](docs/RELEASES.md) para publicar e instalar.
 
 ## Documentação

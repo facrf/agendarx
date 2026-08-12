@@ -13,7 +13,9 @@
 | `ADMIN_LOGIN` | não definido | Login criado na primeira inicialização |
 | `ADMIN_PASSWORD` | não definido | Senha do usuário inicial |
 | `MAX_UPLOAD_BYTES` | `26214400` | Limite geral de upload, em bytes |
-| `SEARXNG_URL` | não definido | URL-base opcional do SearXNG |
+| `SEARXNG_URL` | não definido | URL-base do SearXNG; a Stack usa o serviço interno por padrão |
+| `SEARXNG_IMAGE` | `docker.io/searxng/searxng:latest` | Imagem do SearXNG incluído na Stack |
+| `SEARXNG_SECRET` | não definido | Segredo obrigatório do SearXNG incluído na Stack |
 | `OSINT_TIMEOUT_SECONDS` | `20` | Timeout de cada requisição externa |
 | `OSINT_MAX_RESULTS` | `15` | Resultados por parâmetro, de 1 a 100 |
 | `OSINT_MAX_PDF_BYTES` | `20971520` | Limite de PDF, menor ou igual ao upload |
@@ -65,13 +67,18 @@ editor Web de uma Stack. No Portainer:
 1. registre o GHCR em **Registries** se a imagem for privada;
 2. acesse **Stacks > Add stack > Web editor**;
 3. cole o YAML de `deploy/portainer-stack.yml`;
-4. cadastre as variáveis de `deploy/portainer.env.example` na seção da Stack;
+4. cadastre as variáveis de `deploy/portainer.env.example` na seção da Stack,
+   incluindo um `SEARXNG_SECRET` independente;
 5. mantenha `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:latest` ou fixe uma versão;
 6. implante e acesse `http://IP_DO_SERVIDOR:12000`.
 
-As variáveis `JWT_SECRET` e `ADMIN_PASSWORD` são obrigatórias. A Stack aplica
-filesystem raiz somente leitura, remove capabilities, impede elevação de privilégio
-e mantém apenas o volume de dados gravável.
+As variáveis `JWT_SECRET`, `ADMIN_PASSWORD` e `SEARXNG_SECRET` são obrigatórias. A
+Stack sobe um SearXNG privado, com JSON habilitado e sem publicar sua porta. Para
+usar uma instância externa, preencha `SEARXNG_URL`; se a variável ficar vazia, a
+aplicação usa `http://searxng:8080`.
+
+O contêiner principal aplica filesystem raiz somente leitura, remove capabilities,
+impede elevação de privilégio e mantém apenas o volume de dados gravável.
 
 ## Proxy reverso e HTTPS
 

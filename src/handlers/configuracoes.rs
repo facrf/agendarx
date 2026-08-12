@@ -27,6 +27,8 @@ pub fn rotas() -> Router<AppState> {
                 .put(atualizar_tipo_contato)
                 .delete(excluir_tipo_contato),
         )
+        .merge(super::identidade::rotas_protegidas())
+        .merge(super::intercambio::rotas())
 }
 
 async fn listar_categorias(

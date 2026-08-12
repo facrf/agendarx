@@ -1,6 +1,8 @@
-import { ArrowRight, GitFork, Tag, X } from "lucide-react";
-import { useEffect } from "react";
-import type { GrafoEdge, GrafoNode } from "../types/api";
+import { ArrowRight, GitFork, Paperclip, Tag, X } from "lucide-react";
+import { useEffect, useState } from "react";
+import { api, errorMessage } from "../services/api";
+import type { AnexoVinculo, GrafoEdge, GrafoNode } from "../types/api";
+import { RelationshipMediaList } from "./RelationshipMedia";
 
 interface RelationshipDrawerProps {
   edge: GrafoEdge | null;
@@ -9,12 +11,31 @@ interface RelationshipDrawerProps {
 }
 
 export function RelationshipDrawer({ edge, nodes, onClose }: RelationshipDrawerProps) {
+  const [attachments, setAttachments] = useState<AnexoVinculo[]>([]);
+  const [attachmentError, setAttachmentError] = useState("");
+  const [loadingAttachments, setLoadingAttachments] = useState(false);
+
   useEffect(() => {
     if (!edge) return;
     const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [edge, onClose]);
+
+  useEffect(() => {
+    if (!edge) {
+      setAttachments([]);
+      return;
+    }
+    let active = true;
+    setLoadingAttachments(true);
+    setAttachmentError("");
+    api.get<AnexoVinculo[]>(`/api/vinculos/${edge.id}/anexos`)
+      .then((items) => { if (active) setAttachments(items); })
+      .catch((error) => { if (active) setAttachmentError(errorMessage(error)); })
+      .finally(() => { if (active) setLoadingAttachments(false); });
+    return () => { active = false; };
+  }, [edge]);
 
   if (!edge) return null;
   const source = nodes.find((node) => node.id === edge.source);
@@ -45,6 +66,19 @@ export function RelationshipDrawer({ edge, nodes, onClose }: RelationshipDrawerP
               {edge.descricao || "Nenhuma descrição detalhada foi registrada para esta relação."}
             </div>
           </div>
+
+          <div className="mt-6">
+            <div className="mb-3 flex items-center gap-2"><Paperclip className="size-4 text-teal-700" /><h3 className="text-sm font-semibold text-slate-800">Fotos, áudios e arquivos</h3></div>
+            {loadingAttachments ? (
+              <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">Carregando anexos…</p>
+            ) : attachmentError ? (
+              <p className="rounded-2xl bg-rose-50 p-4 text-sm text-rose-700">{attachmentError}</p>
+            ) : attachments.length > 0 ? (
+              <RelationshipMediaList attachments={attachments} />
+            ) : (
+              <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-400">Nenhum anexo registrado nesta relação.</p>
+            )}
+          </div>
         </div>
       </aside>
     </div>
@@ -63,4 +97,3 @@ function PersonBadge({ node }: { node?: GrafoNode }) {
     </div>
   );
 }
-

@@ -5,9 +5,24 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- Anexos de fotos, áudios e arquivos no histórico dos vínculos, com galeria,
+  ampliação de imagens, reprodução e download.
+- Ícone visual configurável, compartilhado pelo menu, login e favicon.
+- Importação de contatos em vCard, Google/Outlook CSV e CSV genérico, além de
+  exportação da agenda em CSV e vCard.
+
 ### Alterado
 
 - Workflows restritos ao GitHub, impedindo execuções duplicadas no Gitea e Forgejo.
+- A Stack do Portainer agora inclui um SearXNG privado com saída JSON habilitada e
+  configura automaticamente a varredura, mantendo suporte a uma URL externa.
+
+### Corrigido
+
+- O seletor de foto da pessoa agora implementa drag-and-drop real e aceita imagens
+  reconhecidas mesmo quando o Linux não informa o MIME do arquivo.
 
 ## [0.1.0] - 2026-08-11
 

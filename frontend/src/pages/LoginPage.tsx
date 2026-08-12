@@ -3,6 +3,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui";
+import { BrandIcon } from "../components/BrandIcon";
 import { useAuth } from "../contexts/AuthContext";
 import { errorMessage } from "../services/api";
 
@@ -39,7 +40,7 @@ export function LoginPage() {
         <div className="absolute -left-24 top-1/4 size-96 rounded-full bg-teal-500/10 blur-3xl" />
         <div className="absolute -right-20 bottom-0 size-[30rem] rounded-full bg-coral/15 blur-3xl" />
         <div className="relative z-10 flex items-center gap-3 text-white">
-          <div className="grid size-12 place-items-center rounded-2xl bg-coral text-xl font-bold shadow-xl shadow-coral/20">A</div>
+          <BrandIcon className="size-12 text-xl" />
           <div>
             <p className="font-display text-2xl font-semibold">AgendarX</p>
             <p className="text-xs uppercase tracking-[0.24em] text-teal-100/60">Relações vivas</p>
@@ -70,7 +71,7 @@ export function LoginPage() {
       <section className="relative flex min-h-screen items-center justify-center bg-canvas px-5 py-10 sm:px-10 lg:rounded-l-[3rem]">
         <div className="w-full max-w-md">
           <div className="mb-10 flex items-center gap-3 lg:hidden">
-            <div className="grid size-11 place-items-center rounded-2xl bg-coral font-bold text-white">A</div>
+            <BrandIcon className="size-11" />
             <span className="font-display text-2xl font-semibold text-ink">AgendarX</span>
           </div>
           <p className="eyebrow">Área protegida</p>
@@ -138,4 +139,3 @@ export function LoginPage() {
     </main>
   );
 }
-

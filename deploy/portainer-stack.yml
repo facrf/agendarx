@@ -16,7 +16,7 @@ services:
       ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
       ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}
       MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
-      SEARXNG_URL: ${SEARXNG_URL:-}
+      SEARXNG_URL: ${SEARXNG_URL:-http://searxng:8080}
       OSINT_TIMEOUT_SECONDS: ${OSINT_TIMEOUT_SECONDS:-20}
       OSINT_MAX_RESULTS: ${OSINT_MAX_RESULTS:-15}
       OSINT_MAX_PDF_BYTES: ${OSINT_MAX_PDF_BYTES:-20971520}
@@ -31,7 +31,48 @@ services:
     cap_drop:
       - ALL
     stop_grace_period: 20s
+    depends_on:
+      searxng:
+        condition: service_healthy
+
+  searxng:
+    image: ${SEARXNG_IMAGE:-docker.io/searxng/searxng:latest}
+    restart: unless-stopped
+    init: true
+    environment:
+      SEARXNG_BASE_URL: http://searxng:8080/
+      SEARXNG_SECRET: ${SEARXNG_SECRET:?Defina SEARXNG_SECRET com pelo menos 32 caracteres}
+      SEARXNG_LIMITER: "false"
+    configs:
+      - source: searxng_settings
+        target: /etc/searxng/settings.yml
+    volumes:
+      - searxng_cache:/var/cache/searxng
+    healthcheck:
+      test: ["CMD", "wget", "-q", "--spider", "--proxy=off", "--header=X-Forwarded-For: 127.0.0.1", "http://127.0.0.1:8080/healthz"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    security_opt:
+      - no-new-privileges:true
+    stop_grace_period: 20s
 
 volumes:
   agendarx_data:
     name: agendarx_data
+  searxng_cache:
+    name: agendarx_searxng_cache
+
+configs:
+  searxng_settings:
+    content: |
+      use_default_settings: true
+
+      search:
+        formats:
+          - html
+          - json
+
+      server:
+        limiter: false

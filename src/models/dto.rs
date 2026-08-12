@@ -92,6 +92,32 @@ pub struct VinculoInput {
     pub descricao: Option<String>,
 }
 
+#[derive(Debug, Clone, Serialize)]
+pub struct AnexoVinculoResumo {
+    pub id: i64,
+    pub vinculo_id: i64,
+    pub nome_arquivo: String,
+    pub mime_type: String,
+    pub tamanho_bytes: i64,
+    pub data_upload: String,
+    pub url_stream: String,
+    pub url_download: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct IdentidadeVisualResponse {
+    pub tem_icone: bool,
+    pub atualizado_em: Option<String>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ImportacaoContatosResponse {
+    pub pessoas_importadas: usize,
+    pub contatos_importados: usize,
+    pub registros_ignorados: usize,
+    pub avisos: Vec<String>,
+}
+
 #[derive(Debug, Serialize)]
 pub struct GrafoResponse {
     pub nodes: Vec<GrafoNode>,

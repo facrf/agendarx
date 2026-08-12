@@ -65,6 +65,18 @@ pub struct PessoaVinculo {
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
+pub struct AnexoVinculo {
+    pub id: i64,
+    pub vinculo_id: i64,
+    pub nome_arquivo: String,
+    pub mime_type: String,
+    #[serde(skip_serializing)]
+    pub conteudo_blob: Vec<u8>,
+    pub tamanho_bytes: i64,
+    pub data_upload: String,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
 pub struct ParametroBusca {
     pub id: i64,
     pub pessoa_id: i64,

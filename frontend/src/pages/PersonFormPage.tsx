@@ -8,9 +8,9 @@ import {
   UserRoundPlus,
 } from "lucide-react";
 import { useEffect, useMemo, useState } from "react";
-import type { ChangeEvent, FormEvent } from "react";
+import type { ChangeEvent, DragEvent, FormEvent } from "react";
 import { Link, useNavigate, useParams } from "react-router-dom";
-import { Button, PageHeader, Spinner } from "../components/ui";
+import { Button, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type {
@@ -35,6 +35,7 @@ export function PersonFormPage() {
   const [temFoto, setTemFoto] = useState(false);
   const [removerFoto, setRemoverFoto] = useState(false);
   const [foto, setFoto] = useState<File | null>(null);
+  const [arrastandoFoto, setArrastandoFoto] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
 
@@ -71,10 +72,25 @@ export function PersonFormPage() {
     setContatos((atuais) => atuais.map((contato, i) => (i === index ? { ...contato, ...patch } : contato)));
   };
 
-  const escolherFoto = (event: ChangeEvent<HTMLInputElement>) => {
-    const file = event.target.files?.[0] || null;
+  const selecionarFoto = (file: File | null) => {
+    if (file && !arquivoPareceImagem(file)) {
+      notify("Solte ou selecione um arquivo de imagem", "erro");
+      return;
+    }
     setFoto(file);
     if (file) setRemoverFoto(false);
+  };
+
+  const escolherFoto = (event: ChangeEvent<HTMLInputElement>) => {
+    selecionarFoto(event.target.files?.[0] || null);
+    event.target.value = "";
+  };
+
+  const soltarFoto = (event: DragEvent<HTMLLabelElement>) => {
+    event.preventDefault();
+    event.stopPropagation();
+    setArrastandoFoto(false);
+    selecionarFoto(event.dataTransfer.files?.[0] || null);
   };
 
   const salvar = async (event: FormEvent) => {
@@ -152,10 +168,19 @@ export function PersonFormPage() {
             </div>
             <div>
               <label className="field-label">Foto principal</label>
-              <label className="group relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed border-slate-200 bg-slate-50 transition hover:border-teal-400 hover:bg-teal-50">
+              <label
+                className={cn(
+                  "group relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-slate-50 transition hover:border-teal-400 hover:bg-teal-50",
+                  arrastandoFoto ? "border-teal-500 bg-teal-50 ring-4 ring-teal-100" : "border-slate-200",
+                )}
+                onDragEnter={(event) => { event.preventDefault(); setArrastandoFoto(true); }}
+                onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+                onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArrastandoFoto(false); }}
+                onDrop={soltarFoto}
+              >
                 {preview ? <img className="h-full w-full object-cover" src={preview} alt="Prévia da foto" /> : temFoto && !removerFoto && pessoaId ? <img className="h-full w-full object-cover" src={apiUrl(`/api/dossie/pessoas/${pessoaId}/foto`)} alt="Foto atual" /> : <div className="text-center text-slate-400"><ImageUp className="mx-auto size-7" /><span className="mt-2 block text-xs">Escolher imagem</span></div>}
                 <input className="sr-only" type="file" accept="image/*" onChange={escolherFoto} />
-                <span className="absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/65 px-3 py-2 text-center text-xs font-medium text-white opacity-0 backdrop-blur transition group-hover:opacity-100"><Camera className="mr-1 inline size-3.5" /> Alterar foto</span>
+                <span className={cn("absolute inset-x-3 bottom-3 rounded-xl bg-slate-950/65 px-3 py-2 text-center text-xs font-medium text-white backdrop-blur transition", arrastandoFoto ? "opacity-100" : "opacity-0 group-hover:opacity-100")}><Camera className="mr-1 inline size-3.5" /> {arrastandoFoto ? "Solte a imagem aqui" : "Clique ou arraste uma foto"}</span>
               </label>
               {temFoto && !foto && <button type="button" className="mt-2 w-full text-xs font-medium text-rose-600 hover:underline" onClick={() => setRemoverFoto((value) => !value)}>{removerFoto ? "Manter foto atual" : "Remover foto atual"}</button>}
             </div>
@@ -191,4 +216,8 @@ export function PersonFormPage() {
       </form>
     </div>
   );
+}
+
+function arquivoPareceImagem(file: File) {
+  return file.type.startsWith("image/") || /\.(avif|bmp|gif|ico|jpe?g|png|webp)$/i.test(file.name);
 }

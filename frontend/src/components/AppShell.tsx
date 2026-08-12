@@ -9,6 +9,7 @@ import {
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { BrandIcon } from "./BrandIcon";
 import { cn } from "./ui";
 
 const navegacao = [
@@ -86,9 +87,7 @@ export function AppShell() {
 function Brand({ compact = false }: { compact?: boolean }) {
   return (
     <div className="flex items-center gap-3">
-      <div className="grid size-10 place-items-center rounded-2xl bg-coral text-lg font-bold text-white shadow-lg shadow-coral/20">
-        A
-      </div>
+      <BrandIcon className="size-10 text-lg" />
       {!compact && (
         <div>
           <div className="font-display text-xl font-semibold tracking-tight">AgendarX</div>
@@ -116,4 +115,3 @@ function UserPanel({ login, onLogout }: { login: string; onLogout: () => void })
     </div>
   );
 }
-

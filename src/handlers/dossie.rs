@@ -168,7 +168,6 @@ async fn excluir_anexo(
 async fn atualizar_foto(
     State(state): State<AppState>,
     Path(pessoa_id): Path<i64>,
-    headers: HeaderMap,
     conteudo: Bytes,
 ) -> Result<(StatusCode, Json<MensagemResponse>), AppError> {
     if conteudo.is_empty() {
@@ -177,16 +176,10 @@ async fn atualizar_foto(
     if conteudo.len() > state.config.max_upload_bytes {
         return Err(AppError::PayloadTooLarge);
     }
-    let mime_cabecalho = headers
-        .get(header::CONTENT_TYPE)
-        .and_then(|v| v.to_str().ok())
-        .unwrap_or_default();
     let mime_detectado = infer::get(&conteudo).map(|tipo| tipo.mime_type());
-    if !mime_cabecalho.starts_with("image/")
-        || !mime_detectado.is_some_and(|mime| mime.starts_with("image/"))
-    {
+    if !mime_detectado.is_some_and(|mime| mime.starts_with("image/")) {
         return Err(AppError::BadRequest(
-            "a foto deve ser uma imagem reconhecida e usar Content-Type image/*".to_owned(),
+            "a foto deve ser uma imagem reconhecida".to_owned(),
         ));
     }
 
@@ -268,7 +261,7 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
     Ok(())
 }
 
-fn servir_blob(
+pub(super) fn servir_blob(
     dados: Vec<u8>,
     mime_type: &str,
     nome_arquivo: &str,
@@ -300,6 +293,14 @@ fn servir_blob(
     *response.status_mut() = status;
     let headers = response.headers_mut();
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
     headers.insert(
         header::CONTENT_TYPE,
         HeaderValue::from_str(mime_type)

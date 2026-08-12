@@ -37,7 +37,8 @@ flowchart LR
 
 As migrações são executadas automaticamente na inicialização. O SQLite usa chaves
 estrangeiras e exclusões em cascata para os registros dependentes de uma pessoa.
-Fotos e anexos ficam no banco para simplificar backup e portabilidade.
+Fotos, anexos pessoais, anexos de vínculos e o ícone personalizado ficam no banco
+para simplificar backup e portabilidade.
 
 Em Docker, todo o estado persistente está sob `/app/data`. O volume precisa ser
 mantido entre recriações do contêiner. Como os anexos são BLOBs, o tamanho do banco
@@ -58,7 +59,8 @@ HTTP `Range`, permitindo reprodução de áudio e visualização de mídia pelo 
 
 ## Pesquisa pública
 
-O SearXNG é um serviço externo configurado pelo operador. A varredura:
+O SearXNG é configurado pelo operador; a Stack do Portainer fornece uma instância
+privada por padrão e também permite apontar para um serviço externo. A varredura:
 
 1. lê até 50 parâmetros ativos da pessoa;
 2. pesquisa cada valor e limita resultados por configuração;

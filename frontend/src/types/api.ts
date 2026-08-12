@@ -74,6 +74,17 @@ export interface PessoaVinculo {
   data_criacao: string;
 }
 
+export interface AnexoVinculo {
+  id: number;
+  vinculo_id: number;
+  nome_arquivo: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  data_upload: string;
+  url_stream: string;
+  url_download: string;
+}
+
 export interface VinculoPayload {
   pessoa_origem_id: number;
   pessoa_destino_id: number;
@@ -100,6 +111,18 @@ export interface GrafoEdge {
 export interface GrafoResponse {
   nodes: GrafoNode[];
   edges: GrafoEdge[];
+}
+
+export interface IdentidadeVisual {
+  tem_icone: boolean;
+  atualizado_em: string | null;
+}
+
+export interface ImportacaoContatosResultado {
+  pessoas_importadas: number;
+  contatos_importados: number;
+  registros_ignorados: number;
+  avisos: string[];
 }
 
 export type TipoParametroBusca =

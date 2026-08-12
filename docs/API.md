@@ -1,7 +1,8 @@
 # API REST
 
-A base da API é `/api`. Salvo `POST /api/auth/login` e `GET /health`, todas as
-rotas exigem o cookie de sessão ou `Authorization: Bearer <token>`.
+A base da API é `/api`. Salvo `POST /api/auth/login`, `GET /api/identidade/icone`
+e `GET /health`, todas as rotas exigem o cookie de sessão ou
+`Authorization: Bearer <token>`.
 
 Erros usam o formato:
 
@@ -21,6 +22,11 @@ Erros usam o formato:
 | Configurações | `GET, PUT, DELETE /api/configuracoes/categorias/{id}` | CRUD de categoria |
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/tipos-contato/{id}` | CRUD de tipo |
+| Identidade | `GET /api/identidade/icone` | Ícone público usado pela interface e favicon |
+| Identidade | `GET /api/configuracoes/identidade` | Estado da identidade visual |
+| Identidade | `PUT, DELETE /api/configuracoes/icone` | Trocar/restaurar ícone em bytes brutos |
+| Intercâmbio | `POST /api/configuracoes/contatos/importar` | Importar CSV ou vCard no campo multipart `arquivo` |
+| Intercâmbio | `GET /api/configuracoes/contatos/exportar/{formato}` | Exportar toda a agenda em `csv` ou `vcf` |
 | Pessoas | `GET, POST /api/pessoas` | Listar/criar pessoas |
 | Pessoas | `GET, PUT, DELETE /api/pessoas/{id}` | CRUD de pessoa |
 | Contatos | `GET, POST /api/pessoas/{pessoa_id}/contatos` | Listar/criar contatos |
@@ -32,6 +38,10 @@ Erros usam o formato:
 | Foto | `GET, PUT, DELETE /api/dossie/pessoas/{id}/foto` | Foto principal em bytes brutos |
 | Vínculos | `GET, POST /api/vinculos` | Listar/criar vínculos |
 | Vínculos | `GET, PUT, DELETE /api/vinculos/{id}` | CRUD de vínculo |
+| Vínculos | `GET, POST /api/vinculos/{id}/anexos` | Listar/upload multipart (`arquivo`) |
+| Vínculos | `GET, DELETE /api/vinculos/anexos/{id}` | Metadados/exclusão de anexo |
+| Vínculos | `GET /api/vinculos/anexos/{id}/stream` | Foto, áudio ou arquivo inline com HTTP Range |
+| Vínculos | `GET /api/vinculos/anexos/{id}/download` | Download do anexo com HTTP Range |
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
@@ -85,5 +95,6 @@ Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
 }
 ```
 
-No `PUT` da foto, envie bytes de uma imagem reconhecida e um `Content-Type`
-`image/*`. Uploads multipart devem usar o campo `arquivo`.
+No `PUT` da foto ou do ícone, envie os bytes de uma imagem reconhecida. Uploads
+multipart devem usar o campo `arquivo`. A importação reconhece vCard (`.vcf`), CSV
+do Google Contacts, CSV do Outlook e CSV genérico com cabeçalho de nome.
