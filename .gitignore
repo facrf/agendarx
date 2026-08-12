@@ -1,8 +1,35 @@
-/data/
+# Rust
 /target/
-frontend/dist/
-frontend/node_modules/
+**/*.rs.bk
+
+# Frontend
+/frontend/node_modules/
+/frontend/dist/
+/frontend/.vite/
+*.tsbuildinfo
+
+# Dados e segredos locais
 .env
+.env.*
+!.env.example
+!deploy/*.env.example
+/data/
 *.db
+*.db-journal
 *.db-shm
 *.db-wal
+
+# Logs, cobertura e temporários
+*.log
+/coverage/
+/.cache/
+/.tmp/
+*.tmp
+
+# Editores e sistema operacional
+/.idea/
+/.vscode/
+*.swp
+*.swo
+.DS_Store
+Thumbs.db

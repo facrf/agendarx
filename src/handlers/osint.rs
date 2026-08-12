@@ -288,13 +288,15 @@ async fn varrer(
             let parametro_utilizado = format!("{}: {}", parametro.tipo, parametro.valor);
             let (novo, pdf_salvo) = registrar_achado(
                 &state,
-                pessoa_id,
-                &fonte,
-                &parametro_utilizado,
-                &titulo,
-                resultado.content.as_deref(),
-                url.as_str(),
-                pdf,
+                NovoAchado {
+                    pessoa_id,
+                    fonte: &fonte,
+                    parametro_utilizado: &parametro_utilizado,
+                    titulo: &titulo,
+                    snippet: resultado.content.as_deref(),
+                    url_origem: url.as_str(),
+                    pdf,
+                },
             )
             .await?;
             resposta.novos_achados += usize::from(novo);
@@ -305,16 +307,29 @@ async fn varrer(
     Ok(Json(resposta))
 }
 
+struct NovoAchado<'a> {
+    pessoa_id: i64,
+    fonte: &'a str,
+    parametro_utilizado: &'a str,
+    titulo: &'a str,
+    snippet: Option<&'a str>,
+    url_origem: &'a str,
+    pdf: Option<PdfBaixado>,
+}
+
 async fn registrar_achado(
     state: &AppState,
-    pessoa_id: i64,
-    fonte: &str,
-    parametro_utilizado: &str,
-    titulo: &str,
-    snippet: Option<&str>,
-    url_origem: &str,
-    pdf: Option<PdfBaixado>,
+    achado: NovoAchado<'_>,
 ) -> Result<(bool, bool), AppError> {
+    let NovoAchado {
+        pessoa_id,
+        fonte,
+        parametro_utilizado,
+        titulo,
+        snippet,
+        url_origem,
+        pdf,
+    } = achado;
     let mut transacao = state.pool.begin().await?;
     let existe: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM historico_busca_publica \

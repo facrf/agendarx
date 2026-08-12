@@ -1,4 +1,7 @@
-FROM node:lts-alpine AS frontend-builder
+# syntax=docker/dockerfile:1.7
+
+ARG BUILDPLATFORM=linux/amd64
+FROM --platform=${BUILDPLATFORM} node:lts-alpine AS frontend-builder
 
 WORKDIR /frontend
 COPY frontend/package.json frontend/package-lock.json ./
@@ -34,11 +37,11 @@ COPY --from=builder --chown=agendarx:agendarx /tmp/agendarx /usr/local/bin/agend
 COPY --from=frontend-builder --chown=agendarx:agendarx /frontend/dist /app/frontend
 
 USER agendarx
-ENV SERVER_ADDR=0.0.0.0:3000 \
+ENV SERVER_ADDR=0.0.0.0:12000 \
     DATABASE_URL=sqlite://data/agendarx.db?mode=rwc \
     FRONTEND_DIR=/app/frontend \
     RUST_LOG=agendarx=info,tower_http=info
 VOLUME ["/app/data"]
-EXPOSE 3000
+EXPOSE 12000
 
 ENTRYPOINT ["/usr/local/bin/agendarx"]

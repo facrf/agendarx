@@ -1,0 +1,64 @@
+name: Relatar problema
+description: Informe um comportamento incorreto ou regressão reproduzível.
+title: "[Bug]: "
+labels:
+  - bug
+body:
+  - type: markdown
+    attributes:
+      value: Não inclua credenciais, anexos privados ou dados pessoais reais.
+  - type: input
+    id: versao
+    attributes:
+      label: Versão
+      description: Tag, digest da imagem ou commit utilizado.
+      placeholder: v0.1.0
+    validations:
+      required: true
+  - type: dropdown
+    id: instalacao
+    attributes:
+      label: Forma de instalação
+      options:
+        - Imagem Docker / Portainer
+        - Binário de GitHub Release
+        - Cargo em desenvolvimento
+        - Outra
+    validations:
+      required: true
+  - type: textarea
+    id: descricao
+    attributes:
+      label: O que aconteceu?
+      description: Descreva o resultado observado e o esperado.
+    validations:
+      required: true
+  - type: textarea
+    id: reproducao
+    attributes:
+      label: Passos para reproduzir
+      placeholder: |
+        1. Acesse...
+        2. Clique...
+        3. Observe...
+    validations:
+      required: true
+  - type: textarea
+    id: ambiente
+    attributes:
+      label: Ambiente
+      description: Arquitetura, sistema operacional, navegador e proxy reverso.
+    validations:
+      required: true
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs sanitizados
+      render: shell
+  - type: checkboxes
+    id: termos
+    attributes:
+      label: Confirmações
+      options:
+        - label: Removi senhas, tokens e dados pessoais do relato.
+          required: true

@@ -1,0 +1,37 @@
+services:
+  agendarx:
+    image: ${AGENDARX_IMAGE:-ghcr.io/seu-usuario/agendarx:latest}
+    container_name: agendarx
+    restart: unless-stopped
+    init: true
+    ports:
+      - "${AGENDARX_PORT:-12000}:12000"
+    environment:
+      SERVER_ADDR: 0.0.0.0:12000
+      DATABASE_URL: sqlite://data/agendarx.db?mode=rwc
+      FRONTEND_DIR: /app/frontend
+      JWT_SECRET: ${JWT_SECRET:?Defina JWT_SECRET com pelo menos 32 caracteres}
+      JWT_TTL_MINUTES: ${JWT_TTL_MINUTES:-480}
+      COOKIE_SECURE: ${COOKIE_SECURE:-false}
+      ADMIN_LOGIN: ${ADMIN_LOGIN:-admin}
+      ADMIN_PASSWORD: ${ADMIN_PASSWORD:?Defina ADMIN_PASSWORD}
+      MAX_UPLOAD_BYTES: ${MAX_UPLOAD_BYTES:-26214400}
+      SEARXNG_URL: ${SEARXNG_URL:-}
+      OSINT_TIMEOUT_SECONDS: ${OSINT_TIMEOUT_SECONDS:-20}
+      OSINT_MAX_RESULTS: ${OSINT_MAX_RESULTS:-15}
+      OSINT_MAX_PDF_BYTES: ${OSINT_MAX_PDF_BYTES:-20971520}
+      RUST_LOG: ${RUST_LOG:-agendarx=info,tower_http=info}
+    volumes:
+      - agendarx_data:/app/data
+    read_only: true
+    tmpfs:
+      - /tmp:size=16m,mode=1777
+    security_opt:
+      - no-new-privileges:true
+    cap_drop:
+      - ALL
+    stop_grace_period: 20s
+
+volumes:
+  agendarx_data:
+    name: agendarx_data

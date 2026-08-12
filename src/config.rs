@@ -23,7 +23,7 @@ impl Config {
     pub fn from_env() -> Result<Self, AppError> {
         let _ = dotenvy::dotenv();
 
-        let endereco = parse_env("SERVER_ADDR", "0.0.0.0:3000")?;
+        let endereco = parse_env("SERVER_ADDR", "0.0.0.0:12000")?;
         let database_url = env::var("DATABASE_URL")
             .unwrap_or_else(|_| "sqlite://data/agendarx.db?mode=rwc".to_owned());
         let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| {

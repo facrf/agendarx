@@ -1,0 +1,221 @@
+name: Publicar versão
+
+on:
+  push:
+    tags:
+      - "v[0-9]*.[0-9]*.[0-9]*"
+
+permissions:
+  contents: read
+
+concurrency:
+  group: release-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  validar-versao:
+    name: Validar versão
+    runs-on: ubuntu-latest
+    outputs:
+      versao: ${{ steps.versao.outputs.versao }}
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v6
+
+      - name: Conferir tag e Cargo.toml
+        id: versao
+        shell: bash
+        run: |
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "A tag deve seguir o formato vMAJOR.MINOR.PATCH" >&2
+            exit 1
+          fi
+          versao="${GITHUB_REF_NAME#v}"
+          cargo_versao="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
+          if [[ "$versao" != "$cargo_versao" ]]; then
+            echo "A tag $GITHUB_REF_NAME não corresponde à versão $cargo_versao do Cargo.toml" >&2
+            exit 1
+          fi
+          echo "versao=$versao" >> "$GITHUB_OUTPUT"
+
+  frontend:
+    name: Compilar frontend
+    needs: validar-versao
+    runs-on: ubuntu-latest
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v6
+
+      - name: Preparar Node.js
+        uses: actions/setup-node@v7
+        with:
+          node-version: 24
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+
+      - name: Compilar frontend
+        working-directory: frontend
+        run: |
+          npm ci
+          npm run build
+
+      - name: Guardar frontend
+        uses: actions/upload-artifact@v7
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          if-no-files-found: error
+          retention-days: 1
+
+  binarios:
+    name: Binário ${{ matrix.nome }}
+    needs:
+      - validar-versao
+      - frontend
+    runs-on: ubuntu-latest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - nome: Intel/AMD 64 bits
+            target: x86_64-unknown-linux-gnu
+            arquitetura: amd64
+          - nome: ARM 64 bits
+            target: aarch64-unknown-linux-gnu
+            arquitetura: arm64
+          - nome: ARM 32 bits v7
+            target: armv7-unknown-linux-gnueabihf
+            arquitetura: armv7
+          - nome: RISC-V 64 bits
+            target: riscv64gc-unknown-linux-gnu
+            arquitetura: riscv64
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v6
+
+      - name: Preparar Rust e alvo
+        run: |
+          rustup toolchain install stable --profile minimal --target "${{ matrix.target }}"
+          rustup default stable
+
+      - name: Instalar cross
+        run: cargo install cross --git https://github.com/cross-rs/cross --tag v0.2.5 --locked
+
+      - name: Compilar binário
+        run: cross build --locked --release --target "${{ matrix.target }}"
+
+      - name: Recuperar frontend
+        uses: actions/download-artifact@v8
+        with:
+          name: frontend-dist
+          path: frontend/dist
+
+      - name: Montar pacote da versão
+        shell: bash
+        env:
+          VERSAO: ${{ needs.validar-versao.outputs.versao }}
+          TARGET: ${{ matrix.target }}
+          ARQUITETURA: ${{ matrix.arquitetura }}
+        run: |
+          pacote="agendarx-${VERSAO}-linux-${ARQUITETURA}"
+          raiz="dist/${pacote}"
+          mkdir -p "$raiz/frontend"
+          install -m 0755 "target/${TARGET}/release/agendarx" "$raiz/agendarx"
+          cp -R frontend/dist "$raiz/frontend/dist"
+          cp .env.example README.md "$raiz/"
+          cp deploy/portainer-stack.yml "$raiz/"
+          tar -C dist -czf "dist/${pacote}.tar.gz" "$pacote"
+          cd dist
+          sha256sum "${pacote}.tar.gz" > "${pacote}.tar.gz.sha256"
+
+      - name: Guardar pacote
+        uses: actions/upload-artifact@v7
+        with:
+          name: release-${{ matrix.arquitetura }}
+          path: |
+            dist/*.tar.gz
+            dist/*.sha256
+          if-no-files-found: error
+          retention-days: 7
+
+  imagem:
+    name: Imagem Docker multi-arquitetura
+    needs: validar-versao
+    runs-on: ubuntu-latest
+    permissions:
+      contents: read
+      packages: write
+      id-token: write
+    steps:
+      - name: Obter o código
+        uses: actions/checkout@v6
+
+      - name: Normalizar nome da imagem
+        id: imagem
+        shell: bash
+        run: echo "nome=ghcr.io/${GITHUB_REPOSITORY,,}" >> "$GITHUB_OUTPUT"
+
+      - name: Preparar QEMU
+        uses: docker/setup-qemu-action@v4
+
+      - name: Preparar Docker Buildx
+        uses: docker/setup-buildx-action@v4
+
+      - name: Autenticar no GHCR
+        uses: docker/login-action@v4
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Gerar tags e metadados OCI
+        id: meta
+        uses: docker/metadata-action@v6
+        with:
+          images: ${{ steps.imagem.outputs.nome }}
+          tags: |
+            type=semver,pattern={{version}}
+            type=semver,pattern={{major}}.{{minor}}
+            type=semver,pattern={{major}}
+            type=raw,value=latest
+
+      - name: Compilar e publicar imagem
+        uses: docker/build-push-action@v7
+        with:
+          context: .
+          file: Dockerfile
+          platforms: linux/amd64,linux/arm64,linux/arm/v7
+          push: true
+          tags: ${{ steps.meta.outputs.tags }}
+          labels: ${{ steps.meta.outputs.labels }}
+          sbom: true
+          provenance: mode=max
+
+  github-release:
+    name: Publicar GitHub Release
+    needs:
+      - validar-versao
+      - binarios
+      - imagem
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - name: Baixar pacotes
+        uses: actions/download-artifact@v8
+        with:
+          pattern: release-*
+          path: dist
+          merge-multiple: true
+
+      - name: Criar release e anexar pacotes
+        shell: bash
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" dist/* --clobber
+          else
+            gh release create "$TAG" dist/* --verify-tag --generate-notes --latest --title "AgendarX $TAG"
+          fi

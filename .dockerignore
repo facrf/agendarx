@@ -1,8 +1,14 @@
 .git
+.github
 .env
+.env.*
+!.env.example
 data
 target
 frontend/dist
 frontend/node_modules
 Dockerfile*
-README.md
+*.log
+coverage
+.idea
+.vscode
