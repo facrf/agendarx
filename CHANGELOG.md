@@ -5,6 +5,8 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.2.1] - 2026-08-12
+
 ### Adicionado
 
 - A varredura OSINT agora informa execuções concluídas, parciais ou inconclusivas,
@@ -79,6 +81,7 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.2.0...HEAD
+[Não publicado]: https://github.com/facrf/agendarx/compare/v0.2.1...HEAD
+[0.2.1]: https://github.com/facrf/agendarx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/facrf/agendarx/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/facrf/agendarx/releases/tag/v0.1.0
