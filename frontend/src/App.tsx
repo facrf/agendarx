@@ -9,6 +9,7 @@ import { PeoplePage } from "./pages/PeoplePage";
 import { PersonFormPage } from "./pages/PersonFormPage";
 import { PersonProfilePage } from "./pages/PersonProfilePage";
 import { SettingsPage } from "./pages/SettingsPage";
+import { CalendarPage } from "./pages/CalendarPage";
 
 const GraphPage = lazy(() =>
   import("./pages/GraphPage").then((module) => ({ default: module.GraphPage })),
@@ -25,6 +26,7 @@ export default function App() {
           <Route path="/pessoas/nova" element={<PersonFormPage />} />
           <Route path="/pessoas/:id" element={<PersonProfilePage />} />
           <Route path="/pessoas/:id/editar" element={<PersonFormPage />} />
+          <Route path="/calendario" element={<CalendarPage />} />
           <Route path="/configuracoes" element={<SettingsPage />} />
           <Route
             path="/grafo"

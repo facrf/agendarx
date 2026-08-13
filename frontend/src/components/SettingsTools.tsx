@@ -19,6 +19,7 @@ import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type { IdentidadeVisual, ImportacaoContatosResultado } from "../types/api";
+import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
 import { Button } from "./ui";
 
@@ -97,13 +98,15 @@ export function BrandingManager() {
 }
 
 export function AdminCredentialsManager() {
-  const { usuario, atualizarCredenciais } = useAuth();
+  const { usuario, atualizarCredenciais, verificarSessao } = useAuth();
   const [login, setLogin] = useState(usuario?.login || "");
   const [senhaAtual, setSenhaAtual] = useState("");
   const [novaSenha, setNovaSenha] = useState("");
   const [confirmacao, setConfirmacao] = useState("");
   const [mostrarSenhas, setMostrarSenhas] = useState(false);
   const [salvando, setSalvando] = useState(false);
+  const [salvandoIcone, setSalvandoIcone] = useState(false);
+  const iconeInputRef = useRef<HTMLInputElement>(null);
   const { notify } = useToast();
 
   const salvar = async (event: FormEvent) => {
@@ -137,6 +140,40 @@ export function AdminCredentialsManager() {
     }
   };
 
+  const enviarIcone = async (event: ChangeEvent<HTMLInputElement>) => {
+    const arquivo = event.target.files?.[0];
+    if (!arquivo) return;
+    if (arquivo.size > 2 * 1024 * 1024) {
+      event.target.value = "";
+      return notify("O ícone deve ter no máximo 2 MB", "erro");
+    }
+    setSalvandoIcone(true);
+    try {
+      await api.put("/api/auth/icone", arquivo, arquivo.type || "image/png");
+      await verificarSessao();
+      notify("Ícone do administrador atualizado");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    } finally {
+      setSalvandoIcone(false);
+      event.target.value = "";
+    }
+  };
+
+  const restaurarIcone = async () => {
+    if (!window.confirm("Restaurar o ícone do administrador para as iniciais?")) return;
+    setSalvandoIcone(true);
+    try {
+      await api.delete("/api/auth/icone");
+      await verificarSessao();
+      notify("Ícone do administrador restaurado");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    } finally {
+      setSalvandoIcone(false);
+    }
+  };
+
   return (
     <section className="panel overflow-hidden">
       <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
@@ -144,6 +181,18 @@ export function AdminCredentialsManager() {
         <div><h2 className="font-display text-xl font-semibold">Administrador</h2><p className="text-sm text-slate-500">Altere o usuário e a senha de acesso.</p></div>
       </header>
       <form className="space-y-4 p-5 sm:p-6" onSubmit={salvar}>
+        <div className="flex flex-col gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 sm:flex-row sm:items-center">
+          <AdminIcon className="size-18 text-xl shadow-sm ring-4 ring-white" />
+          <div className="min-w-0 flex-1">
+            <p className="text-sm font-semibold text-slate-800">Ícone do administrador</p>
+            <p className="mt-1 text-xs leading-5 text-slate-500">Aparece no painel da sessão. Use uma imagem quadrada de até 2 MB.</p>
+            <input ref={iconeInputRef} className="sr-only" type="file" accept="image/*,.ico" onChange={enviarIcone} />
+            <div className="mt-3 flex flex-wrap gap-2">
+              <Button type="button" loading={salvandoIcone} onClick={() => iconeInputRef.current?.click()}><Upload className="size-4" /> Trocar ícone</Button>
+              {usuario?.tem_icone && <Button type="button" variant="secondary" disabled={salvandoIcone} onClick={() => void restaurarIcone()}><Trash2 className="size-4" /> Usar iniciais</Button>}
+            </div>
+          </div>
+        </div>
         <div>
           <label className="field-label" htmlFor="admin-login">Usuário administrador</label>
           <div className="relative">

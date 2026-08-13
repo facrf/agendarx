@@ -7,7 +7,27 @@ pub struct Usuario {
     pub login: String,
     #[serde(skip_serializing)]
     pub senha_hash: String,
+    #[serde(skip_serializing)]
+    pub icone_admin_blob: Option<Vec<u8>>,
+    pub icone_admin_mime_type: Option<String>,
+    pub icone_admin_atualizado_em: Option<String>,
     pub data_criacao: String,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct TarefaCalendarioRow {
+    pub id: i64,
+    pub usuario_id: i64,
+    pub titulo: String,
+    pub descricao: Option<String>,
+    pub inicio_em: String,
+    pub fim_em: Option<String>,
+    pub dia_inteiro: bool,
+    pub status: String,
+    pub prioridade: String,
+    pub cor_hex: String,
+    pub data_criacao: String,
+    pub data_atualizacao: String,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

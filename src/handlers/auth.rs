@@ -4,11 +4,13 @@ use argon2::{
 };
 use axum::{
     Extension, Json, Router,
+    body::{Body, Bytes},
     extract::State,
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
 };
+
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
 use uuid::Uuid;
@@ -22,6 +24,8 @@ use crate::{
     },
 };
 
+const MAX_ICONE_ADMIN_BYTES: usize = 2 * 1024 * 1024;
+
 pub fn rotas_publicas() -> Router<AppState> {
     Router::new().route("/login", post(login))
 }
@@ -31,6 +35,12 @@ pub fn rotas_protegidas() -> Router<AppState> {
         .route("/logout", post(logout))
         .route("/sessao", get(verificar_sessao))
         .route("/credenciais", put(atualizar_credenciais))
+        .route(
+            "/icone",
+            get(obter_icone_admin)
+                .put(atualizar_icone_admin)
+                .delete(excluir_icone_admin),
+        )
 }
 
 async fn login(
@@ -45,7 +55,9 @@ async fn login(
     }
 
     let usuario = sqlx::query_as::<_, Usuario>(
-        "SELECT id, login, senha_hash, data_criacao FROM usuario WHERE login = ?",
+        "SELECT id, login, senha_hash, icone_admin_blob, icone_admin_mime_type, \
+                icone_admin_atualizado_em, data_criacao \
+         FROM usuario WHERE login = ?",
     )
     .bind(login)
     .fetch_optional(&state.pool)
@@ -104,6 +116,8 @@ async fn login(
         usuario: UsuarioSessao {
             id: usuario.id,
             login: usuario.login,
+            tem_icone: usuario.icone_admin_blob.is_some(),
+            icone_atualizado_em: usuario.icone_admin_atualizado_em,
         },
     };
     let cookie = cookie_sessao(
@@ -166,7 +180,9 @@ async fn atualizar_credenciais(
     }
 
     let usuario = sqlx::query_as::<_, Usuario>(
-        "SELECT id, login, senha_hash, data_criacao FROM usuario WHERE id = ?",
+        "SELECT id, login, senha_hash, icone_admin_blob, icone_admin_mime_type, \
+                icone_admin_atualizado_em, data_criacao \
+         FROM usuario WHERE id = ?",
     )
     .bind(sessao.usuario.id)
     .fetch_optional(&state.pool)
@@ -250,6 +266,94 @@ async fn atualizar_credenciais(
         }),
     )
         .into_response())
+}
+
+async fn obter_icone_admin(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+) -> Result<Response, AppError> {
+    let icone = sqlx::query_as::<_, (Vec<u8>, String)>(
+        "SELECT icone_admin_blob, icone_admin_mime_type FROM usuario \
+         WHERE id = ? AND icone_admin_blob IS NOT NULL AND icone_admin_mime_type IS NOT NULL",
+    )
+    .bind(sessao.usuario.id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::nao_encontrado("ícone do administrador"))?;
+
+    let mut resposta = Response::new(Body::from(icone.0));
+    let headers = resposta.headers_mut();
+    headers.insert(
+        header::CONTENT_TYPE,
+        HeaderValue::from_str(&icone.1)
+            .unwrap_or_else(|_| HeaderValue::from_static("application/octet-stream")),
+    );
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-cache, no-store, must-revalidate"),
+    );
+    headers.insert(
+        header::X_CONTENT_TYPE_OPTIONS,
+        HeaderValue::from_static("nosniff"),
+    );
+    headers.insert(
+        header::CONTENT_SECURITY_POLICY,
+        HeaderValue::from_static("sandbox; default-src 'none'"),
+    );
+    Ok(resposta)
+}
+
+async fn atualizar_icone_admin(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    conteudo: Bytes,
+) -> Result<Json<UsuarioSessao>, AppError> {
+    if conteudo.is_empty() {
+        return Err(AppError::BadRequest("o ícone está vazio".to_owned()));
+    }
+    if conteudo.len() > MAX_ICONE_ADMIN_BYTES || conteudo.len() > state.config.max_upload_bytes {
+        return Err(AppError::PayloadTooLarge);
+    }
+    let mime_type = infer::get(&conteudo)
+        .map(|tipo| tipo.mime_type())
+        .filter(|mime| mime.starts_with("image/"))
+        .ok_or_else(|| {
+            AppError::BadRequest(
+                "use uma imagem raster reconhecida (PNG, JPEG, WebP, GIF ou ICO)".to_owned(),
+            )
+        })?;
+
+    let atualizado_em: String = sqlx::query_scalar(
+        "UPDATE usuario SET icone_admin_blob = ?, icone_admin_mime_type = ?, \
+                icone_admin_atualizado_em = CURRENT_TIMESTAMP \
+         WHERE id = ? RETURNING icone_admin_atualizado_em",
+    )
+    .bind(conteudo.as_ref())
+    .bind(mime_type)
+    .bind(sessao.usuario.id)
+    .fetch_one(&state.pool)
+    .await?;
+
+    Ok(Json(UsuarioSessao {
+        id: sessao.usuario.id,
+        login: sessao.usuario.login,
+        tem_icone: true,
+        icone_atualizado_em: Some(atualizado_em),
+    }))
+}
+
+async fn excluir_icone_admin(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+) -> Result<StatusCode, AppError> {
+    sqlx::query(
+        "UPDATE usuario SET icone_admin_blob = NULL, icone_admin_mime_type = NULL, \
+                icone_admin_atualizado_em = NULL WHERE id = ?",
+    )
+    .bind(sessao.usuario.id)
+    .execute(&state.pool)
+    .await?;
+    Ok(StatusCode::NO_CONTENT)
 }
 
 fn validar_novo_login(login: &str) -> Result<(), AppError> {

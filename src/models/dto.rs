@@ -21,6 +21,52 @@ pub struct LoginResponse {
 pub struct UsuarioSessao {
     pub id: i64,
     pub login: String,
+    pub tem_icone: bool,
+    pub icone_atualizado_em: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TarefaCalendarioInput {
+    pub titulo: String,
+    pub descricao: Option<String>,
+    pub inicio_em: String,
+    pub fim_em: Option<String>,
+    pub dia_inteiro: bool,
+    pub status: String,
+    pub prioridade: String,
+    pub cor_hex: String,
+    #[serde(default)]
+    pub pessoas_ids: Vec<i64>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct CalendarioFiltro {
+    pub inicio: Option<String>,
+    pub fim: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct PessoaTarefaResumo {
+    pub id: i64,
+    pub nome: String,
+    pub cor_hex: Option<String>,
+    pub tem_foto: bool,
+}
+
+#[derive(Debug, Serialize)]
+pub struct TarefaCalendarioResponse {
+    pub id: i64,
+    pub titulo: String,
+    pub descricao: Option<String>,
+    pub inicio_em: String,
+    pub fim_em: Option<String>,
+    pub dia_inteiro: bool,
+    pub status: String,
+    pub prioridade: String,
+    pub cor_hex: String,
+    pub pessoas: Vec<PessoaTarefaResumo>,
+    pub data_criacao: String,
+    pub data_atualizacao: String,
 }
 
 #[derive(Debug, Deserialize)]

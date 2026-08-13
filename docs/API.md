@@ -19,6 +19,9 @@ Erros usam o formato:
 | Auth | `POST /api/auth/logout` | Revogar sessão atual |
 | Auth | `GET /api/auth/sessao` | Verificar sessão |
 | Auth | `PUT /api/auth/credenciais` | Alterar login/senha e revogar todas as sessões |
+| Auth | `GET, PUT, DELETE /api/auth/icone` | Exibir, trocar ou restaurar o ícone privado do administrador |
+| Calendário | `GET, POST /api/calendario/tarefas` | Listar por período ou agendar uma tarefa |
+| Calendário | `GET, PUT, DELETE /api/calendario/tarefas/{id}` | Consultar, editar ou excluir uma tarefa |
 | Configurações | `GET, POST /api/configuracoes/categorias` | Listar/criar categorias |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/categorias/{id}` | CRUD de categoria |
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
@@ -108,6 +111,27 @@ nesse estado não comprova a ausência de achados.
 `nova_senha` pode ser omitida quando somente o login for alterado. A senha atual
 é sempre obrigatória. Após uma alteração válida, todas as sessões do usuário são
 revogadas e o cliente deve autenticar novamente.
+
+### Tarefa do calendário
+
+```json
+{
+  "titulo": "Retornar ligação",
+  "descricao": "Confirmar os detalhes da reunião",
+  "inicio_em": "2026-08-12T18:00:00.000Z",
+  "fim_em": "2026-08-12T18:30:00.000Z",
+  "dia_inteiro": false,
+  "status": "PENDENTE",
+  "prioridade": "ALTA",
+  "cor_hex": "#13716D",
+  "pessoas_ids": [1, 2]
+}
+```
+
+Datas com horário usam ISO 8601 e são normalizadas para UTC. Os status aceitos são
+`PENDENTE`, `EM_ANDAMENTO` e `CONCLUIDA`; prioridades podem ser `BAIXA`, `NORMAL`
+ou `ALTA`. A listagem aceita os filtros opcionais `inicio` e `fim`, também em ISO
+8601. Cada tarefa pertence ao usuário autenticado e pode vincular até 50 pessoas.
 
 ### Grafo
 

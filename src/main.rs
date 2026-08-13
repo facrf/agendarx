@@ -40,6 +40,7 @@ async fn main() -> Result<(), AppError> {
     let protegidas = Router::new()
         .nest("/api/auth", handlers::auth::rotas_protegidas())
         .nest("/api/configuracoes", handlers::configuracoes::rotas())
+        .nest("/api/calendario", handlers::calendario::rotas())
         .nest("/api/pessoas", handlers::pessoas::rotas())
         .nest("/api/dossie", handlers::dossie::rotas())
         .nest("/api/osint", handlers::osint::rotas())

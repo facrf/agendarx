@@ -27,7 +27,7 @@ flowchart LR
 | `src/config.rs` | Variáveis de ambiente e limites operacionais |
 | `src/db/` | Conexão SQLite, migrações automáticas e usuário inicial |
 | `src/models/` | Entidades persistidas e contratos JSON |
-| `src/handlers/` | Autenticação, pessoas, configurações, dossiê, vínculos e OSINT |
+| `src/handlers/` | Autenticação, pessoas, calendário, configurações, dossiê, vínculos e OSINT |
 | `src/middleware/` | Validação do JWT e da sessão revogável |
 | `migrations/` | Evolução versionada do banco |
 | `frontend/src/` | Rotas, páginas, componentes e serviço HTTP React |
@@ -37,8 +37,13 @@ flowchart LR
 
 As migrações são executadas automaticamente na inicialização. O SQLite usa chaves
 estrangeiras e exclusões em cascata para os registros dependentes de uma pessoa.
-Fotos, anexos pessoais, anexos de vínculos e o ícone personalizado ficam no banco
+Fotos, anexos pessoais, anexos de vínculos e os ícones personalizados ficam no banco
 para simplificar backup e portabilidade.
+
+Tarefas do calendário armazenam os instantes em UTC e pertencem ao usuário que as
+criou. A associação com pessoas usa uma tabela de junção, permitindo múltiplos
+vínculos sem duplicação e exclusão automática da referência quando a pessoa ou a
+tarefa deixa de existir.
 
 Em Docker, todo o estado persistente está sob `/app/data`. O volume precisa ser
 mantido entre recriações do contêiner. Como os anexos são BLOBs, o tamanho do banco
@@ -53,6 +58,8 @@ revoga o token antes da expiração. A troca de login ou senha exige a senha atu
 gera um novo hash quando necessário e revoga todas as sessões do usuário. As
 variáveis `ADMIN_LOGIN` e `ADMIN_PASSWORD` atuam apenas no banco ainda sem usuários,
 evitando recriar a credencial de bootstrap depois que o login for alterado.
+O ícone do administrador é servido apenas em rota autenticada e permanece separado
+do ícone público usado pela marca e pelo favicon.
 
 ## Arquivos e mídia
 

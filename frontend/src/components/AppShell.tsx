@@ -1,4 +1,5 @@
 import {
+  CalendarDays,
   ContactRound,
   GitFork,
   LogOut,
@@ -9,11 +10,13 @@ import {
 import { useState } from "react";
 import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
+import { AdminIcon } from "./AdminIcon";
 import { BrandIcon } from "./BrandIcon";
 import { cn } from "./ui";
 
 const navegacao = [
   { to: "/pessoas", label: "Pessoas", icon: ContactRound },
+  { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/grafo", label: "Mapa de vínculos", icon: GitFork },
   { to: "/configuracoes", label: "Configurações", icon: Settings2 },
 ];
@@ -102,9 +105,7 @@ function Brand({ compact = false }: { compact?: boolean }) {
 function UserPanel({ login, onLogout }: { login: string; onLogout: () => void }) {
   return (
     <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-      <div className="grid size-9 place-items-center rounded-full bg-teal-700 text-sm font-semibold uppercase">
-        {login.slice(0, 2)}
-      </div>
+      <AdminIcon className="size-9 text-sm" />
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{login}</p>
         <p className="text-xs text-slate-400">Sessão protegida</p>

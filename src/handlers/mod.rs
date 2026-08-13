@@ -1,4 +1,5 @@
 pub mod auth;
+pub mod calendario;
 pub mod configuracoes;
 pub mod dossie;
 pub mod identidade;

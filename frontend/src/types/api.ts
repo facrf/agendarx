@@ -1,6 +1,8 @@
 export interface UsuarioSessao {
   id: number;
   login: string;
+  tem_icone: boolean;
+  icone_atualizado_em: string | null;
 }
 
 export interface LoginResponse {
@@ -124,6 +126,43 @@ export interface GrafoResponse {
 export interface IdentidadeVisual {
   tem_icone: boolean;
   atualizado_em: string | null;
+}
+
+export type StatusTarefa = "PENDENTE" | "EM_ANDAMENTO" | "CONCLUIDA";
+export type PrioridadeTarefa = "BAIXA" | "NORMAL" | "ALTA";
+
+export interface PessoaTarefaResumo {
+  id: number;
+  nome: string;
+  cor_hex: string | null;
+  tem_foto: boolean;
+}
+
+export interface TarefaCalendario {
+  id: number;
+  titulo: string;
+  descricao: string | null;
+  inicio_em: string;
+  fim_em: string | null;
+  dia_inteiro: boolean;
+  status: StatusTarefa;
+  prioridade: PrioridadeTarefa;
+  cor_hex: string;
+  pessoas: PessoaTarefaResumo[];
+  data_criacao: string;
+  data_atualizacao: string;
+}
+
+export interface TarefaCalendarioPayload {
+  titulo: string;
+  descricao: string | null;
+  inicio_em: string;
+  fim_em: string | null;
+  dia_inteiro: boolean;
+  status: StatusTarefa;
+  prioridade: PrioridadeTarefa;
+  cor_hex: string;
+  pessoas_ids: number[];
 }
 
 export interface ImportacaoContatosResultado {

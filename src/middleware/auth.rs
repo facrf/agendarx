@@ -48,28 +48,26 @@ pub async fn exigir_autenticacao(
         .parse::<i64>()
         .map_err(|_| AppError::Unauthorized)?;
     let agora = Utc::now().timestamp();
-    let sessao_valida: bool = sqlx::query_scalar(
-        "SELECT EXISTS(\
-            SELECT 1 FROM sessao s \
-            JOIN usuario u ON u.id = s.usuario_id \
-            WHERE s.id = ? AND s.usuario_id = ? AND s.expira_em > ? AND u.login = ?\
-        )",
+    let usuario_sessao = sqlx::query_as::<_, (String, bool, Option<String>)>(
+        "SELECT u.login, (u.icone_admin_blob IS NOT NULL), u.icone_admin_atualizado_em \
+         FROM sessao s JOIN usuario u ON u.id = s.usuario_id \
+         WHERE s.id = ? AND s.usuario_id = ? AND s.expira_em > ? AND u.login = ?",
     )
     .bind(&claims.jti)
     .bind(usuario_id)
     .bind(agora)
     .bind(&claims.login)
-    .fetch_one(&state.pool)
+    .fetch_optional(&state.pool)
     .await?;
 
-    if !sessao_valida {
-        return Err(AppError::Unauthorized);
-    }
+    let (login, tem_icone, icone_atualizado_em) = usuario_sessao.ok_or(AppError::Unauthorized)?;
 
     request.extensions_mut().insert(SessaoAutenticada {
         usuario: UsuarioSessao {
             id: usuario_id,
-            login: claims.login,
+            login,
+            tem_icone,
+            icone_atualizado_em,
         },
         sessao_id: claims.jti,
         expira_em: claims.exp as i64,

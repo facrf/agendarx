@@ -1,6 +1,6 @@
 services:
   agendarx:
-    image: ${AGENDARX_IMAGE:-ghcr.io/facrf/agendarx:0.2.1}
+    image: ${AGENDARX_IMAGE:-ghcr.io/facrf/agendarx:0.3.0}
     container_name: agendarx
     restart: unless-stopped
     init: true
