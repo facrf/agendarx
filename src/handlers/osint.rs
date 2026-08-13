@@ -28,7 +28,7 @@ use crate::{
 
 const TIPOS_VALIDOS: [&str; 6] = ["NOME", "CPF", "CNPJ", "EMAIL", "TELEFONE", "TERMO"];
 const MAX_PARAMETROS_ATIVOS: usize = 50;
-const USER_AGENT: &str = "AgendarX-OSINT/0.3 (+arquivamento-publico)";
+const USER_AGENT: &str = "AgendarX-OSINT/0.4 (+arquivamento-publico)";
 
 pub fn rotas() -> Router<AppState> {
     Router::new()

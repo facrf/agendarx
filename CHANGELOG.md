@@ -5,6 +5,8 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.4.0] - 2026-08-13
+
 ### Adicionado
 
 - Fontes Querido Diário, INLABS/DOU e OpenAlex na Pesquisa Pública, selecionáveis
@@ -116,7 +118,8 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.3.0...HEAD
+[Não publicado]: https://github.com/facrf/agendarx/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/facrf/agendarx/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/facrf/agendarx/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/facrf/agendarx/compare/v0.2.0...v0.2.1
 [0.2.0]: https://github.com/facrf/agendarx/compare/v0.1.0...v0.2.0

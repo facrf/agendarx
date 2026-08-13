@@ -12,7 +12,7 @@ use zip::ZipArchive;
 
 use crate::{config::Config, models::ParametroBusca};
 
-const USER_AGENT: &str = "AgendarX-OSINT/0.3 (+pesquisa-publica)";
+const USER_AGENT: &str = "AgendarX-OSINT/0.4 (+pesquisa-publica)";
 const QUERIDO_DIARIO_URL: &str = "https://api.queridodiario.ok.org.br/gazettes";
 const OPENALEX_URL: &str = "https://api.openalex.org/works";
 const INLABS_LOGIN_URL: &str = "https://inlabs.in.gov.br/logar.php";
@@ -852,10 +852,10 @@ fn normalize_openalex(data: OpenAlexResponse, max_results: usize) -> Vec<PublicS
             if let Some(citations) = work.cited_by_count {
                 details.push(format!("Citações: {citations}"));
             }
-            if work.publication_date.is_none() {
-                if let Some(year) = work.publication_year {
-                    details.push(format!("Ano: {year}"));
-                }
+            if work.publication_date.is_none()
+                && let Some(year) = work.publication_year
+            {
+                details.push(format!("Ano: {year}"));
             }
             Some(PublicSearchResult {
                 title,
