@@ -18,8 +18,9 @@ image = { version = "0.25", default-features = false, features = ["bmp", "gif", 
 infer = "0.19"
 jsonwebtoken = { version = "9", default-features = false }
 mime = "0.3"
+quick-xml = "0.38"
 rand_core = { version = "0.6", features = ["getrandom"] }
-reqwest = { version = "0.13", default-features = false, features = ["json", "query", "rustls", "stream"] }
+reqwest = { version = "0.13", default-features = false, features = ["form", "json", "query", "rustls", "stream"] }
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 sqlx = { version = "0.8", default-features = false, features = ["runtime-tokio", "sqlite", "migrate", "macros"] }
@@ -29,6 +30,7 @@ tower-http = { version = "0.6", features = ["compression-gzip", "fs", "limit", "
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
+zip = { version = "4", default-features = false, features = ["deflate"] }
 
 [profile.release]
 codegen-units = 1

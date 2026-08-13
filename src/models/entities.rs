@@ -26,8 +26,25 @@ pub struct TarefaCalendarioRow {
     pub status: String,
     pub prioridade: String,
     pub cor_hex: String,
+    pub serie_id: Option<String>,
+    pub recorrencia: String,
+    pub recorrencia_fim_em: Option<String>,
+    pub lembrete_minutos: Option<i64>,
+    pub lembrete_dispensado_em: Option<String>,
     pub data_criacao: String,
     pub data_atualizacao: String,
+}
+
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct AnexoTarefaCalendario {
+    pub id: i64,
+    pub tarefa_id: i64,
+    pub nome_arquivo: String,
+    pub mime_type: String,
+    #[serde(skip_serializing)]
+    pub conteudo_blob: Vec<u8>,
+    pub tamanho_bytes: i64,
+    pub data_upload: String,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -102,6 +119,7 @@ pub struct ParametroBusca {
     pub pessoa_id: i64,
     pub tipo: String,
     pub valor: String,
+    pub provider: String,
     pub ativo: bool,
 }
 
@@ -110,10 +128,13 @@ pub struct HistoricoBuscaPublica {
     pub id: i64,
     pub pessoa_id: i64,
     pub fonte: String,
+    pub provider: String,
     pub parametro_utilizado: String,
     pub titulo_resultado: String,
     pub snippet: Option<String>,
     pub url_origem: String,
     pub anexo_dossie_id: Option<i64>,
+    pub data_publicacao: Option<String>,
+    pub detalhes: Option<String>,
     pub data_captura: String,
 }

@@ -5,6 +5,32 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+### Adicionado
+
+- Fontes Querido Diário, INLABS/DOU e OpenAlex na Pesquisa Pública, selecionáveis
+  individualmente por pesquisa, com resultados e metadados normalizados.
+- Edição de pesquisas salvas com preservação da fonte escolhida e retrocompatibilidade
+  automática das configurações anteriores com SearXNG.
+- Configuração opcional de chave OpenAlex e credenciais/janela recente do INLABS,
+  com falhas isoladas e mensagens amigáveis por provider.
+- Arquivos e fotos anexáveis às tarefas, com miniaturas, pré-visualização e download.
+- Aba de tarefas agendadas no perfil de cada pessoa.
+- Movimentação de tarefas entre dias do calendário por arrastar e soltar, preservando
+  horário e duração.
+- Link direto das tarefas no perfil da pessoa para sua edição no calendário.
+- Busca e filtros por pessoa, status, prioridade, anexos e período na visão mensal.
+- Ações rápidas para concluir e reabrir tarefas e alternativa móvel para alterar a data.
+- Upload de anexos com progresso, nova tentativa, cotas configuráveis e indicadores
+  de armazenamento.
+- Recorrências diárias, semanais e mensais por até um ano, com ocorrências independentes.
+- Lembretes internos e notificações opcionais do navegador.
+- Histórico de criação, edição, movimentação, status e anexos por tarefa.
+
+### Corrigido
+
+- Áreas de upload agora tratam o drag-and-drop de arquivos no Linux e a aplicação
+  bloqueia a abertura acidental de arquivos soltos fora de uma área válida.
+
 ## [0.3.0] - 2026-08-12
 
 ### Adicionado

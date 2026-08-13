@@ -31,6 +31,9 @@ async fn main() -> Result<(), AppError> {
         .init();
 
     let config = Config::from_env()?;
+    // Multipart inclui cabeçalhos e delimitadores além dos bytes do arquivo.
+    // Os handlers continuam validando o tamanho real contra MAX_UPLOAD_BYTES.
+    let limite_corpo_requisicao = config.max_upload_bytes.saturating_add(1024 * 1024);
     let pool = db::conectar(&config).await?;
     let state = AppState {
         pool,
@@ -59,7 +62,7 @@ async fn main() -> Result<(), AppError> {
         .nest("/api/auth", handlers::auth::rotas_publicas())
         .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
-        .layer(RequestBodyLimitLayer::new(config.max_upload_bytes))
+        .layer(RequestBodyLimitLayer::new(limite_corpo_requisicao))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .fallback_service(arquivos_frontend)

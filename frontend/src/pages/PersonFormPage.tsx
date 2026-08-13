@@ -87,6 +87,7 @@ export function PersonFormPage() {
   };
 
   const soltarFoto = (event: DragEvent<HTMLLabelElement>) => {
+    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
     event.preventDefault();
     event.stopPropagation();
     setArrastandoFoto(false);
@@ -173,8 +174,8 @@ export function PersonFormPage() {
                   "group relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-slate-50 transition hover:border-teal-400 hover:bg-teal-50",
                   arrastandoFoto ? "border-teal-500 bg-teal-50 ring-4 ring-teal-100" : "border-slate-200",
                 )}
-                onDragEnter={(event) => { event.preventDefault(); setArrastandoFoto(true); }}
-                onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+                onDragEnter={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); setArrastandoFoto(true); } }}
+                onDragOver={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArrastandoFoto(false); }}
                 onDrop={soltarFoto}
               >

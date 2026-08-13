@@ -5,11 +5,13 @@ import {
   FileSearch,
   FileText,
   History,
+  Pencil,
   Plus,
   Power,
   Radar,
   ShieldCheck,
   Trash2,
+  X,
 } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -17,6 +19,7 @@ import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type {
   HistoricoBuscaPublica,
+  FontePesquisaPublica,
   ParametroBusca,
   TipoParametroBusca,
   VarreduraPublicaResponse,
@@ -33,11 +36,28 @@ const TIPOS: Array<{ valor: TipoParametroBusca; rotulo: string }> = [
   { valor: "TERMO", rotulo: "Termo livre" },
 ];
 
+const PROVIDERS: Array<{
+  valor: FontePesquisaPublica;
+  rotulo: string;
+  descricao: string;
+}> = [
+  { valor: "SEARXNG", rotulo: "SearXNG", descricao: "Busca geral na web." },
+  { valor: "QUERIDO_DIARIO", rotulo: "Querido Diário", descricao: "Diários oficiais municipais brasileiros." },
+  { valor: "INLABS", rotulo: "INLABS / DOU", descricao: "Publicações recentes do Diário Oficial da União." },
+  { valor: "OPENALEX", rotulo: "OpenAlex", descricao: "Literatura e citações acadêmicas." },
+];
+
+function providerLabel(provider: FontePesquisaPublica): string {
+  return PROVIDERS.find((item) => item.valor === provider)?.rotulo ?? provider;
+}
+
 export function OSINTTab({ pessoaId }: { pessoaId: number }) {
   const [parametros, setParametros] = useState<ParametroBusca[]>([]);
   const [historico, setHistorico] = useState<HistoricoBuscaPublica[]>([]);
   const [tipo, setTipo] = useState<TipoParametroBusca>("NOME");
+  const [provider, setProvider] = useState<FontePesquisaPublica>("SEARXNG");
   const [valor, setValor] = useState("");
+  const [editandoId, setEditandoId] = useState<number | null>(null);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [varrendo, setVarrendo] = useState(false);
@@ -64,19 +84,36 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
     void carregar();
   }, [carregar]);
 
-  const adicionar = async (event: FormEvent) => {
+  const salvarParametro = async (event: FormEvent) => {
     event.preventDefault();
     if (!valor.trim()) return;
     setSalvando(true);
     try {
-      const criado = await api.post<ParametroBusca>(`/api/osint/parametros/${pessoaId}`, {
+      const atual = parametros.find((item) => item.id === editandoId);
+      const payload = {
         tipo,
         valor: valor.trim(),
-        ativo: true,
-      });
-      setParametros((atuais) => [criado, ...atuais]);
-      setValor("");
-      notify("Parâmetro de pesquisa adicionado");
+        provider,
+        ativo: atual?.ativo ?? true,
+      };
+      if (editandoId !== null) {
+        const atualizado = await api.put<ParametroBusca>(
+          `/api/osint/parametros/item/${editandoId}`,
+          payload,
+        );
+        setParametros((atuais) =>
+          atuais.map((item) => (item.id === atualizado.id ? atualizado : item)),
+        );
+        notify("Pesquisa atualizada");
+      } else {
+        const criado = await api.post<ParametroBusca>(
+          `/api/osint/parametros/${pessoaId}`,
+          payload,
+        );
+        setParametros((atuais) => [criado, ...atuais]);
+        notify("Parâmetro de pesquisa adicionado");
+      }
+      cancelarEdicao();
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -84,11 +121,25 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
     }
   };
 
+  const editarParametro = (parametro: ParametroBusca) => {
+    setEditandoId(parametro.id);
+    setTipo(parametro.tipo);
+    setProvider(parametro.provider);
+    setValor(parametro.valor);
+  };
+
+  const cancelarEdicao = () => {
+    setEditandoId(null);
+    setTipo("NOME");
+    setProvider("SEARXNG");
+    setValor("");
+  };
+
   const alternarParametro = async (parametro: ParametroBusca) => {
     try {
       const atualizado = await api.put<ParametroBusca>(
         `/api/osint/parametros/item/${parametro.id}`,
-        { tipo: parametro.tipo, valor: parametro.valor, ativo: !parametro.ativo },
+        { tipo: parametro.tipo, valor: parametro.valor, provider: parametro.provider, ativo: !parametro.ativo },
       );
       setParametros((atuais) =>
         atuais.map((item) => (item.id === atualizado.id ? atualizado : item)),
@@ -103,6 +154,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
     try {
       await api.delete(`/api/osint/parametros/item/${parametro.id}`);
       setParametros((atuais) => atuais.filter((item) => item.id !== parametro.id));
+      if (editandoId === parametro.id) cancelarEdicao();
       notify("Parâmetro removido");
     } catch (error) {
       notify(errorMessage(error), "erro");
@@ -175,8 +227,20 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
             <p className="mt-1 text-sm text-slate-500">{ativos} de {parametros.length} ativo(s)</p>
           </div>
 
-          <form className="rounded-2xl border border-slate-200 bg-slate-50 p-4" onSubmit={adicionar}>
-            <label className="field-label" htmlFor="tipo-parametro-osint">Tipo</label>
+          <form className="rounded-2xl border border-slate-200 bg-slate-50 p-4" onSubmit={salvarParametro}>
+            <label className="field-label" htmlFor="provider-parametro-osint">Fonte de pesquisa</label>
+            <select
+              id="provider-parametro-osint"
+              className="field"
+              value={provider}
+              onChange={(event) => setProvider(event.target.value as FontePesquisaPublica)}
+            >
+              {PROVIDERS.map((item) => <option key={item.valor} value={item.valor}>{item.rotulo}</option>)}
+            </select>
+            <p className="mt-1.5 text-xs leading-5 text-slate-500">
+              {PROVIDERS.find((item) => item.valor === provider)?.descricao}
+            </p>
+            <label className="field-label mt-3" htmlFor="tipo-parametro-osint">Tipo</label>
             <select
               id="tipo-parametro-osint"
               className="field"
@@ -194,9 +258,17 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
               placeholder={placeholderPara(tipo)}
               onChange={(event) => setValor(event.target.value)}
             />
-            <Button className="mt-3 w-full" type="submit" loading={salvando} disabled={!valor.trim()}>
-              <Plus className="size-4" /> Adicionar parâmetro
-            </Button>
+            <div className="mt-3 flex gap-2">
+              <Button className="flex-1" type="submit" loading={salvando} disabled={!valor.trim()}>
+                {editandoId === null ? <Plus className="size-4" /> : <Pencil className="size-4" />}
+                {editandoId === null ? "Adicionar parâmetro" : "Salvar alterações"}
+              </Button>
+              {editandoId !== null && (
+                <Button type="button" variant="secondary" title="Cancelar edição" onClick={cancelarEdicao}>
+                  <X className="size-4" />
+                </Button>
+              )}
+            </div>
           </form>
 
           <div className="mt-4 space-y-2">
@@ -225,9 +297,23 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
                   <Power className="size-4" />
                 </button>
                 <div className="min-w-0 flex-1">
-                  <p className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-400">{parametro.tipo}</p>
+                  <div className="flex flex-wrap items-center gap-1.5">
+                    <span className="text-[0.65rem] font-bold uppercase tracking-wider text-slate-400">{parametro.tipo}</span>
+                    <span className="rounded-full bg-sky-50 px-2 py-0.5 text-[0.62rem] font-semibold text-sky-700">
+                      {providerLabel(parametro.provider)}
+                    </span>
+                  </div>
                   <p className="truncate text-sm font-medium text-slate-800" title={parametro.valor}>{parametro.valor}</p>
                 </div>
+                <button
+                  type="button"
+                  className="rounded-lg p-2 text-slate-400 transition hover:bg-teal-50 hover:text-teal-700"
+                  title="Editar pesquisa"
+                  aria-label="Editar pesquisa"
+                  onClick={() => editarParametro(parametro)}
+                >
+                  <Pencil className="size-4" />
+                </button>
                 <button
                   type="button"
                   className="rounded-lg p-2 text-slate-400 transition hover:bg-rose-50 hover:text-rose-600"
@@ -264,13 +350,26 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
                   <span className="absolute left-1.5 top-5 z-[1] size-3 rounded-full border-[3px] border-white bg-teal-600 shadow-sm" />
                   <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-teal-100 hover:shadow-md sm:p-5">
                     <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                      <span className="font-semibold text-teal-700">{item.fonte}</span>
+                      <span className="rounded-full bg-teal-50 px-2 py-1 font-semibold text-teal-800">
+                        {providerLabel(item.provider)}
+                      </span>
+                      <span className="font-semibold text-slate-600">{item.fonte}</span>
                       <span aria-hidden="true">•</span>
                       <time dateTime={item.data_captura}>{formatDate(item.data_captura, true)}</time>
                       <span className="chip ml-auto">{item.parametro_utilizado}</span>
                     </div>
                     <h3 className="mt-3 text-base font-semibold leading-6 text-slate-900">{item.titulo_resultado}</h3>
+                    {item.data_publicacao && (
+                      <p className="mt-1 text-xs font-medium text-slate-500">
+                        Publicado em: {formatDate(item.data_publicacao)}
+                      </p>
+                    )}
                     {item.snippet && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{item.snippet}</p>}
+                    {item.detalhes && (
+                      <p className="mt-3 whitespace-pre-line rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                        {item.detalhes}
+                      </p>
+                    )}
                     <div className="mt-4 flex flex-wrap gap-2">
                       <a
                         className="btn btn-secondary"

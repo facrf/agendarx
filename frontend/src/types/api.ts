@@ -130,6 +130,7 @@ export interface IdentidadeVisual {
 
 export type StatusTarefa = "PENDENTE" | "EM_ANDAMENTO" | "CONCLUIDA";
 export type PrioridadeTarefa = "BAIXA" | "NORMAL" | "ALTA";
+export type RecorrenciaTarefa = "NENHUMA" | "DIARIA" | "SEMANAL" | "MENSAL";
 
 export interface PessoaTarefaResumo {
   id: number;
@@ -148,9 +149,27 @@ export interface TarefaCalendario {
   status: StatusTarefa;
   prioridade: PrioridadeTarefa;
   cor_hex: string;
+  serie_id: string | null;
+  recorrencia: RecorrenciaTarefa;
+  recorrencia_fim_em: string | null;
+  total_ocorrencias: number;
+  lembrete_minutos: number | null;
   pessoas: PessoaTarefaResumo[];
+  anexos: AnexoTarefaCalendario[];
   data_criacao: string;
   data_atualizacao: string;
+}
+
+export interface AnexoTarefaCalendario {
+  id: number;
+  tarefa_id: number;
+  nome_arquivo: string;
+  mime_type: string;
+  tamanho_bytes: number;
+  data_upload: string;
+  url_stream: string;
+  url_download: string;
+  url_thumbnail: string | null;
 }
 
 export interface TarefaCalendarioPayload {
@@ -163,6 +182,25 @@ export interface TarefaCalendarioPayload {
   prioridade: PrioridadeTarefa;
   cor_hex: string;
   pessoas_ids: number[];
+  recorrencia: RecorrenciaTarefa;
+  recorrencia_fim_em: string | null;
+  lembrete_minutos: number | null;
+}
+
+export interface HistoricoTarefa {
+  id: number;
+  tarefa_id: number;
+  tipo: "CRIADA" | "ATUALIZADA" | "MOVIDA" | "STATUS_ALTERADO" | "ANEXO_ADICIONADO" | "ANEXO_EXCLUIDO";
+  descricao: string;
+  data_evento: string;
+}
+
+export interface ArmazenamentoTarefas {
+  usado_bytes: number;
+  limite_usuario_bytes: number;
+  limite_tarefa_bytes: number;
+  max_arquivo_bytes: number;
+  anexos_total: number;
 }
 
 export interface ImportacaoContatosResultado {
@@ -180,17 +218,25 @@ export type TipoParametroBusca =
   | "TELEFONE"
   | "TERMO";
 
+export type FontePesquisaPublica =
+  | "SEARXNG"
+  | "QUERIDO_DIARIO"
+  | "INLABS"
+  | "OPENALEX";
+
 export interface ParametroBusca {
   id: number;
   pessoa_id: number;
   tipo: TipoParametroBusca;
   valor: string;
+  provider: FontePesquisaPublica;
   ativo: boolean;
 }
 
 export interface ParametroBuscaPayload {
   tipo: TipoParametroBusca;
   valor: string;
+  provider?: FontePesquisaPublica;
   ativo?: boolean;
 }
 
@@ -198,12 +244,15 @@ export interface HistoricoBuscaPublica {
   id: number;
   pessoa_id: number;
   fonte: string;
+  provider: FontePesquisaPublica;
   parametro_utilizado: string;
   titulo_resultado: string;
   snippet: string | null;
   url_origem: string;
   anexo_dossie_id: number | null;
   url_pdf: string | null;
+  data_publicacao: string | null;
+  detalhes: string | null;
   data_captura: string;
 }
 

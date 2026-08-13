@@ -6,6 +6,16 @@ import { AuthProvider } from "./contexts/AuthContext";
 import { ToastProvider } from "./contexts/ToastContext";
 import "./index.css";
 
+// Impede que Chromium/Firefox naveguem para um arquivo solto fora de uma área
+// válida. Isso é especialmente comum ao arrastar arquivos do gerenciador no Linux.
+const impedirNavegacaoPorArquivo = (event: DragEvent) => {
+  if (Array.from(event.dataTransfer?.types || []).includes("Files")) {
+    event.preventDefault();
+  }
+};
+document.addEventListener("dragover", impedirNavegacaoPorArquivo, { capture: true });
+document.addEventListener("drop", impedirNavegacaoPorArquivo, { capture: true });
+
 createRoot(document.getElementById("root")!).render(
   <StrictMode>
     <BrowserRouter>

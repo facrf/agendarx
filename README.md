@@ -10,8 +10,14 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 ## Funcionalidades
 
 - Cadastro de pessoas, categorias coloridas e meios de contato dinâmicos.
-- Calendário mensal responsivo para criar, editar e concluir tarefas com horários,
-  prioridades, cores e vínculo com uma ou mais pessoas cadastradas.
+- Calendário mensal responsivo com busca e filtros, recorrência, lembretes,
+  prioridades, anexos, vínculo com pessoas e conclusão rápida.
+- Movimentação de tarefas por arrastar e soltar no computador e por seleção de
+  data no celular, sempre preservando horário e duração.
+- Tarefas agendadas no perfil de cada pessoa, com link direto para a ocorrência e
+  histórico de alterações no calendário.
+- Upload de anexos com progresso, nova tentativa, cotas configuráveis e aviso de
+  armazenamento próximo do limite.
 - Upload múltiplo de imagens, vídeos, áudio, PDFs, textos e outros anexos, com
   miniaturas, pré-visualização, renomeação e download no dossiê.
 - Streaming de mídia com suporte a HTTP Range.
@@ -23,7 +29,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
   das sessões existentes.
 - Ícone privado do administrador personalizável, independente do ícone global do
   sistema e visível no painel da sessão.
-- Parâmetros OSINT por pessoa, histórico de achados e arquivamento de PDFs.
+- Pesquisas públicas por pessoa via SearXNG, Querido Diário, INLABS/DOU ou
+  OpenAlex, com histórico normalizado e arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
@@ -146,12 +153,27 @@ Se o pacote GHCR for privado, registre primeiro as credenciais em **Registries**
 
 ## Pesquisa pública
 
-A Stack completa do Portainer já inclui uma instância SearXNG privada, acessível
-somente pela rede interna do Docker, e configura `SEARXNG_URL` automaticamente.
-Em outros modos de instalação, defina essa variável com a URL-base de uma instância
-SearXNG que tenha a saída JSON habilitada. Nomes e identificadores são pesquisados
-entre aspas; termos livres são enviados como configurados. Achados são deduplicados
-pela URL.
+Cada pesquisa salva possui sua própria fonte. Pesquisas criadas antes desta
+funcionalidade continuam usando SearXNG automaticamente.
+
+- **SearXNG** — busca geral na web. A Stack do Portainer inclui uma instância
+  privada e configura `SEARXNG_URL` automaticamente. Nomes e identificadores
+  preservam as variantes de consulta já existentes.
+- **Querido Diário** — diários oficiais municipais brasileiros pela
+  [API pública oficial](https://docs.queridodiario.ok.org.br/pt-br/latest/utilizando/api-publica.html).
+- **INLABS / DOU** — publicações recentes do Diário Oficial da União. Exige
+  `INLABS_USERNAME` e `INLABS_PASSWORD`; `INLABS_LOOKBACK_DAYS` controla de 1 a 7
+  dias consultados por varredura.
+- **OpenAlex** — literatura e citações acadêmicas pela
+  [API oficial](https://help.openalex.org/api/). `OPENALEX_API_KEY` é opcional e
+  amplia os limites oferecidos pela plataforma.
+
+Os resultados são normalizados em título, trecho, data, fonte e URL, mantendo
+metadados específicos como município/edição, seção/órgão, autores, DOI e citações.
+Achados continuam deduplicados pela URL.
+
+Em outros modos de instalação, defina `SEARXNG_URL` com a URL-base de uma instância
+SearXNG que tenha a saída JSON habilitada.
 
 Se a varredura informar `HTTP 403 Forbidden`, verifique primeiro o `settings.yml`
 realmente carregado pelo contêiner. O SearXNG rejeita com 403 um formato que não

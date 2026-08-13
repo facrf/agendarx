@@ -2,18 +2,24 @@ use std::{env, net::SocketAddr, path::PathBuf, str::FromStr};
 
 use crate::error::AppError;
 
-#[derive(Clone, Debug)]
+#[derive(Clone)]
 pub struct Config {
     pub endereco: SocketAddr,
     pub database_url: String,
     pub jwt_secret: String,
     pub jwt_ttl_minutos: i64,
     pub max_upload_bytes: usize,
+    pub task_storage_per_task_bytes: i64,
+    pub task_storage_quota_bytes: i64,
     pub frontend_dir: PathBuf,
     pub cookie_secure: bool,
     pub admin_login: Option<String>,
     pub admin_password: Option<String>,
     pub searxng_url: Option<String>,
+    pub openalex_api_key: Option<String>,
+    pub inlabs_username: Option<String>,
+    pub inlabs_password: Option<String>,
+    pub inlabs_lookback_days: u64,
     pub osint_timeout_seconds: u64,
     pub osint_max_results: usize,
     pub osint_max_pdf_bytes: usize,
@@ -53,9 +59,12 @@ impl Config {
 
         let jwt_ttl_minutos = parse_env("JWT_TTL_MINUTES", "480")?;
         let max_upload_bytes = parse_env("MAX_UPLOAD_BYTES", "26214400")?;
+        let task_storage_per_task_bytes = parse_env("TASK_STORAGE_PER_TASK_BYTES", "104857600")?;
+        let task_storage_quota_bytes = parse_env("TASK_STORAGE_QUOTA_BYTES", "1073741824")?;
         let osint_timeout_seconds = parse_env("OSINT_TIMEOUT_SECONDS", "20")?;
         let osint_max_results = parse_env("OSINT_MAX_RESULTS", "15")?;
         let osint_max_pdf_bytes = parse_env("OSINT_MAX_PDF_BYTES", "20971520")?;
+        let inlabs_lookback_days = parse_env("INLABS_LOOKBACK_DAYS", "1")?;
         if !(1..=525_600).contains(&jwt_ttl_minutos) {
             return Err(AppError::configuracao(
                 "JWT_TTL_MINUTES deve estar entre 1 e 525600",
@@ -64,6 +73,19 @@ impl Config {
         if max_upload_bytes == 0 {
             return Err(AppError::configuracao(
                 "MAX_UPLOAD_BYTES deve ser maior que zero",
+            ));
+        }
+        let max_upload_bytes_i64 = i64::try_from(max_upload_bytes).map_err(|_| {
+            AppError::configuracao("MAX_UPLOAD_BYTES excede o limite numérico suportado")
+        })?;
+        if task_storage_per_task_bytes < max_upload_bytes_i64 {
+            return Err(AppError::configuracao(
+                "TASK_STORAGE_PER_TASK_BYTES não pode ser menor que MAX_UPLOAD_BYTES",
+            ));
+        }
+        if task_storage_quota_bytes < task_storage_per_task_bytes {
+            return Err(AppError::configuracao(
+                "TASK_STORAGE_QUOTA_BYTES não pode ser menor que TASK_STORAGE_PER_TASK_BYTES",
             ));
         }
         if osint_timeout_seconds == 0 || osint_max_results == 0 || osint_max_results > 100 {
@@ -76,6 +98,19 @@ impl Config {
                 "OSINT_MAX_PDF_BYTES deve ser maior que zero e não pode exceder MAX_UPLOAD_BYTES",
             ));
         }
+        if !(1..=7).contains(&inlabs_lookback_days) {
+            return Err(AppError::configuracao(
+                "INLABS_LOOKBACK_DAYS deve estar entre 1 e 7",
+            ));
+        }
+
+        let inlabs_username = env_opcional("INLABS_USERNAME");
+        let inlabs_password = env_secreto("INLABS_PASSWORD");
+        if inlabs_username.is_some() != inlabs_password.is_some() {
+            return Err(AppError::configuracao(
+                "INLABS_USERNAME e INLABS_PASSWORD devem ser informados juntos",
+            ));
+        }
 
         Ok(Self {
             endereco,
@@ -83,6 +118,8 @@ impl Config {
             jwt_secret,
             jwt_ttl_minutos,
             max_upload_bytes,
+            task_storage_per_task_bytes,
+            task_storage_quota_bytes,
             frontend_dir: env::var("FRONTEND_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("frontend/dist")),
@@ -93,11 +130,26 @@ impl Config {
                 .ok()
                 .map(|valor| valor.trim().trim_end_matches('/').to_owned())
                 .filter(|valor| !valor.is_empty()),
+            openalex_api_key: env_secreto("OPENALEX_API_KEY"),
+            inlabs_username,
+            inlabs_password,
+            inlabs_lookback_days,
             osint_timeout_seconds,
             osint_max_results,
             osint_max_pdf_bytes,
         })
     }
+}
+
+fn env_opcional(nome: &str) -> Option<String> {
+    env::var(nome)
+        .ok()
+        .map(|valor| valor.trim().to_owned())
+        .filter(|valor| !valor.is_empty())
+}
+
+fn env_secreto(nome: &str) -> Option<String> {
+    env::var(nome).ok().filter(|valor| !valor.trim().is_empty())
 }
 
 fn parse_env<T>(nome: &str, padrao: &str) -> Result<T, AppError>

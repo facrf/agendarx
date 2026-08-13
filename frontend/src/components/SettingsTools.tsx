@@ -1,4 +1,6 @@
 import {
+  BellOff,
+  BellRing,
   ContactRound,
   Download,
   Eye,
@@ -21,7 +23,57 @@ import { api, apiUrl, errorMessage } from "../services/api";
 import type { IdentidadeVisual, ImportacaoContatosResultado } from "../types/api";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
+import { NOTIFICACOES_TAREFAS_KEY } from "./TaskReminderWatcher";
 import { Button } from "./ui";
+
+export function TaskNotificationManager() {
+  const supported = "Notification" in window;
+  const [enabled, setEnabled] = useState(() => supported
+    && Notification.permission === "granted"
+    && localStorage.getItem(NOTIFICACOES_TAREFAS_KEY) === "true");
+  const { notify } = useToast();
+
+  const enable = async () => {
+    if (!supported) return;
+    const permission = await Notification.requestPermission();
+    if (permission !== "granted") {
+      localStorage.removeItem(NOTIFICACOES_TAREFAS_KEY);
+      setEnabled(false);
+      return notify("O navegador não autorizou as notificações", "erro");
+    }
+    localStorage.setItem(NOTIFICACOES_TAREFAS_KEY, "true");
+    setEnabled(true);
+    notify("Notificações de tarefas ativadas");
+  };
+
+  const disable = () => {
+    localStorage.removeItem(NOTIFICACOES_TAREFAS_KEY);
+    setEnabled(false);
+    notify("Notificações do navegador desativadas");
+  };
+
+  return (
+    <section className="panel overflow-hidden">
+      <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
+        <div className="grid size-11 place-items-center rounded-2xl bg-amber-50 text-amber-700"><BellRing className="size-5" /></div>
+        <div><h2 className="font-display text-xl font-semibold">Lembretes de tarefas</h2><p className="text-sm text-slate-500">Avisos dentro do sistema e no navegador.</p></div>
+      </header>
+      <div className="p-5 sm:p-6">
+        {!supported ? (
+          <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Este navegador não oferece notificações do sistema. Os lembretes internos continuarão funcionando.</p>
+        ) : (
+          <>
+            <p className="text-sm leading-6 text-slate-600">Os avisos internos ficam sempre ativos. A permissão abaixo acrescenta uma notificação do sistema mesmo enquanto você estiver em outra aba.</p>
+            <Button className="mt-4" type="button" variant={enabled ? "secondary" : "primary"} onClick={() => enabled ? disable() : void enable()}>
+              {enabled ? <BellOff className="size-4" /> : <BellRing className="size-4" />}
+              {enabled ? "Desativar no navegador" : "Ativar no navegador"}
+            </Button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
 
 export function BrandingManager() {
   const [identidade, setIdentidade] = useState<IdentidadeVisual | null>(null);

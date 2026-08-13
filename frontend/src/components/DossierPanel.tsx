@@ -14,18 +14,19 @@ import {
   UploadCloud,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { ChangeEvent } from "react";
+import type { ChangeEvent, DragEvent } from "react";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type { AnexoDossie } from "../types/api";
 import { formatBytes, formatDate } from "../utils/format";
 import { useToast } from "../contexts/ToastContext";
 import { AttachmentPreviewModal, AttachmentThumbnail, previewKind } from "./AttachmentPreview";
-import { Button, EmptyState, Spinner } from "./ui";
+import { Button, EmptyState, Spinner, cn } from "./ui";
 
 export function DossierPanel({ pessoaId }: { pessoaId: number }) {
   const [anexos, setAnexos] = useState<AnexoDossie[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  const [arrastando, setArrastando] = useState(false);
   const [arquivoAberto, setArquivoAberto] = useState<AnexoDossie | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { notify } = useToast();
@@ -49,8 +50,7 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
     arquivos: anexos.filter((anexo) => !["image", "audio", "video"].includes(previewKind(anexo))),
   }), [anexos]);
 
-  const enviar = async (event: ChangeEvent<HTMLInputElement>) => {
-    const arquivos = Array.from(event.target.files || []);
+  const enviarArquivos = async (arquivos: File[]) => {
     if (arquivos.length === 0) return;
     setEnviando(true);
     try {
@@ -68,8 +68,21 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
       notify(errorMessage(error), "erro");
     } finally {
       setEnviando(false);
-      event.target.value = "";
     }
+  };
+
+  const enviar = (event: ChangeEvent<HTMLInputElement>) => {
+    const arquivos = Array.from(event.target.files || []);
+    event.target.value = "";
+    void enviarArquivos(arquivos);
+  };
+
+  const soltarArquivos = (event: DragEvent<HTMLElement>) => {
+    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
+    event.preventDefault();
+    event.stopPropagation();
+    setArrastando(false);
+    if (!enviando) void enviarArquivos(Array.from(event.dataTransfer.files || []));
   };
 
   const excluir = async (anexo: AnexoDossie) => {
@@ -100,10 +113,19 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
 
   return (
     <div className="space-y-7">
-      <section className="flex flex-col gap-4 rounded-3xl border border-dashed border-teal-300 bg-teal-50/70 p-5 sm:flex-row sm:items-center sm:justify-between">
+      <section
+        className={cn(
+          "flex flex-col gap-4 rounded-3xl border-2 border-dashed bg-teal-50/70 p-5 transition sm:flex-row sm:items-center sm:justify-between",
+          arrastando ? "border-teal-500 ring-4 ring-teal-100" : "border-teal-300",
+        )}
+        onDragEnter={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); if (!enviando) setArrastando(true); } }}
+        onDragOver={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = enviando ? "none" : "copy"; } }}
+        onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArrastando(false); }}
+        onDrop={soltarArquivos}
+      >
         <div className="flex items-center gap-4">
           <div className="grid size-12 place-items-center rounded-2xl bg-white text-teal-700 shadow-sm"><UploadCloud className="size-6" /></div>
-          <div><h3 className="font-display text-lg font-semibold text-slate-950">Adicionar ao dossiê</h3><p className="text-sm text-slate-500">Fotos, áudios, PDFs, ZIPs ou qualquer arquivo relevante.</p></div>
+          <div><h3 className="font-display text-lg font-semibold text-slate-950">{arrastando ? "Solte os arquivos aqui" : "Adicionar ao dossiê"}</h3><p className="text-sm text-slate-500">Fotos, áudios, PDFs, ZIPs ou qualquer arquivo relevante.</p></div>
         </div>
         <input ref={inputRef} className="sr-only" type="file" multiple onChange={enviar} />
         <Button type="button" loading={enviando} onClick={() => inputRef.current?.click()}><Plus className="size-4" /> Selecionar arquivo</Button>

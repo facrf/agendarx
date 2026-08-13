@@ -47,11 +47,13 @@ export function RelationshipAttachmentEditor({
     event.target.value = "";
   };
   const dropFiles = (event: DragEvent<HTMLDivElement>) => {
+    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
     event.preventDefault();
     event.stopPropagation();
     setDragging(false);
     if (!disabled) addFiles(Array.from(event.dataTransfer.files));
   };
+  const dragHasFiles = (event: DragEvent) => Array.from(event.dataTransfer.types || []).includes("Files");
 
   return (
     <div className="space-y-3">
@@ -61,8 +63,8 @@ export function RelationshipAttachmentEditor({
           dragging ? "border-teal-500 bg-teal-50" : "border-slate-200 bg-slate-50",
           disabled && "cursor-not-allowed opacity-60",
         )}
-        onDragEnter={(event) => { event.preventDefault(); if (!disabled) setDragging(true); }}
-        onDragOver={(event) => { event.preventDefault(); event.dataTransfer.dropEffect = "copy"; }}
+        onDragEnter={(event) => { if (dragHasFiles(event)) { event.preventDefault(); event.stopPropagation(); if (!disabled) setDragging(true); } }}
+        onDragOver={(event) => { if (dragHasFiles(event)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; } }}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
         onDrop={dropFiles}
       >

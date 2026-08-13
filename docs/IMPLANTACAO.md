@@ -13,9 +13,15 @@
 | `ADMIN_LOGIN` | não definido | Login criado na primeira inicialização |
 | `ADMIN_PASSWORD` | não definido | Senha do usuário inicial |
 | `MAX_UPLOAD_BYTES` | `26214400` | Limite geral de upload, em bytes |
+| `TASK_STORAGE_PER_TASK_BYTES` | `104857600` | Cota total de anexos por tarefa, em bytes; não pode ser menor que o limite de upload |
+| `TASK_STORAGE_QUOTA_BYTES` | `1073741824` | Cota total dos anexos de tarefas por usuário, em bytes; não pode ser menor que a cota por tarefa |
 | `SEARXNG_URL` | não definido | URL-base do SearXNG; a Stack usa o serviço interno por padrão |
 | `SEARXNG_IMAGE` | `docker.io/searxng/searxng:latest` | Imagem do SearXNG incluído na Stack |
 | `SEARXNG_SECRET` | não definido | Segredo obrigatório do SearXNG incluído na Stack |
+| `OPENALEX_API_KEY` | não definido | Chave opcional do OpenAlex, enviada somente no cabeçalho de autenticação |
+| `INLABS_USERNAME` | não definido | Usuário do INLABS; obrigatório junto da senha para usar a fonte DOU |
+| `INLABS_PASSWORD` | não definido | Senha do INLABS; obrigatório junto do usuário e nunca incluída em logs |
+| `INLABS_LOOKBACK_DAYS` | `1` | Janela recente do DOU por varredura, de 1 a 7 dias |
 | `OSINT_TIMEOUT_SECONDS` | `20` | Timeout de cada requisição externa |
 | `OSINT_MAX_RESULTS` | `15` | Resultados por parâmetro, de 1 a 100 |
 | `OSINT_MAX_PDF_BYTES` | `20971520` | Limite de PDF, menor ou igual ao upload |
@@ -25,6 +31,11 @@
 somente quando a tabela de usuários ainda está vazia; depois disso, login e senha
 são alterados em **Configurações > Administrador**. Alterar as variáveis não redefine
 credenciais existentes nem recria o login antigo após uma troca pela interface.
+
+`INLABS_USERNAME` e `INLABS_PASSWORD` devem ser configurados juntos. Sem ambos, a
+fonte INLABS mostra um aviso amigável e as pesquisas das outras fontes continuam.
+Os ZIPs diários são baixados uma vez por varredura e reutilizados para todos os
+parâmetros INLABS daquela execução.
 
 ## Desenvolvimento local
 

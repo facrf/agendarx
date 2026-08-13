@@ -22,6 +22,18 @@ Erros usam o formato:
 | Auth | `GET, PUT, DELETE /api/auth/icone` | Exibir, trocar ou restaurar o ícone privado do administrador |
 | Calendário | `GET, POST /api/calendario/tarefas` | Listar por período ou agendar uma tarefa |
 | Calendário | `GET, PUT, DELETE /api/calendario/tarefas/{id}` | Consultar, editar ou excluir uma tarefa |
+| Calendário | `PATCH /api/calendario/tarefas/{id}/data` | Alterar somente início e término ao mover uma tarefa |
+| Calendário | `PATCH /api/calendario/tarefas/{id}/status` | Concluir ou reabrir rapidamente uma tarefa |
+| Calendário | `GET /api/calendario/tarefas/{id}/historico` | Consultar as 100 alterações mais recentes |
+| Calendário | `GET /api/calendario/pessoas/{pessoa_id}/tarefas` | Listar tarefas vinculadas a uma pessoa |
+| Calendário | `GET, POST /api/calendario/tarefas/{id}/anexos` | Listar/upload multipart (`arquivo`) dos anexos da tarefa |
+| Calendário | `GET, DELETE /api/calendario/anexos/{id}` | Consultar metadados ou excluir anexo da tarefa |
+| Calendário | `GET /api/calendario/anexos/{id}/stream` | Conteúdo inline com HTTP Range |
+| Calendário | `GET /api/calendario/anexos/{id}/download` | Download com HTTP Range |
+| Calendário | `GET /api/calendario/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
+| Calendário | `GET /api/calendario/lembretes` | Listar até 20 lembretes vencidos e ainda não dispensados |
+| Calendário | `PATCH /api/calendario/lembretes/{id}/dispensar` | Marcar o lembrete da ocorrência como exibido |
+| Calendário | `GET /api/calendario/armazenamento` | Uso e limites dos anexos de tarefas do usuário |
 | Configurações | `GET, POST /api/configuracoes/categorias` | Listar/criar categorias |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/categorias/{id}` | CRUD de categoria |
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
@@ -70,11 +82,15 @@ curl -i http://localhost:12000/api/auth/login \
 {
   "tipo": "NOME",
   "valor": "Maria da Silva",
+  "provider": "QUERIDO_DIARIO",
   "ativo": true
 }
 ```
 
 Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
+Os providers são `SEARXNG`, `QUERIDO_DIARIO`, `INLABS` e `OPENALEX`. A omissão de
+`provider` usa `SEARXNG`, preservando clientes e registros anteriores. O mesmo
+campo é aceito no `PUT` e devolvido na listagem; assim a edição conserva a fonte.
 
 A varredura pesquisa nomes com e sem correspondência exata e normaliza CPF, CNPJ
 e telefone nas formas formatada e somente com dígitos. A resposta informa se a
@@ -96,7 +112,8 @@ execução foi `concluida`, `parcial` ou `inconclusiva`:
 ```
 
 Uma resposta `inconclusiva` significa que as fontes falharam; zero resultados
-nesse estado não comprova a ausência de achados.
+nesse estado não comprova a ausência de achados. O histórico inclui `provider`,
+`fonte`, `data_publicacao` e `detalhes`; estes dois últimos podem ser nulos.
 
 ### Credenciais do administrador
 
@@ -124,7 +141,10 @@ revogadas e o cliente deve autenticar novamente.
   "status": "PENDENTE",
   "prioridade": "ALTA",
   "cor_hex": "#13716D",
-  "pessoas_ids": [1, 2]
+  "pessoas_ids": [1, 2],
+  "recorrencia": "SEMANAL",
+  "recorrencia_fim_em": "2026-10-31T23:59:59.999Z",
+  "lembrete_minutos": 30
 }
 ```
 
@@ -132,6 +152,26 @@ Datas com horário usam ISO 8601 e são normalizadas para UTC. Os status aceitos
 `PENDENTE`, `EM_ANDAMENTO` e `CONCLUIDA`; prioridades podem ser `BAIXA`, `NORMAL`
 ou `ALTA`. A listagem aceita os filtros opcionais `inicio` e `fim`, também em ISO
 8601. Cada tarefa pertence ao usuário autenticado e pode vincular até 50 pessoas.
+A resposta inclui os metadados de `anexos`; cada tarefa aceita até 30 arquivos. Para
+movê-la sem reenviar os demais campos, use `PATCH /tarefas/{id}/data` com
+`inicio_em` e `fim_em`, preservando a duração no cliente.
+
+`recorrencia` aceita `NENHUMA`, `DIARIA`, `SEMANAL` ou `MENSAL`. Uma série pode
+abranger no máximo 366 dias e é materializada como ocorrências independentes;
+editar, mover, concluir ou excluir uma delas não altera as demais. A recorrência
+mensal preserva o dia-base quando possível (dia 31 usa o último dia nos meses mais
+curtos e volta ao dia 31 no seguinte). Os anexos enviados durante a criação ficam
+na primeira ocorrência. `lembrete_minutos` aceita `null` ou de 0 a 525600 minutos
+antes do início.
+
+O corpo da alteração rápida de status é `{"status":"CONCLUIDA"}` (também aceita
+`PENDENTE` e `EM_ANDAMENTO`). Movimentações, mudanças de status, edições e inclusão
+ou exclusão de anexos alimentam o histórico da ocorrência.
+
+O endpoint de armazenamento retorna os bytes usados, a quantidade de anexos e os
+limites por arquivo, tarefa e usuário. Além do limite individual de
+`MAX_UPLOAD_BYTES`, o servidor aplica `TASK_STORAGE_PER_TASK_BYTES` e
+`TASK_STORAGE_QUOTA_BYTES` em cada upload.
 
 ### Grafo
 
@@ -162,6 +202,7 @@ No `PUT` da foto ou do ícone, envie os bytes de uma imagem reconhecida. Uploads
 multipart devem usar o campo `arquivo`. A importação reconhece vCard (`.vcf`), CSV
 do Google Contacts, CSV do Outlook e CSV genérico com cabeçalho de nome. Para
 renomear um anexo do dossiê ou vínculo, o corpo é `{"nome_arquivo":"novo.pdf"}`.
+Os anexos de tarefas podem ser visualizados, baixados e excluídos, mas não renomeados.
 
 As respostas de metadados dos anexos incluem `url_thumbnail` para imagens raster
 suportadas e `null` para os demais formatos. A miniatura tem no máximo 512 px em

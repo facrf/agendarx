@@ -12,7 +12,7 @@ import {
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, EmptyState, PageHeader, Spinner } from "../components/ui";
-import { AdminCredentialsManager, BrandingManager, ContactTransferManager } from "../components/SettingsTools";
+import { AdminCredentialsManager, BrandingManager, ContactTransferManager, TaskNotificationManager } from "../components/SettingsTools";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type { Categoria, TipoMeioContato } from "../types/api";
@@ -43,6 +43,7 @@ export function SettingsPage() {
       <div className="grid gap-6 xl:grid-cols-2">
         <BrandingManager />
         <AdminCredentialsManager />
+        <TaskNotificationManager />
         <CategoryManager categorias={categorias} setCategorias={setCategorias} />
         <ContactTypeManager tipos={tipos} setTipos={setTipos} />
         <ContactTransferManager />

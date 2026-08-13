@@ -37,12 +37,31 @@ pub struct TarefaCalendarioInput {
     pub cor_hex: String,
     #[serde(default)]
     pub pessoas_ids: Vec<i64>,
+    #[serde(default = "recorrencia_padrao")]
+    pub recorrencia: String,
+    pub recorrencia_fim_em: Option<String>,
+    pub lembrete_minutos: Option<i64>,
+}
+
+fn recorrencia_padrao() -> String {
+    "NENHUMA".to_owned()
 }
 
 #[derive(Debug, Deserialize)]
 pub struct CalendarioFiltro {
     pub inicio: Option<String>,
     pub fim: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TarefaCalendarioDataInput {
+    pub inicio_em: String,
+    pub fim_em: Option<String>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct TarefaCalendarioStatusInput {
+    pub status: String,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -64,9 +83,46 @@ pub struct TarefaCalendarioResponse {
     pub status: String,
     pub prioridade: String,
     pub cor_hex: String,
+    pub serie_id: Option<String>,
+    pub recorrencia: String,
+    pub recorrencia_fim_em: Option<String>,
+    pub total_ocorrencias: i64,
+    pub lembrete_minutos: Option<i64>,
     pub pessoas: Vec<PessoaTarefaResumo>,
+    pub anexos: Vec<AnexoTarefaResumo>,
     pub data_criacao: String,
     pub data_atualizacao: String,
+}
+
+#[derive(Debug, Serialize, FromRow)]
+pub struct HistoricoTarefaResponse {
+    pub id: i64,
+    pub tarefa_id: i64,
+    pub tipo: String,
+    pub descricao: String,
+    pub data_evento: String,
+}
+
+#[derive(Debug, Serialize)]
+pub struct ArmazenamentoTarefasResponse {
+    pub usado_bytes: i64,
+    pub limite_usuario_bytes: i64,
+    pub limite_tarefa_bytes: i64,
+    pub max_arquivo_bytes: i64,
+    pub anexos_total: i64,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct AnexoTarefaResumo {
+    pub id: i64,
+    pub tarefa_id: i64,
+    pub nome_arquivo: String,
+    pub mime_type: String,
+    pub tamanho_bytes: i64,
+    pub data_upload: String,
+    pub url_stream: String,
+    pub url_download: String,
+    pub url_thumbnail: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -211,7 +267,13 @@ pub struct MensagemResponse {
 pub struct ParametroBuscaInput {
     pub tipo: String,
     pub valor: String,
+    #[serde(default = "provider_busca_padrao")]
+    pub provider: String,
     pub ativo: Option<bool>,
+}
+
+fn provider_busca_padrao() -> String {
+    "SEARXNG".to_owned()
 }
 
 #[derive(Debug, Serialize)]
@@ -219,12 +281,15 @@ pub struct HistoricoBuscaResponse {
     pub id: i64,
     pub pessoa_id: i64,
     pub fonte: String,
+    pub provider: String,
     pub parametro_utilizado: String,
     pub titulo_resultado: String,
     pub snippet: Option<String>,
     pub url_origem: String,
     pub anexo_dossie_id: Option<i64>,
     pub url_pdf: Option<String>,
+    pub data_publicacao: Option<String>,
+    pub detalhes: Option<String>,
     pub data_captura: String,
 }
 

@@ -62,6 +62,36 @@ export const api = {
             : JSON.stringify(data),
       headers: contentType ? { "content-type": contentType } : undefined,
     }),
+  patch: <T>(path: string, data?: unknown) =>
+    request<T>(path, {
+      method: "PATCH",
+      body: data === undefined ? undefined : JSON.stringify(data),
+    }),
+  upload: <T>(path: string, data: FormData, onProgress?: (percentage: number) => void) =>
+    new Promise<T>((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      xhr.open("POST", apiUrl(path));
+      xhr.withCredentials = true;
+      xhr.responseType = "json";
+      xhr.upload.addEventListener("progress", (event) => {
+        if (event.lengthComputable) onProgress?.(Math.round((event.loaded / event.total) * 100));
+      });
+      xhr.addEventListener("load", () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          onProgress?.(100);
+          resolve(xhr.response as T);
+          return;
+        }
+        if (xhr.status === 401) window.dispatchEvent(new Event("agendarx:unauthorized"));
+        const message = xhr.response && typeof xhr.response.erro === "string"
+          ? xhr.response.erro
+          : `A requisição falhou (${xhr.status})`;
+        reject(new ApiError(xhr.status, message));
+      });
+      xhr.addEventListener("error", () => reject(new ApiError(0, "Falha de rede durante o upload")));
+      xhr.addEventListener("abort", () => reject(new ApiError(0, "Upload cancelado")));
+      xhr.send(data);
+    }),
   delete: <T = void>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 
@@ -69,4 +99,3 @@ export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "Ocorreu um erro inesperado";
 }
-

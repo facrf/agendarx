@@ -1,5 +1,5 @@
 use std::{
-    collections::{BTreeSet, HashSet},
+    collections::HashSet,
     net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr},
     time::{Duration, Instant},
 };
@@ -11,8 +11,11 @@ use axum::{
     routing::{get, post},
 };
 use reqwest::{Client, Url, redirect::Policy};
-use serde::Deserialize;
 use tokio::net::lookup_host;
+
+mod providers;
+
+use providers::{PublicSearchProviders, SearchProvider};
 
 use crate::{
     AppState,
@@ -25,7 +28,7 @@ use crate::{
 
 const TIPOS_VALIDOS: [&str; 6] = ["NOME", "CPF", "CNPJ", "EMAIL", "TELEFONE", "TERMO"];
 const MAX_PARAMETROS_ATIVOS: usize = 50;
-const USER_AGENT: &str = "AgendarX-OSINT/0.1 (+arquivamento-publico)";
+const USER_AGENT: &str = "AgendarX-OSINT/0.3 (+arquivamento-publico)";
 
 pub fn rotas() -> Router<AppState> {
     Router::new()
@@ -47,8 +50,8 @@ async fn listar_parametros(
 ) -> Result<Json<Vec<ParametroBusca>>, AppError> {
     garantir_pessoa(&state, pessoa_id).await?;
     let parametros = sqlx::query_as::<_, ParametroBusca>(
-        "SELECT id, pessoa_id, tipo, valor, ativo FROM parametro_busca \
-         WHERE pessoa_id = ? ORDER BY ativo DESC, tipo, valor",
+        "SELECT id, pessoa_id, tipo, valor, provider, ativo FROM parametro_busca \
+         WHERE pessoa_id = ? ORDER BY ativo DESC, provider, tipo, valor",
     )
     .bind(pessoa_id)
     .fetch_all(&state.pool)
@@ -62,14 +65,15 @@ async fn criar_parametro(
     Json(input): Json<ParametroBuscaInput>,
 ) -> Result<(StatusCode, Json<ParametroBusca>), AppError> {
     garantir_pessoa(&state, pessoa_id).await?;
-    let (tipo, valor, ativo) = normalizar_parametro(input)?;
+    let (tipo, valor, provider, ativo) = normalizar_parametro(input)?;
     let parametro = sqlx::query_as::<_, ParametroBusca>(
-        "INSERT INTO parametro_busca (pessoa_id, tipo, valor, ativo) VALUES (?, ?, ?, ?) \
-         RETURNING id, pessoa_id, tipo, valor, ativo",
+        "INSERT INTO parametro_busca (pessoa_id, tipo, valor, provider, ativo) VALUES (?, ?, ?, ?, ?) \
+         RETURNING id, pessoa_id, tipo, valor, provider, ativo",
     )
     .bind(pessoa_id)
     .bind(tipo)
     .bind(valor)
+    .bind(provider)
     .bind(ativo)
     .fetch_one(&state.pool)
     .await?;
@@ -81,13 +85,14 @@ async fn atualizar_parametro(
     Path(id): Path<i64>,
     Json(input): Json<ParametroBuscaInput>,
 ) -> Result<Json<ParametroBusca>, AppError> {
-    let (tipo, valor, ativo) = normalizar_parametro(input)?;
+    let (tipo, valor, provider, ativo) = normalizar_parametro(input)?;
     let parametro = sqlx::query_as::<_, ParametroBusca>(
-        "UPDATE parametro_busca SET tipo = ?, valor = ?, ativo = ? WHERE id = ? \
-         RETURNING id, pessoa_id, tipo, valor, ativo",
+        "UPDATE parametro_busca SET tipo = ?, valor = ?, provider = ?, ativo = ? WHERE id = ? \
+         RETURNING id, pessoa_id, tipo, valor, provider, ativo",
     )
     .bind(tipo)
     .bind(valor)
+    .bind(provider)
     .bind(ativo)
     .bind(id)
     .fetch_optional(&state.pool)
@@ -116,8 +121,8 @@ async fn listar_historico(
 ) -> Result<Json<Vec<HistoricoBuscaResponse>>, AppError> {
     garantir_pessoa(&state, pessoa_id).await?;
     let itens = sqlx::query_as::<_, HistoricoBuscaPublica>(
-        "SELECT id, pessoa_id, fonte, parametro_utilizado, titulo_resultado, snippet, \
-                url_origem, anexo_dossie_id, data_captura \
+        "SELECT id, pessoa_id, fonte, provider, parametro_utilizado, titulo_resultado, snippet, \
+                url_origem, anexo_dossie_id, data_publicacao, detalhes, data_captura \
          FROM historico_busca_publica WHERE pessoa_id = ? \
          ORDER BY data_captura DESC, id DESC",
     )
@@ -131,6 +136,7 @@ async fn listar_historico(
                 id: item.id,
                 pessoa_id: item.pessoa_id,
                 fonte: item.fonte,
+                provider: item.provider,
                 parametro_utilizado: item.parametro_utilizado,
                 titulo_resultado: item.titulo_resultado,
                 snippet: item.snippet,
@@ -139,6 +145,8 @@ async fn listar_historico(
                     .anexo_dossie_id
                     .map(|id| format!("/api/dossie/anexos/{id}/stream")),
                 anexo_dossie_id: item.anexo_dossie_id,
+                data_publicacao: item.data_publicacao,
+                detalhes: item.detalhes,
                 data_captura: item.data_captura,
             })
             .collect(),
@@ -152,7 +160,7 @@ async fn varrer(
     let inicio_varredura = Instant::now();
     garantir_pessoa(&state, pessoa_id).await?;
     let parametros = sqlx::query_as::<_, ParametroBusca>(
-        "SELECT id, pessoa_id, tipo, valor, ativo FROM parametro_busca \
+        "SELECT id, pessoa_id, tipo, valor, provider, ativo FROM parametro_busca \
          WHERE pessoa_id = ? AND ativo = 1 ORDER BY id",
     )
     .bind(pessoa_id)
@@ -170,18 +178,7 @@ async fn varrer(
         )));
     }
 
-    let searxng_url = state.config.searxng_url.as_deref().ok_or_else(|| {
-        AppError::ServiceUnavailable(
-            "varredura indisponível: configure SEARXNG_URL no servidor".to_owned(),
-        )
-    })?;
-    let endpoint = endpoint_searxng(searxng_url)?;
-    let cliente_busca = Client::builder()
-        .timeout(Duration::from_secs(state.config.osint_timeout_seconds))
-        .redirect(Policy::limited(3))
-        .user_agent(USER_AGENT)
-        .build()
-        .map_err(|erro| AppError::interno(format!("falha ao configurar cliente HTTP: {erro}")))?;
+    let mut providers = PublicSearchProviders::new(&state.config).map_err(AppError::interno)?;
 
     let mut resposta = VarreduraResponse {
         situacao: "concluida".to_owned(),
@@ -198,103 +195,44 @@ async fn varrer(
 
     for parametro in parametros {
         let inicio_parametro = Instant::now();
-        let consultas = consultas_para(&parametro);
-        let mut consultas_executadas = 0;
-        let mut recebeu_json_valido = false;
-        let mut falha_consulta = false;
-        let mut avisos_consulta = BTreeSet::new();
-        let mut fontes_parametro = BTreeSet::new();
-        let mut urls_encontradas = HashSet::new();
-        let mut resultados = Vec::new();
-
-        for consulta in consultas {
-            if resultados.len() >= state.config.osint_max_results {
-                break;
+        let provider = match SearchProvider::parse(&parametro.provider) {
+            Ok(provider) => provider,
+            Err(error) => {
+                resposta.parametros_inconclusivos += 1;
+                varredura_degradada = true;
+                resposta.avisos.push(format!(
+                    "pesquisa {} ignorada por possuir uma fonte inválida: {error}",
+                    parametro.id
+                ));
+                tracing::warn!(
+                    pessoa_id,
+                    parametro_id = parametro.id,
+                    provider = %parametro.provider,
+                    "provider inválido em parâmetro persistido"
+                );
+                continue;
             }
-            consultas_executadas += 1;
-            let resultado_busca = cliente_busca
-                .get(endpoint.clone())
-                .header(reqwest::header::ACCEPT, "application/json")
-                .query(&[
-                    ("q", consulta.as_str()),
-                    ("format", "json"),
-                    ("language", "pt-BR"),
-                    ("safesearch", "0"),
-                ])
-                .send()
-                .await;
-
-            let response = match resultado_busca {
-                Ok(response) if response.status().is_success() => response,
-                Ok(response) => {
-                    falha_consulta = true;
-                    avisos_consulta
-                        .insert(aviso_status_searxng(&parametro.tipo, response.status()));
-                    continue;
-                }
-                Err(erro) => {
-                    falha_consulta = true;
-                    avisos_consulta.insert(format!(
-                        "{}: não foi possível consultar o SearXNG ({erro})",
-                        parametro.tipo
-                    ));
-                    continue;
-                }
-            };
-
-            let dados: SearxResponse = match response.json().await {
-                Ok(dados) => dados,
-                Err(erro) => {
-                    falha_consulta = true;
-                    avisos_consulta.insert(format!(
-                        "{}: resposta JSON inválida do SearXNG ({erro})",
-                        parametro.tipo
-                    ));
-                    continue;
-                }
-            };
-            recebeu_json_valido = true;
-            for fonte in fontes_indisponiveis_da_resposta(&dados) {
-                fontes_indisponiveis.insert(fonte.0.clone());
-                fontes_parametro.insert(fonte);
-            }
-            for resultado in dados.results {
-                let url = resultado.url.trim();
-                if !url.is_empty() && urls_encontradas.insert(url.to_owned()) {
-                    resultados.push(resultado);
-                    if resultados.len() >= state.config.osint_max_results {
-                        break;
-                    }
-                }
-            }
+        };
+        let execution = providers.search(provider, &parametro).await;
+        for source in &execution.unavailable_sources {
+            fontes_indisponiveis.insert(source.clone());
         }
-
-        if !fontes_parametro.is_empty() {
-            avisos_consulta.insert(aviso_fontes_indisponiveis(
-                &parametro.tipo,
-                &fontes_parametro,
-            ));
-        }
-        resposta.avisos.extend(avisos_consulta);
-
-        let parametro_inconclusivo =
-            !recebeu_json_valido || (resultados.is_empty() && !fontes_parametro.is_empty());
-        let parametro_degradado =
-            parametro_inconclusivo || falha_consulta || !fontes_parametro.is_empty();
-        if parametro_inconclusivo {
+        resposta.avisos.extend(execution.warnings);
+        if execution.inconclusive {
             resposta.parametros_inconclusivos += 1;
         }
-        varredura_degradada |= parametro_degradado;
-        resposta.resultados_encontrados += resultados.len();
+        varredura_degradada |= execution.degraded;
+        resposta.resultados_encontrados += execution.results.len();
 
-        if parametro_inconclusivo {
+        if execution.inconclusive {
             tracing::warn!(
                 pessoa_id,
                 parametro_id = parametro.id,
                 tipo = %parametro.tipo,
-                consultas_executadas,
-                resultados = resultados.len(),
-                fontes_indisponiveis = fontes_parametro.len(),
+                provider = provider.as_str(),
+                consultas_executadas = execution.requests_executed,
+                resultados = execution.results.len(),
+                fontes_indisponiveis = execution.unavailable_sources.len(),
                 duracao_ms = inicio_parametro.elapsed().as_millis(),
                 "parâmetro OSINT processado de forma inconclusiva"
             );
@@ -303,16 +241,17 @@ async fn varrer(
                 pessoa_id,
                 parametro_id = parametro.id,
                 tipo = %parametro.tipo,
-                consultas_executadas,
-                resultados = resultados.len(),
-                fontes_indisponiveis = fontes_parametro.len(),
+                provider = provider.as_str(),
+                consultas_executadas = execution.requests_executed,
+                resultados = execution.results.len(),
+                fontes_indisponiveis = execution.unavailable_sources.len(),
                 duracao_ms = inicio_parametro.elapsed().as_millis(),
                 "parâmetro OSINT processado"
             );
         }
 
-        for resultado in resultados {
-            let url_texto = resultado.url.trim();
+        for result in execution.results {
+            let url_texto = result.url.trim();
             if url_texto.is_empty() || url_texto.len() > 4096 {
                 continue;
             }
@@ -348,26 +287,19 @@ async fn varrer(
                 }
             }
 
-            let fonte = resultado
-                .engine
-                .filter(|valor| !valor.trim().is_empty())
-                .or_else(|| resultado.engines.into_iter().next())
-                .or_else(|| url.host_str().map(str::to_owned))
-                .unwrap_or_else(|| "Fonte pública".to_owned());
-            let titulo = resultado
-                .title
-                .filter(|valor| !valor.trim().is_empty())
-                .unwrap_or_else(|| url_texto.to_owned());
             let parametro_utilizado = format!("{}: {}", parametro.tipo, parametro.valor);
             let (novo, pdf_salvo) = registrar_achado(
                 &state,
                 NovoAchado {
                     pessoa_id,
-                    fonte: &fonte,
+                    provider: provider.as_str(),
+                    fonte: &result.source,
                     parametro_utilizado: &parametro_utilizado,
-                    titulo: &titulo,
-                    snippet: resultado.content.as_deref(),
+                    titulo: &result.title,
+                    snippet: result.description.as_deref(),
                     url_origem: url.as_str(),
+                    data_publicacao: result.published_at.as_deref(),
+                    detalhes: result.details.as_deref(),
                     pdf,
                 },
             )
@@ -401,24 +333,16 @@ async fn varrer(
     Ok(Json(resposta))
 }
 
-fn aviso_status_searxng(tipo: &str, status: StatusCode) -> String {
-    if status == StatusCode::FORBIDDEN {
-        return format!(
-            "{tipo}: o SearXNG recusou a API JSON (HTTP 403). Habilite 'json' em \
-             search.formats no settings.yml e, se o limiter estiver ativo, configure \
-             corretamente os cabeçalhos do proxy"
-        );
-    }
-    format!("{tipo}: o SearXNG respondeu com HTTP {status}")
-}
-
 struct NovoAchado<'a> {
     pessoa_id: i64,
+    provider: &'a str,
     fonte: &'a str,
     parametro_utilizado: &'a str,
     titulo: &'a str,
     snippet: Option<&'a str>,
     url_origem: &'a str,
+    data_publicacao: Option<&'a str>,
+    detalhes: Option<&'a str>,
     pdf: Option<PdfBaixado>,
 }
 
@@ -428,11 +352,14 @@ async fn registrar_achado(
 ) -> Result<(bool, bool), AppError> {
     let NovoAchado {
         pessoa_id,
+        provider,
         fonte,
         parametro_utilizado,
         titulo,
         snippet,
         url_origem,
+        data_publicacao,
+        detalhes,
         pdf,
     } = achado;
     let mut transacao = state.pool.begin().await?;
@@ -471,17 +398,20 @@ async fn registrar_achado(
 
     sqlx::query(
         "INSERT INTO historico_busca_publica \
-            (pessoa_id, fonte, parametro_utilizado, titulo_resultado, snippet, \
-             url_origem, anexo_dossie_id) \
-         VALUES (?, ?, ?, ?, ?, ?, ?)",
+            (pessoa_id, provider, fonte, parametro_utilizado, titulo_resultado, snippet, \
+             url_origem, anexo_dossie_id, data_publicacao, detalhes) \
+         VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
     )
     .bind(pessoa_id)
+    .bind(provider)
     .bind(truncar(fonte, 200))
     .bind(truncar(parametro_utilizado, 600))
     .bind(truncar(titulo, 1000))
     .bind(snippet.map(|valor| truncar(valor, 4000)))
     .bind(url_origem)
     .bind(anexo_id)
+    .bind(data_publicacao.map(|valor| truncar(valor, 40)))
+    .bind(detalhes.map(|valor| truncar(valor, 4000)))
     .execute(&mut *transacao)
     .await?;
     transacao.commit().await?;
@@ -622,25 +552,9 @@ fn ipv6_publico(ip: Ipv6Addr) -> bool {
         && !(segmentos[0] == 0x2001 && segmentos[1] == 0x0db8)
 }
 
-fn endpoint_searxng(base: &str) -> Result<Url, AppError> {
-    let mut url = Url::parse(base).map_err(|_| {
-        AppError::ServiceUnavailable("SEARXNG_URL não contém uma URL válida".to_owned())
-    })?;
-    if !matches!(url.scheme(), "http" | "https") || url.host_str().is_none() {
-        return Err(AppError::ServiceUnavailable(
-            "SEARXNG_URL deve usar HTTP ou HTTPS".to_owned(),
-        ));
-    }
-    if !url.path().trim_end_matches('/').ends_with("/search") {
-        let caminho = format!("{}/search", url.path().trim_end_matches('/'));
-        url.set_path(&caminho);
-    }
-    url.set_query(None);
-    url.set_fragment(None);
-    Ok(url)
-}
-
-fn normalizar_parametro(input: ParametroBuscaInput) -> Result<(String, String, bool), AppError> {
+fn normalizar_parametro(
+    input: ParametroBuscaInput,
+) -> Result<(String, String, String, bool), AppError> {
     let tipo = input.tipo.trim().to_ascii_uppercase();
     if !TIPOS_VALIDOS.contains(&tipo.as_str()) {
         return Err(AppError::BadRequest(format!(
@@ -673,134 +587,13 @@ fn normalizar_parametro(input: ParametroBuscaInput) -> Result<(String, String, b
             "telefone deve possuir entre 7 e 15 dígitos".to_owned(),
         ));
     }
-    Ok((tipo, valor, input.ativo.unwrap_or(true)))
-}
-
-fn consultas_para(parametro: &ParametroBusca) -> Vec<String> {
-    let valor = parametro.valor.replace('"', " ").trim().to_owned();
-    let mut valores = Vec::new();
-    adicionar_unico(&mut valores, valor.clone());
-
-    match parametro.tipo.as_str() {
-        "NOME" => adicionar_unico(&mut valores, valor.clone()),
-        "CPF" | "CNPJ" | "TELEFONE" => {
-            let digitos: String = valor.chars().filter(char::is_ascii_digit).collect();
-            if !digitos.is_empty() {
-                adicionar_unico(&mut valores, digitos.clone());
-                if let Some(formatado) = formatar_identificador(&parametro.tipo, &digitos) {
-                    adicionar_unico(&mut valores, formatado);
-                }
-            }
-        }
-        _ => {}
-    }
-
-    if parametro.tipo == "TERMO" {
-        return valores;
-    }
-    if parametro.tipo == "NOME" {
-        let mut consultas = vec![format!("\"{valor}\"")];
-        adicionar_unico(&mut consultas, valor);
-        return consultas;
-    }
-    valores
-        .into_iter()
-        .map(|valor| format!("\"{valor}\""))
-        .collect()
-}
-
-fn adicionar_unico(valores: &mut Vec<String>, valor: String) {
-    if !valor.is_empty() && !valores.contains(&valor) {
-        valores.push(valor);
-    }
-}
-
-fn formatar_identificador(tipo: &str, digitos: &str) -> Option<String> {
-    match (tipo, digitos.len()) {
-        ("CPF", 11) => Some(format!(
-            "{}.{}.{}-{}",
-            &digitos[0..3],
-            &digitos[3..6],
-            &digitos[6..9],
-            &digitos[9..11]
-        )),
-        ("CNPJ", 14) => Some(format!(
-            "{}.{}.{}/{}-{}",
-            &digitos[0..2],
-            &digitos[2..5],
-            &digitos[5..8],
-            &digitos[8..12],
-            &digitos[12..14]
-        )),
-        ("TELEFONE", 10) => Some(format!(
-            "({}) {}-{}",
-            &digitos[0..2],
-            &digitos[2..6],
-            &digitos[6..10]
-        )),
-        ("TELEFONE", 11) => Some(format!(
-            "({}) {}-{}",
-            &digitos[0..2],
-            &digitos[2..7],
-            &digitos[7..11]
-        )),
-        ("TELEFONE", 12) if digitos.starts_with("55") => Some(format!(
-            "+55 ({}) {}-{}",
-            &digitos[2..4],
-            &digitos[4..8],
-            &digitos[8..12]
-        )),
-        ("TELEFONE", 13) if digitos.starts_with("55") => Some(format!(
-            "+55 ({}) {}-{}",
-            &digitos[2..4],
-            &digitos[4..9],
-            &digitos[9..13]
-        )),
-        _ => None,
-    }
-}
-
-fn fontes_indisponiveis_da_resposta(dados: &SearxResponse) -> Vec<(String, String)> {
-    dados
-        .unresponsive_engines
-        .iter()
-        .filter_map(|item| {
-            let fonte = item.first()?.trim();
-            if fonte.is_empty() {
-                return None;
-            }
-            let motivo = item
-                .get(1)
-                .map(|valor| valor.trim())
-                .filter(|valor| !valor.is_empty())
-                .unwrap_or("indisponível");
-            Some((fonte.to_owned(), motivo.to_owned()))
-        })
-        .collect()
-}
-
-fn aviso_fontes_indisponiveis(tipo: &str, fontes: &BTreeSet<(String, String)>) -> String {
-    let detalhes = fontes
-        .iter()
-        .map(|(fonte, motivo)| format!("{fonte} ({})", traduzir_motivo_fonte(motivo)))
-        .collect::<Vec<_>>()
-        .join(", ");
-    format!("{tipo}: fontes temporariamente indisponíveis: {detalhes}")
-}
-
-fn traduzir_motivo_fonte(motivo: &str) -> String {
-    let normalizado = motivo.to_ascii_lowercase();
-    if normalizado.contains("captcha") {
-        "CAPTCHA".to_owned()
-    } else if normalizado.contains("too many requests") || normalizado.contains("rate limit") {
-        "limite de requisições".to_owned()
-    } else if normalizado.contains("timeout") {
-        "tempo esgotado".to_owned()
-    } else if normalizado.contains("suspended") {
-        "temporariamente suspensa".to_owned()
-    } else {
-        truncar(motivo, 120)
-    }
+    let provider = SearchProvider::parse(&input.provider).map_err(AppError::BadRequest)?;
+    Ok((
+        tipo,
+        valor,
+        provider.as_str().to_owned(),
+        input.ativo.unwrap_or(true),
+    ))
 }
 
 fn classificar_varredura(
@@ -852,24 +645,6 @@ fn truncar(valor: &str, maximo: usize) -> String {
     valor.chars().take(maximo).collect()
 }
 
-#[derive(Debug, Deserialize)]
-struct SearxResponse {
-    #[serde(default)]
-    results: Vec<SearxResult>,
-    #[serde(default)]
-    unresponsive_engines: Vec<Vec<String>>,
-}
-
-#[derive(Debug, Deserialize)]
-struct SearxResult {
-    url: String,
-    title: Option<String>,
-    content: Option<String>,
-    engine: Option<String>,
-    #[serde(default)]
-    engines: Vec<String>,
-}
-
 struct PdfBaixado {
     nome_arquivo: String,
     conteudo: Vec<u8>,
@@ -888,79 +663,108 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{
-        SearxResponse, aviso_fontes_indisponiveis, aviso_status_searxng, classificar_varredura,
-        consultas_para, endpoint_searxng, fontes_indisponiveis_da_resposta, ipv4_publico,
-        ipv6_publico,
-    };
-    use crate::models::ParametroBusca;
-    use axum::http::StatusCode;
-    use std::{
-        collections::BTreeSet,
-        net::{Ipv4Addr, Ipv6Addr},
-    };
+    use super::{classificar_varredura, ipv4_publico, ipv6_publico, normalizar_parametro};
+    use crate::models::ParametroBuscaInput;
+    use sqlx::sqlite::SqlitePoolOptions;
+    use std::net::{Ipv4Addr, Ipv6Addr};
 
     #[test]
-    fn monta_variantes_para_nome_e_termo() {
-        let mut parametro = ParametroBusca {
-            id: 1,
-            pessoa_id: 1,
-            tipo: "NOME".to_owned(),
-            valor: "Maria Silva".to_owned(),
-            ativo: true,
-        };
-        assert_eq!(
-            consultas_para(&parametro),
-            vec!["\"Maria Silva\"", "Maria Silva"]
-        );
-        parametro.tipo = "TERMO".to_owned();
-        assert_eq!(consultas_para(&parametro), vec!["Maria Silva"]);
+    fn configuracao_antiga_usa_searxng() {
+        let input: ParametroBuscaInput =
+            serde_json::from_str(r#"{"tipo":"TERMO","valor":"licitação","ativo":true}"#).unwrap();
+        let (_, _, provider, _) = normalizar_parametro(input).unwrap();
+        assert_eq!(provider, "SEARXNG");
     }
 
     #[test]
-    fn monta_variantes_formatadas_e_numericas() {
-        let mut parametro = ParametroBusca {
-            id: 1,
-            pessoa_id: 1,
-            tipo: "CPF".to_owned(),
-            valor: "123.456.789-01".to_owned(),
-            ativo: true,
-        };
-        assert_eq!(
-            consultas_para(&parametro),
-            vec!["\"123.456.789-01\"", "\"12345678901\""]
-        );
-
-        parametro.tipo = "TELEFONE".to_owned();
-        parametro.valor = "+55 11 99999-0000".to_owned();
-        assert_eq!(
-            consultas_para(&parametro),
-            vec![
-                "\"+55 11 99999-0000\"",
-                "\"5511999990000\"",
-                "\"+55 (11) 99999-0000\""
-            ]
-        );
+    fn normalizacao_preserva_cada_provider() {
+        for provider in ["SEARXNG", "QUERIDO_DIARIO", "INLABS", "OPENALEX"] {
+            let input: ParametroBuscaInput = serde_json::from_value(serde_json::json!({
+                "tipo": "TERMO",
+                "valor": "pesquisa",
+                "provider": provider
+            }))
+            .unwrap();
+            let (_, _, normalized, _) = normalizar_parametro(input).unwrap();
+            assert_eq!(normalized, provider);
+        }
     }
 
     #[test]
-    fn interpreta_e_resume_fontes_indisponiveis() {
-        let dados: SearxResponse = serde_json::from_str(
-            r#"{
-                "results": [],
-                "unresponsive_engines": [
-                    ["startpage", "Suspended: CAPTCHA"],
-                    ["duckduckgo", "timeout"]
-                ]
-            }"#,
+    fn provider_invalido_retorna_erro_sem_panic() {
+        let input: ParametroBuscaInput =
+            serde_json::from_str(r#"{"tipo":"TERMO","valor":"teste","provider":"URL_ARBITRARIA"}"#)
+                .unwrap();
+        assert!(normalizar_parametro(input).is_err());
+    }
+
+    #[tokio::test]
+    async fn migration_persists_defaults_all_providers_and_edits() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let person_id: i64 =
+            sqlx::query_scalar("INSERT INTO pessoa (nome) VALUES ('Teste') RETURNING id")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+
+        sqlx::query(
+            "INSERT INTO parametro_busca (pessoa_id, tipo, valor) VALUES (?, 'TERMO', 'legado')",
         )
+        .bind(person_id)
+        .execute(&pool)
+        .await
         .unwrap();
-        let fontes: BTreeSet<_> = fontes_indisponiveis_da_resposta(&dados)
-            .into_iter()
-            .collect();
-        let aviso = aviso_fontes_indisponiveis("NOME", &fontes);
-        assert!(aviso.contains("startpage (CAPTCHA)"));
-        assert!(aviso.contains("duckduckgo (tempo esgotado)"));
+        let default_provider: String =
+            sqlx::query_scalar("SELECT provider FROM parametro_busca WHERE valor = 'legado'")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(default_provider, "SEARXNG");
+
+        for provider in ["SEARXNG", "QUERIDO_DIARIO", "INLABS", "OPENALEX"] {
+            sqlx::query(
+                "INSERT INTO parametro_busca (pessoa_id, tipo, valor, provider) VALUES (?, 'TERMO', 'mesma consulta', ?)",
+            )
+            .bind(person_id)
+            .bind(provider)
+            .execute(&pool)
+            .await
+            .unwrap();
+        }
+        let saved: i64 = sqlx::query_scalar(
+            "SELECT COUNT(*) FROM parametro_busca WHERE valor = 'mesma consulta'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(saved, 4);
+
+        sqlx::query(
+            "UPDATE parametro_busca SET valor = 'consulta editada' WHERE provider = 'OPENALEX'",
+        )
+        .execute(&pool)
+        .await
+        .unwrap();
+        let edited_provider: String = sqlx::query_scalar(
+            "SELECT provider FROM parametro_busca WHERE valor = 'consulta editada'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(edited_provider, "OPENALEX");
+
+        let invalid = sqlx::query(
+            "INSERT INTO parametro_busca (pessoa_id, tipo, valor, provider) VALUES (?, 'TERMO', 'inválida', 'URL')",
+        )
+        .bind(person_id)
+        .execute(&pool)
+        .await;
+        assert!(invalid.is_err());
     }
 
     #[test]
@@ -986,22 +790,5 @@ mod tests {
         )));
         assert!(ipv4_publico(Ipv4Addr::new(1, 1, 1, 1)));
         assert!(ipv6_publico("2606:4700:4700::1111".parse().unwrap()));
-    }
-
-    #[test]
-    fn completa_endpoint_searxng() {
-        assert_eq!(
-            endpoint_searxng("https://busca.exemplo.org/instancia")
-                .unwrap()
-                .as_str(),
-            "https://busca.exemplo.org/instancia/search"
-        );
-    }
-
-    #[test]
-    fn explica_erro_403_do_searxng() {
-        let aviso = aviso_status_searxng("NOME", StatusCode::FORBIDDEN);
-        assert!(aviso.contains("API JSON"));
-        assert!(aviso.contains("search.formats"));
     }
 }

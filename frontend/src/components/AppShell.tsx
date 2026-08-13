@@ -12,6 +12,7 @@ import { NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon } from "./BrandIcon";
+import { TaskReminderWatcher } from "./TaskReminderWatcher";
 import { cn } from "./ui";
 
 const navegacao = [
@@ -49,6 +50,7 @@ export function AppShell() {
 
   return (
     <div className="min-h-screen bg-canvas">
+      <TaskReminderWatcher />
       <aside className="fixed inset-y-0 left-0 z-30 hidden w-72 flex-col border-r border-white/10 bg-ink px-5 py-7 text-white lg:flex">
         <Brand />
         <div className="mt-10 flex flex-1 flex-col">{links}</div>
