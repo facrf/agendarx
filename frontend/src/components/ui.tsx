@@ -125,11 +125,12 @@ export function PageHeader({ eyebrow, title, description, action }: {
   );
 }
 
-export function Modal({ open, onClose, title, children, className }: PropsWithChildren<{
+export function Modal({ open, onClose, title, children, className, bodyClassName }: PropsWithChildren<{
   open: boolean;
   onClose: () => void;
   title: string;
   className?: string;
+  bodyClassName?: string;
 }>) {
   useEffect(() => {
     if (!open) return;
@@ -144,23 +145,22 @@ export function Modal({ open, onClose, title, children, className }: PropsWithCh
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-4 backdrop-blur-sm" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
       <section
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn("animate-modal max-h-[92vh] w-full max-w-2xl overflow-auto rounded-3xl bg-white shadow-2xl", className)}
+        className={cn("animate-modal max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-auto rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl", className)}
         onMouseDown={(event) => event.stopPropagation()}
       >
-        <header className="sticky top-0 z-10 flex items-center justify-between border-b border-slate-100 bg-white/95 px-6 py-4 backdrop-blur">
-          <h2 className="font-display text-xl font-semibold text-slate-950">{title}</h2>
+        <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
+          <h2 className="min-w-0 truncate font-display text-lg font-semibold text-slate-950 sm:text-xl" title={title}>{title}</h2>
           <button className="icon-button" type="button" onClick={onClose} aria-label="Fechar">
             <X className="size-5" />
           </button>
         </header>
-        <div className="p-6">{children}</div>
+        <div className={bodyClassName ?? "p-4 sm:p-6"}>{children}</div>
       </section>
     </div>
   );
 }
-

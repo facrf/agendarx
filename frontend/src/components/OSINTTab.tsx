@@ -1,5 +1,7 @@
 import {
   AlertTriangle,
+  ChevronLeft,
+  ChevronRight,
   DatabaseZap,
   ExternalLink,
   FileSearch,
@@ -9,23 +11,26 @@ import {
   Plus,
   Power,
   Radar,
+  Search,
   ShieldCheck,
   Trash2,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useToast } from "../contexts/ToastContext";
-import { api, apiUrl, errorMessage } from "../services/api";
+import { api, errorMessage } from "../services/api";
 import type {
   HistoricoBuscaPublica,
+  HistoricoBuscaPaginado,
   FontePesquisaPublica,
   ParametroBusca,
   TipoParametroBusca,
   VarreduraPublicaResponse,
 } from "../types/api";
 import { formatDate } from "../utils/format";
-import { Button, EmptyState, Modal, Spinner, cn } from "./ui";
+import { AttachmentPreviewModal } from "./AttachmentPreview";
+import { Button, EmptyState, Spinner, cn } from "./ui";
 
 const TIPOS: Array<{ valor: TipoParametroBusca; rotulo: string }> = [
   { valor: "NOME", rotulo: "Nome" },
@@ -47,6 +52,8 @@ const PROVIDERS: Array<{
   { valor: "OPENALEX", rotulo: "OpenAlex", descricao: "Literatura e citações acadêmicas." },
 ];
 
+type QuantidadePorPagina = 0 | 10 | 50 | 100;
+
 function providerLabel(provider: FontePesquisaPublica): string {
   return PROVIDERS.find((item) => item.valor === provider)?.rotulo ?? provider;
 }
@@ -54,25 +61,29 @@ function providerLabel(provider: FontePesquisaPublica): string {
 export function OSINTTab({ pessoaId }: { pessoaId: number }) {
   const [parametros, setParametros] = useState<ParametroBusca[]>([]);
   const [historico, setHistorico] = useState<HistoricoBuscaPublica[]>([]);
+  const [totalHistorico, setTotalHistorico] = useState(0);
+  const [totalPaginas, setTotalPaginas] = useState(0);
+  const [pagina, setPagina] = useState(1);
+  const [porPagina, setPorPagina] = useState<QuantidadePorPagina>(10);
+  const [buscaHistorico, setBuscaHistorico] = useState("");
+  const [buscaAplicada, setBuscaAplicada] = useState("");
   const [tipo, setTipo] = useState<TipoParametroBusca>("NOME");
   const [provider, setProvider] = useState<FontePesquisaPublica>("SEARXNG");
   const [valor, setValor] = useState("");
   const [editandoId, setEditandoId] = useState<number | null>(null);
   const [carregando, setCarregando] = useState(true);
+  const [carregandoHistorico, setCarregandoHistorico] = useState(true);
   const [salvando, setSalvando] = useState(false);
   const [varrendo, setVarrendo] = useState(false);
   const [resultado, setResultado] = useState<VarreduraPublicaResponse | null>(null);
   const [pdfAberto, setPdfAberto] = useState<HistoricoBuscaPublica | null>(null);
+  const [excluindoAchadoId, setExcluindoAchadoId] = useState<number | null>(null);
+  const consultaHistoricoAtual = useRef(0);
   const { notify } = useToast();
 
-  const carregar = useCallback(async () => {
+  const carregarParametros = useCallback(async () => {
     try {
-      const [parametrosData, historicoData] = await Promise.all([
-        api.get<ParametroBusca[]>(`/api/osint/parametros/${pessoaId}`),
-        api.get<HistoricoBuscaPublica[]>(`/api/osint/historico/${pessoaId}`),
-      ]);
-      setParametros(parametrosData);
-      setHistorico(historicoData);
+      setParametros(await api.get<ParametroBusca[]>(`/api/osint/parametros/${pessoaId}`));
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -81,8 +92,47 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
   }, [pessoaId, notify]);
 
   useEffect(() => {
-    void carregar();
-  }, [carregar]);
+    void carregarParametros();
+  }, [carregarParametros]);
+
+  const carregarHistorico = useCallback(async () => {
+    const idConsulta = ++consultaHistoricoAtual.current;
+    setCarregandoHistorico(true);
+    const query = new URLSearchParams({
+      pagina: String(pagina),
+      por_pagina: String(porPagina),
+    });
+    if (buscaAplicada) query.set("busca", buscaAplicada);
+    try {
+      const data = await api.get<HistoricoBuscaPaginado>(
+        `/api/osint/historico/${pessoaId}?${query.toString()}`,
+      );
+      if (idConsulta !== consultaHistoricoAtual.current) return;
+      if (data.total_paginas > 0 && pagina > data.total_paginas && porPagina !== 0) {
+        setPagina(data.total_paginas);
+        return;
+      }
+      setHistorico(data.itens);
+      setTotalHistorico(data.total);
+      setTotalPaginas(data.total_paginas);
+    } catch (error) {
+      if (idConsulta === consultaHistoricoAtual.current) notify(errorMessage(error), "erro");
+    } finally {
+      if (idConsulta === consultaHistoricoAtual.current) setCarregandoHistorico(false);
+    }
+  }, [buscaAplicada, pagina, pessoaId, porPagina, notify]);
+
+  useEffect(() => {
+    void carregarHistorico();
+  }, [carregarHistorico]);
+
+  useEffect(() => {
+    const timeout = window.setTimeout(() => {
+      setPagina(1);
+      setBuscaAplicada(buscaHistorico.trim());
+    }, 300);
+    return () => window.clearTimeout(timeout);
+  }, [buscaHistorico]);
 
   const salvarParametro = async (event: FormEvent) => {
     event.preventDefault();
@@ -169,7 +219,8 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
         `/api/osint/varrer/${pessoaId}`,
       );
       setResultado(resumo);
-      setHistorico(await api.get(`/api/osint/historico/${pessoaId}`));
+      if (pagina === 1) await carregarHistorico();
+      else setPagina(1);
       if (resumo.situacao === "inconclusiva") {
         notify("Varredura inconclusiva: consulte as fontes indisponíveis", "erro");
       } else if (resumo.novos_achados > 0) {
@@ -186,9 +237,33 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
     }
   };
 
+  const excluirAchado = async (achado: HistoricoBuscaPublica) => {
+    if (!window.confirm(
+      `Excluir “${achado.titulo_resultado}” da linha do tempo? O PDF arquivado, se houver, será mantido no dossiê.`,
+    )) return;
+    setExcluindoAchadoId(achado.id);
+    try {
+      await api.delete(`/api/osint/historico/item/${achado.id}`);
+      if (pdfAberto?.id === achado.id) setPdfAberto(null);
+      notify("Achado removido da linha do tempo");
+      if (historico.length === 1 && pagina > 1) setPagina((atual) => atual - 1);
+      else await carregarHistorico();
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    } finally {
+      setExcluindoAchadoId(null);
+    }
+  };
+
   if (carregando) return <Spinner label="Carregando pesquisa pública" />;
 
   const ativos = parametros.filter((parametro) => parametro.ativo).length;
+  const primeiroItem = totalHistorico === 0
+    ? 0
+    : porPagina === 0 ? 1 : (pagina - 1) * porPagina + 1;
+  const ultimoItem = porPagina === 0
+    ? totalHistorico
+    : Math.min(pagina * porPagina, totalHistorico);
 
   return (
     <div className="space-y-7">
@@ -328,85 +403,156 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
           </div>
         </section>
 
-        <section>
+        <section className="min-w-0">
           <div className="mb-4 flex items-end justify-between gap-3">
             <div>
               <p className="eyebrow">Arquivamento</p>
               <h2 className="font-display text-xl font-semibold">Linha do tempo de achados</h2>
             </div>
-            <span className="chip"><History className="size-3.5" /> {historico.length}</span>
+            <span className="chip shrink-0"><History className="size-3.5" /> {totalHistorico}</span>
           </div>
 
-          {historico.length === 0 ? (
+          <div className="mb-5 grid gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-3 sm:grid-cols-[minmax(0,1fr)_auto]">
+            <label className="relative block">
+              <span className="sr-only">Pesquisar na linha do tempo</span>
+              <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
+              <input
+                className="field pl-10 pr-10"
+                type="search"
+                value={buscaHistorico}
+                maxLength={200}
+                placeholder="Pesquisar título, fonte, trecho ou parâmetro…"
+                onChange={(event) => setBuscaHistorico(event.target.value)}
+              />
+              {buscaHistorico && (
+                <button
+                  type="button"
+                  className="absolute right-2 top-1/2 grid size-8 -translate-y-1/2 place-items-center rounded-lg text-slate-400 hover:bg-white hover:text-slate-700"
+                  onClick={() => setBuscaHistorico("")}
+                  aria-label="Limpar pesquisa"
+                >
+                  <X className="size-4" />
+                </button>
+              )}
+            </label>
+            <label className="flex items-center gap-2 text-sm font-medium text-slate-600">
+              <span className="whitespace-nowrap">Por página</span>
+              <select
+                className="field min-w-24"
+                value={porPagina}
+                onChange={(event) => {
+                  setPorPagina(Number(event.target.value) as QuantidadePorPagina);
+                  setPagina(1);
+                }}
+              >
+                <option value={10}>10</option>
+                <option value={50}>50</option>
+                <option value={100}>100</option>
+                <option value={0}>Todos</option>
+              </select>
+            </label>
+          </div>
+
+          {carregandoHistorico ? (
+            <Spinner label="Consultando a linha do tempo" />
+          ) : historico.length === 0 ? (
             <EmptyState
               icon={<FileSearch className="size-7" />}
-              title="Nenhum achado registrado"
-              description="Configure os parâmetros e execute uma varredura. Resultados já arquivados não serão duplicados."
+              title={buscaAplicada ? "Nenhum achado encontrado" : "Nenhum achado registrado"}
+              description={buscaAplicada
+                ? "Tente outro termo ou limpe a pesquisa para voltar a exibir toda a linha do tempo."
+                : "Configure os parâmetros e execute uma varredura. Resultados já arquivados não serão duplicados."}
             />
           ) : (
-            <div className="relative space-y-4 before:absolute before:bottom-5 before:left-[0.68rem] before:top-5 before:w-px before:bg-slate-200">
-              {historico.map((item) => (
-                <article key={item.id} className="relative pl-8">
-                  <span className="absolute left-1.5 top-5 z-[1] size-3 rounded-full border-[3px] border-white bg-teal-600 shadow-sm" />
-                  <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-teal-100 hover:shadow-md sm:p-5">
-                    <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
-                      <span className="rounded-full bg-teal-50 px-2 py-1 font-semibold text-teal-800">
-                        {providerLabel(item.provider)}
-                      </span>
-                      <span className="font-semibold text-slate-600">{item.fonte}</span>
-                      <span aria-hidden="true">•</span>
-                      <time dateTime={item.data_captura}>{formatDate(item.data_captura, true)}</time>
-                      <span className="chip ml-auto">{item.parametro_utilizado}</span>
-                    </div>
-                    <h3 className="mt-3 text-base font-semibold leading-6 text-slate-900">{item.titulo_resultado}</h3>
-                    {item.data_publicacao && (
-                      <p className="mt-1 text-xs font-medium text-slate-500">
-                        Publicado em: {formatDate(item.data_publicacao)}
-                      </p>
-                    )}
-                    {item.snippet && <p className="mt-2 whitespace-pre-line text-sm leading-6 text-slate-600">{item.snippet}</p>}
-                    {item.detalhes && (
-                      <p className="mt-3 whitespace-pre-line rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
-                        {item.detalhes}
-                      </p>
-                    )}
-                    <div className="mt-4 flex flex-wrap gap-2">
-                      <a
-                        className="btn btn-secondary"
-                        href={item.url_origem}
-                        target="_blank"
-                        rel="noopener noreferrer"
-                      >
-                        <ExternalLink className="size-4" /> Abrir fonte original
-                      </a>
-                      {item.url_pdf && (
-                        <Button type="button" variant="secondary" onClick={() => setPdfAberto(item)}>
-                          <FileText className="size-4" /> Visualizar PDF do Dossiê
-                        </Button>
+            <>
+              <div className="relative space-y-4 before:absolute before:bottom-5 before:left-[0.68rem] before:top-5 before:w-px before:bg-slate-200">
+                {historico.map((item) => (
+                  <article key={item.id} className="relative pl-8">
+                    <span className="absolute left-1.5 top-5 z-[1] size-3 rounded-full border-[3px] border-white bg-teal-600 shadow-sm" />
+                    <div className="rounded-2xl border border-slate-100 bg-white p-4 shadow-sm transition hover:border-teal-100 hover:shadow-md sm:p-5">
+                      <div className="flex flex-wrap items-center gap-2 text-xs text-slate-400">
+                        <span className="rounded-full bg-teal-50 px-2 py-1 font-semibold text-teal-800">
+                          {providerLabel(item.provider)}
+                        </span>
+                        <span className="font-semibold text-slate-600">{item.fonte}</span>
+                        <span aria-hidden="true">•</span>
+                        <time dateTime={item.data_captura}>{formatDate(item.data_captura, true)}</time>
+                        <span className="chip sm:ml-auto">{item.parametro_utilizado}</span>
+                      </div>
+                      <h3 className="mt-3 break-words text-base font-semibold leading-6 text-slate-900">{item.titulo_resultado}</h3>
+                      {item.data_publicacao && (
+                        <p className="mt-1 text-xs font-medium text-slate-500">
+                          Publicado em: {formatDate(item.data_publicacao)}
+                        </p>
                       )}
+                      {item.snippet && <p className="mt-2 whitespace-pre-line break-words text-sm leading-6 text-slate-600">{item.snippet}</p>}
+                      {item.detalhes && (
+                        <p className="mt-3 whitespace-pre-line break-words rounded-xl bg-slate-50 p-3 text-xs leading-5 text-slate-600">
+                          {item.detalhes}
+                        </p>
+                      )}
+                      <div className="mt-4 flex flex-wrap gap-2">
+                        <a
+                          className="btn btn-secondary"
+                          href={item.url_origem}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                        >
+                          <ExternalLink className="size-4" /> Abrir fonte original
+                        </a>
+                        {item.url_pdf && (
+                          <Button type="button" variant="secondary" onClick={() => setPdfAberto(item)}>
+                            <FileText className="size-4" /> Visualizar PDF do Dossiê
+                          </Button>
+                        )}
+                        <Button
+                          className="sm:ml-auto"
+                          type="button"
+                          variant="danger"
+                          loading={excluindoAchadoId === item.id}
+                          disabled={excluindoAchadoId !== null}
+                          onClick={() => void excluirAchado(item)}
+                        >
+                          <Trash2 className="size-4" /> Excluir resultado
+                        </Button>
+                      </div>
                     </div>
+                  </article>
+                ))}
+              </div>
+
+              <nav className="mt-5 flex flex-col gap-3 rounded-2xl border border-slate-200 bg-white p-3 sm:flex-row sm:items-center sm:justify-between" aria-label="Paginação da linha do tempo">
+                <p className="text-center text-xs text-slate-500 sm:text-left" aria-live="polite">
+                  Exibindo <strong>{primeiroItem}–{ultimoItem}</strong> de <strong>{totalHistorico}</strong> resultado(s)
+                </p>
+                {porPagina !== 0 && totalPaginas > 1 && (
+                  <div className="flex items-center justify-center gap-2">
+                    <Button type="button" variant="secondary" disabled={pagina <= 1} onClick={() => setPagina((atual) => atual - 1)}>
+                      <ChevronLeft className="size-4" /> Anterior
+                    </Button>
+                    <span className="min-w-20 text-center text-xs font-semibold text-slate-600">
+                      {pagina} de {totalPaginas}
+                    </span>
+                    <Button type="button" variant="secondary" disabled={pagina >= totalPaginas} onClick={() => setPagina((atual) => atual + 1)}>
+                      Próxima <ChevronRight className="size-4" />
+                    </Button>
                   </div>
-                </article>
-              ))}
-            </div>
+                )}
+              </nav>
+            </>
           )}
         </section>
       </div>
 
-      <Modal
-        open={Boolean(pdfAberto)}
+      <AttachmentPreviewModal
+        attachment={pdfAberto?.url_pdf && pdfAberto.anexo_dossie_id ? {
+          nome_arquivo: `${pdfAberto.titulo_resultado}.pdf`,
+          mime_type: "application/pdf",
+          url_stream: pdfAberto.url_pdf,
+          url_download: `/api/dossie/anexos/${pdfAberto.anexo_dossie_id}/download`,
+        } : null}
         onClose={() => setPdfAberto(null)}
-        title={pdfAberto?.titulo_resultado || "PDF arquivado"}
-        className="max-w-6xl"
-      >
-        {pdfAberto?.url_pdf && (
-          <iframe
-            className="h-[72vh] w-full rounded-xl border border-slate-200 bg-slate-100"
-            src={apiUrl(pdfAberto.url_pdf)}
-            title={`PDF: ${pdfAberto.titulo_resultado}`}
-          />
-        )}
-      </Modal>
+      />
     </div>
   );
 }

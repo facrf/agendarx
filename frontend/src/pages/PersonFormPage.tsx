@@ -19,6 +19,7 @@ import type {
   PessoaDetalhe,
   TipoMeioContato,
 } from "../types/api";
+import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 
 export function PersonFormPage() {
   const { id } = useParams();
@@ -73,6 +74,10 @@ export function PersonFormPage() {
   };
 
   const selecionarFoto = (file: File | null) => {
+    if (file?.size === 0) {
+      notify("A imagem selecionada está vazia", "erro");
+      return;
+    }
     if (file && !arquivoPareceImagem(file)) {
       notify("Solte ou selecione um arquivo de imagem", "erro");
       return;
@@ -86,12 +91,19 @@ export function PersonFormPage() {
     event.target.value = "";
   };
 
-  const soltarFoto = (event: DragEvent<HTMLLabelElement>) => {
-    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
+  const soltarFoto = async (event: DragEvent<HTMLLabelElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     setArrastandoFoto(false);
-    selecionarFoto(event.dataTransfer.files?.[0] || null);
+    const dropped = await droppedFiles(event.dataTransfer);
+    if (dropped.ignoredDirectories > 0) {
+      notify("Pastas não podem ser usadas como foto", "erro");
+    }
+    if (dropped.files.length > 1) {
+      notify("Somente a primeira imagem foi selecionada");
+    }
+    selecionarFoto(dropped.files[0] || null);
   };
 
   const salvar = async (event: FormEvent) => {
@@ -174,10 +186,10 @@ export function PersonFormPage() {
                   "group relative flex aspect-square cursor-pointer items-center justify-center overflow-hidden rounded-3xl border-2 border-dashed bg-slate-50 transition hover:border-teal-400 hover:bg-teal-50",
                   arrastandoFoto ? "border-teal-500 bg-teal-50 ring-4 ring-teal-100" : "border-slate-200",
                 )}
-                onDragEnter={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); setArrastandoFoto(true); } }}
-                onDragOver={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; } }}
+                onDragEnter={(event) => { if (dataTransferHasFiles(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); setArrastandoFoto(true); } }}
+                onDragOver={(event) => { if (dataTransferHasFiles(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = "copy"; } }}
                 onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArrastandoFoto(false); }}
-                onDrop={soltarFoto}
+                onDrop={(event) => void soltarFoto(event)}
               >
                 {preview ? <img className="h-full w-full object-cover" src={preview} alt="Prévia da foto" /> : temFoto && !removerFoto && pessoaId ? <img className="h-full w-full object-cover" src={apiUrl(`/api/dossie/pessoas/${pessoaId}/foto`)} alt="Foto atual" /> : <div className="text-center text-slate-400"><ImageUp className="mx-auto size-7" /><span className="mt-2 block text-xs">Escolher imagem</span></div>}
                 <input className="sr-only" type="file" accept="image/*" onChange={escolherFoto} />

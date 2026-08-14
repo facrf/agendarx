@@ -6,11 +6,12 @@ use std::{
 
 use axum::{
     Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::{get, post},
 };
 use reqwest::{Client, Url, redirect::Policy};
+use sqlx::{QueryBuilder, Sqlite};
 use tokio::net::lookup_host;
 
 mod providers;
@@ -21,14 +22,19 @@ use crate::{
     AppState,
     error::AppError,
     models::{
-        HistoricoBuscaPublica, HistoricoBuscaResponse, ParametroBusca, ParametroBuscaInput,
-        VarreduraResponse,
+        HistoricoBuscaFiltro, HistoricoBuscaPaginadoResponse, HistoricoBuscaPublica,
+        HistoricoBuscaResponse, ParametroBusca, ParametroBuscaInput, VarreduraResponse,
     },
 };
 
 const TIPOS_VALIDOS: [&str; 6] = ["NOME", "CPF", "CNPJ", "EMAIL", "TELEFONE", "TERMO"];
 const MAX_PARAMETROS_ATIVOS: usize = 50;
-const USER_AGENT: &str = "AgendarX-OSINT/0.4 (+arquivamento-publico)";
+const ITENS_POR_PAGINA_VALIDOS: [i64; 4] = [0, 10, 50, 100];
+const USER_AGENT: &str = concat!(
+    "AgendarX-OSINT/",
+    env!("CARGO_PKG_VERSION"),
+    " (+arquivamento-publico)"
+);
 
 pub fn rotas() -> Router<AppState> {
     Router::new()
@@ -42,6 +48,10 @@ pub fn rotas() -> Router<AppState> {
         )
         .route("/varrer/{pessoa_id}", post(varrer))
         .route("/historico/{pessoa_id}", get(listar_historico))
+        .route(
+            "/historico/item/{id}",
+            axum::routing::delete(excluir_item_historico),
+        )
 }
 
 async fn listar_parametros(
@@ -118,39 +128,140 @@ async fn excluir_parametro(
 async fn listar_historico(
     State(state): State<AppState>,
     Path(pessoa_id): Path<i64>,
-) -> Result<Json<Vec<HistoricoBuscaResponse>>, AppError> {
+    Query(filtro): Query<HistoricoBuscaFiltro>,
+) -> Result<Json<HistoricoBuscaPaginadoResponse>, AppError> {
     garantir_pessoa(&state, pessoa_id).await?;
-    let itens = sqlx::query_as::<_, HistoricoBuscaPublica>(
+    let pagina = filtro.pagina.unwrap_or(1);
+    if pagina < 1 {
+        return Err(AppError::BadRequest(
+            "pagina deve ser maior ou igual a 1".to_owned(),
+        ));
+    }
+    let por_pagina = filtro.por_pagina.unwrap_or(10);
+    if !ITENS_POR_PAGINA_VALIDOS.contains(&por_pagina) {
+        return Err(AppError::BadRequest(
+            "por_pagina deve ser 10, 50, 100 ou 0 para todos".to_owned(),
+        ));
+    }
+    let busca = filtro
+        .busca
+        .map(|valor| valor.trim().to_owned())
+        .filter(|valor| !valor.is_empty());
+    if busca
+        .as_ref()
+        .is_some_and(|valor| valor.chars().count() > 200)
+    {
+        return Err(AppError::BadRequest(
+            "a busca deve possuir no máximo 200 caracteres".to_owned(),
+        ));
+    }
+    let padrao_busca = busca.as_deref().map(padrao_like);
+
+    let mut consulta_total = QueryBuilder::<Sqlite>::new(
+        "SELECT COUNT(*) FROM historico_busca_publica WHERE pessoa_id = ",
+    );
+    consulta_total.push_bind(pessoa_id);
+    adicionar_filtro_busca(&mut consulta_total, padrao_busca.as_deref());
+    let total = consulta_total
+        .build_query_scalar::<i64>()
+        .fetch_one(&state.pool)
+        .await?;
+
+    let pagina_efetiva = if por_pagina == 0 { 1 } else { pagina };
+    let mut consulta = QueryBuilder::<Sqlite>::new(
         "SELECT id, pessoa_id, fonte, provider, parametro_utilizado, titulo_resultado, snippet, \
-                url_origem, anexo_dossie_id, data_publicacao, detalhes, data_captura \
-         FROM historico_busca_publica WHERE pessoa_id = ? \
-         ORDER BY data_captura DESC, id DESC",
-    )
-    .bind(pessoa_id)
-    .fetch_all(&state.pool)
-    .await?;
-    Ok(Json(
-        itens
-            .into_iter()
-            .map(|item| HistoricoBuscaResponse {
-                id: item.id,
-                pessoa_id: item.pessoa_id,
-                fonte: item.fonte,
-                provider: item.provider,
-                parametro_utilizado: item.parametro_utilizado,
-                titulo_resultado: item.titulo_resultado,
-                snippet: item.snippet,
-                url_origem: item.url_origem,
-                url_pdf: item
-                    .anexo_dossie_id
-                    .map(|id| format!("/api/dossie/anexos/{id}/stream")),
-                anexo_dossie_id: item.anexo_dossie_id,
-                data_publicacao: item.data_publicacao,
-                detalhes: item.detalhes,
-                data_captura: item.data_captura,
-            })
-            .collect(),
-    ))
+         url_origem, anexo_dossie_id, data_publicacao, detalhes, data_captura \
+         FROM historico_busca_publica WHERE pessoa_id = ",
+    );
+    consulta.push_bind(pessoa_id);
+    adicionar_filtro_busca(&mut consulta, padrao_busca.as_deref());
+    consulta.push(" ORDER BY data_captura DESC, id DESC");
+    if por_pagina > 0 {
+        consulta
+            .push(" LIMIT ")
+            .push_bind(por_pagina)
+            .push(" OFFSET ")
+            .push_bind((pagina_efetiva - 1).saturating_mul(por_pagina));
+    }
+    let itens = consulta
+        .build_query_as::<HistoricoBuscaPublica>()
+        .fetch_all(&state.pool)
+        .await?;
+    let total_paginas = if por_pagina == 0 {
+        i64::from(total > 0)
+    } else {
+        (total + por_pagina - 1) / por_pagina
+    };
+
+    Ok(Json(HistoricoBuscaPaginadoResponse {
+        itens: itens.into_iter().map(resposta_historico).collect(),
+        total,
+        pagina: pagina_efetiva,
+        por_pagina,
+        total_paginas,
+    }))
+}
+
+async fn excluir_item_historico(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let resultado = sqlx::query("DELETE FROM historico_busca_publica WHERE id = ?")
+        .bind(id)
+        .execute(&state.pool)
+        .await?;
+    if resultado.rows_affected() == 0 {
+        return Err(AppError::nao_encontrado("achado da linha do tempo"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+fn adicionar_filtro_busca<'a>(consulta: &mut QueryBuilder<'a, Sqlite>, padrao: Option<&'a str>) {
+    let Some(padrao) = padrao else {
+        return;
+    };
+    consulta.push(" AND (titulo_resultado LIKE ");
+    consulta.push_bind(padrao);
+    for campo in [
+        "snippet",
+        "fonte",
+        "provider",
+        "parametro_utilizado",
+        "detalhes",
+        "url_origem",
+    ] {
+        consulta.push(" ESCAPE '\\' OR ").push(campo).push(" LIKE ");
+        consulta.push_bind(padrao);
+    }
+    consulta.push(" ESCAPE '\\')");
+}
+
+fn padrao_like(valor: &str) -> String {
+    let escapado = valor
+        .replace('\\', "\\\\")
+        .replace('%', "\\%")
+        .replace('_', "\\_");
+    format!("%{escapado}%")
+}
+
+fn resposta_historico(item: HistoricoBuscaPublica) -> HistoricoBuscaResponse {
+    HistoricoBuscaResponse {
+        id: item.id,
+        pessoa_id: item.pessoa_id,
+        fonte: item.fonte,
+        provider: item.provider,
+        parametro_utilizado: item.parametro_utilizado,
+        titulo_resultado: item.titulo_resultado,
+        snippet: item.snippet,
+        url_origem: item.url_origem,
+        url_pdf: item
+            .anexo_dossie_id
+            .map(|id| format!("/api/dossie/anexos/{id}/stream")),
+        anexo_dossie_id: item.anexo_dossie_id,
+        data_publicacao: item.data_publicacao,
+        detalhes: item.detalhes,
+        data_captura: item.data_captura,
+    }
 }
 
 async fn varrer(
@@ -663,7 +774,9 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{classificar_varredura, ipv4_publico, ipv6_publico, normalizar_parametro};
+    use super::{
+        classificar_varredura, ipv4_publico, ipv6_publico, normalizar_parametro, padrao_like,
+    };
     use crate::models::ParametroBuscaInput;
     use sqlx::sqlite::SqlitePoolOptions;
     use std::net::{Ipv4Addr, Ipv6Addr};
@@ -773,6 +886,11 @@ mod tests {
         assert_eq!(classificar_varredura(2, 0, true), "parcial");
         assert_eq!(classificar_varredura(2, 1, true), "parcial");
         assert_eq!(classificar_varredura(2, 2, true), "inconclusiva");
+    }
+
+    #[test]
+    fn busca_no_historico_escapa_curingas_sql() {
+        assert_eq!(padrao_like(r"50%_\ concluído"), r"%50\%\_\\ concluído%");
     }
 
     #[test]

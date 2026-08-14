@@ -13,6 +13,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { apiUrl } from "../services/api";
 import type { AnexoTarefaCalendario, ArmazenamentoTarefas } from "../types/api";
+import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { formatBytes } from "../utils/format";
 import {
   AttachmentPreviewModal,
@@ -103,15 +104,20 @@ export function TaskAttachmentEditor({
     event.target.value = "";
   };
 
-  const dropFiles = (event: DragEvent<HTMLDivElement>) => {
+  const dropFiles = async (event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     setDragging(false);
-    if (!disabled) addFiles(Array.from(event.dataTransfer.files || []));
+    if (disabled) return;
+    const dropped = await droppedFiles(event.dataTransfer);
+    if (dropped.ignoredDirectories > 0) {
+      onInvalidFiles("Pastas foram ignoradas; selecione apenas arquivos");
+    }
+    addFiles(dropped.files);
   };
 
-  const dragHasFiles = (event: DragEvent) =>
-    Array.from(event.dataTransfer.types || []).includes("Files");
+  const dragHasFiles = (event: DragEvent) => dataTransferHasFiles(event.dataTransfer);
 
   const taskBytes = existing.reduce((total, item) => total + item.tamanho_bytes, 0);
   const pendingBytes = pending.reduce((total, file) => total + file.size, 0);
@@ -151,7 +157,7 @@ export function TaskAttachmentEditor({
         onDragLeave={(event) => {
           if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false);
         }}
-        onDrop={dropFiles}
+        onDrop={(event) => void dropFiles(event)}
       >
         <UploadCloud className="mx-auto size-6 text-teal-700" />
         <p className="mt-2 text-sm font-medium text-slate-700">

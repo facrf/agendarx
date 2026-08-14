@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { ImgHTMLAttributes } from "react";
-import { Download, File, FileAudio, FileText, FileVideo, ImageIcon } from "lucide-react";
+import { Download, ExternalLink, File, FileAudio, FileText, FileVideo, ImageIcon } from "lucide-react";
 import { apiUrl } from "../services/api";
 import { Modal } from "./ui";
 
@@ -35,15 +35,21 @@ export function AttachmentPreviewModal({ attachment, onClose }: {
       open={Boolean(attachment)}
       onClose={onClose}
       title={attachment?.nome_arquivo || "Pré-visualização"}
-      className="max-w-6xl"
+      className="flex h-[calc(100dvh-1rem)] max-w-6xl flex-col overflow-hidden sm:h-[calc(100dvh-2rem)]"
+      bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       {attachment && (
-        <div className="space-y-4">
-          <PreviewContent attachment={attachment} kind={kind} />
-          <div className="flex flex-wrap items-center justify-between gap-3 border-t border-slate-100 pt-4">
-            <p className="min-w-0 truncate text-xs text-slate-400">{attachment.mime_type || "Tipo não informado"}</p>
+        <div className="flex min-h-0 flex-1 flex-col">
+          <div className="min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+            <PreviewContent attachment={attachment} kind={kind} />
+          </div>
+          <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-3 py-3 sm:px-4">
+            <p className="min-w-0 flex-1 truncate text-xs text-slate-400">{attachment.mime_type || "Tipo não informado"}</p>
+            <a className="btn btn-ghost" href={apiUrl(attachment.url_stream)} target="_blank" rel="noopener noreferrer">
+              <ExternalLink className="size-4" /> <span className="hidden sm:inline">Abrir em nova aba</span><span className="sm:hidden">Abrir</span>
+            </a>
             <a className="btn btn-secondary" href={apiUrl(attachment.url_download)} download>
-              <Download className="size-4" /> Baixar arquivo
+              <Download className="size-4" /> <span className="hidden sm:inline">Baixar arquivo</span><span className="sm:hidden">Baixar</span>
             </a>
           </div>
         </div>
@@ -66,10 +72,10 @@ export function AttachmentThumbnail({ attachment, ...props }: {
 function PreviewContent({ attachment, kind }: { attachment: PreviewAttachment; kind: PreviewKind }) {
   const source = apiUrl(attachment.url_stream);
   if (kind === "image") {
-    return <img className="mx-auto max-h-[72vh] max-w-full rounded-xl object-contain" src={source} alt={attachment.nome_arquivo} />;
+    return <img className="mx-auto h-full max-h-full w-full rounded-xl object-contain" src={source} alt={attachment.nome_arquivo} />;
   }
   if (kind === "video") {
-    return <video className="mx-auto max-h-[72vh] max-w-full rounded-xl bg-slate-950" controls preload="metadata" src={source}>Seu navegador não suporta vídeo.</video>;
+    return <video className="mx-auto h-full max-h-full w-full rounded-xl bg-slate-950 object-contain" controls preload="metadata" src={source}>Seu navegador não suporta vídeo.</video>;
   }
   if (kind === "audio") {
     return (
@@ -82,7 +88,7 @@ function PreviewContent({ attachment, kind }: { attachment: PreviewAttachment; k
   if (kind === "pdf" || kind === "text") {
     return (
       <iframe
-        className="h-[72vh] w-full rounded-xl border border-slate-200 bg-slate-50"
+        className="h-full min-h-64 w-full rounded-xl border border-slate-200 bg-slate-50"
         src={source}
         title={`Pré-visualização de ${attachment.nome_arquivo}`}
       />

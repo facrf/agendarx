@@ -64,7 +64,8 @@ Erros usam o formato:
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
 | OSINT | `POST /api/osint/varrer/{pessoa_id}` | Executar busca e arquivamento |
-| OSINT | `GET /api/osint/historico/{pessoa_id}` | Linha do tempo de achados |
+| OSINT | `GET /api/osint/historico/{pessoa_id}` | Pesquisar e paginar a linha do tempo de achados |
+| OSINT | `DELETE /api/osint/historico/item/{id}` | Remover um achado da linha do tempo; o PDF do dossiê é preservado |
 
 ## Exemplos
 
@@ -114,6 +115,20 @@ execução foi `concluida`, `parcial` ou `inconclusiva`:
 Uma resposta `inconclusiva` significa que as fontes falharam; zero resultados
 nesse estado não comprova a ausência de achados. O histórico inclui `provider`,
 `fonte`, `data_publicacao` e `detalhes`; estes dois últimos podem ser nulos.
+
+O histórico aceita `busca`, `pagina` e `por_pagina`. A quantidade pode ser `10`,
+`50`, `100` ou `0` para retornar todos os achados filtrados. `busca` procura em
+título, trecho, fonte, provider, parâmetro, detalhes e URL. A resposta é paginada:
+
+```json
+{
+  "itens": [],
+  "total": 0,
+  "pagina": 1,
+  "por_pagina": 10,
+  "total_paginas": 0
+}
+```
 
 ### Credenciais do administrador
 

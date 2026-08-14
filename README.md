@@ -30,7 +30,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Ícone privado do administrador personalizável, independente do ícone global do
   sistema e visível no painel da sessão.
 - Pesquisas públicas por pessoa via SearXNG, Querido Diário, INLABS/DOU ou
-  OpenAlex, com histórico normalizado e arquivamento de PDFs.
+  OpenAlex, com histórico pesquisável e paginado, exclusão de achados e
+  arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
@@ -71,13 +72,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.4.0
+docker pull ghcr.io/facrf/agendarx:0.5.0
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.4.0
+  ghcr.io/facrf/agendarx:0.5.0
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -108,7 +109,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.4.0
+    image: ghcr.io/facrf/agendarx:0.5.0
     restart: unless-stopped
     ports:
       - "12000:12000"

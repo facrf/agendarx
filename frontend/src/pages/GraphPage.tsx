@@ -227,6 +227,7 @@ export function GraphPage() {
             onPendingFiles={setPendingRelationshipFiles}
             onDeleteAttachment={(attachment) => void deleteRelationshipAttachment(attachment)}
             onRenameAttachment={(attachment) => void renameRelationshipAttachment(attachment)}
+            onInvalidFiles={(message) => notify(message, "erro")}
             onSubmit={submitRelationship}
             onCancel={() => {
               setEditingId(null);
@@ -336,11 +337,12 @@ interface RelationshipFormProps {
   onPendingFiles: (files: File[]) => void;
   onDeleteAttachment: (attachment: AnexoVinculo) => void;
   onRenameAttachment: (attachment: AnexoVinculo) => void;
+  onInvalidFiles: (message: string) => void;
   onSubmit: (event: FormEvent) => void;
   onCancel: () => void;
 }
 
-function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onSubmit, onCancel }: RelationshipFormProps) {
+function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onInvalidFiles, onSubmit, onCancel }: RelationshipFormProps) {
   return (
     <section className="panel p-5">
       <div className="mb-4 flex items-center gap-2"><Plus className="size-5 text-coral" /><h2 className="font-display text-lg font-semibold">{editing ? "Editar vínculo" : "Novo vínculo"}</h2></div>
@@ -362,6 +364,7 @@ function RelationshipForm({ people, form, editing, saving, loadingAttachments, a
                 onPendingChange={onPendingFiles}
                 onDeleteExisting={onDeleteAttachment}
                 onRenameExisting={onRenameAttachment}
+                onInvalidFiles={onInvalidFiles}
               />
             )}
           </div>

@@ -4,12 +4,13 @@ import { BrowserRouter } from "react-router-dom";
 import App from "./App";
 import { AuthProvider } from "./contexts/AuthContext";
 import { ToastProvider } from "./contexts/ToastContext";
+import { dataTransferHasFiles } from "./utils/dropFiles";
 import "./index.css";
 
 // Impede que Chromium/Firefox naveguem para um arquivo solto fora de uma área
 // válida. Isso é especialmente comum ao arrastar arquivos do gerenciador no Linux.
 const impedirNavegacaoPorArquivo = (event: DragEvent) => {
-  if (Array.from(event.dataTransfer?.types || []).includes("Files")) {
+  if (event.dataTransfer && dataTransferHasFiles(event.dataTransfer)) {
     event.preventDefault();
   }
 };

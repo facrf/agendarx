@@ -14,6 +14,7 @@ import { useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { apiUrl } from "../services/api";
 import type { AnexoVinculo } from "../types/api";
+import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { formatBytes, formatDate } from "../utils/format";
 import { AttachmentPreviewModal, AttachmentThumbnail, previewKind } from "./AttachmentPreview";
 import { Button, cn } from "./ui";
@@ -25,6 +26,7 @@ interface RelationshipAttachmentEditorProps {
   onPendingChange: (files: File[]) => void;
   onDeleteExisting: (attachment: AnexoVinculo) => void;
   onRenameExisting: (attachment: AnexoVinculo) => void;
+  onInvalidFiles?: (message: string) => void;
 }
 
 export function RelationshipAttachmentEditor({
@@ -34,26 +36,33 @@ export function RelationshipAttachmentEditor({
   onPendingChange,
   onDeleteExisting,
   onRenameExisting,
+  onInvalidFiles,
 }: RelationshipAttachmentEditorProps) {
   const [dragging, setDragging] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
 
   const addFiles = (files: File[]) => {
     const valid = files.filter((file) => file.size > 0);
+    if (valid.length !== files.length) onInvalidFiles?.("Arquivos vazios não podem ser anexados");
     if (valid.length > 0) onPendingChange([...pending, ...valid]);
   };
   const chooseFiles = (event: ChangeEvent<HTMLInputElement>) => {
     addFiles(Array.from(event.target.files || []));
     event.target.value = "";
   };
-  const dropFiles = (event: DragEvent<HTMLDivElement>) => {
-    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
+  const dropFiles = async (event: DragEvent<HTMLDivElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     setDragging(false);
-    if (!disabled) addFiles(Array.from(event.dataTransfer.files));
+    if (disabled) return;
+    const dropped = await droppedFiles(event.dataTransfer);
+    if (dropped.ignoredDirectories > 0) {
+      onInvalidFiles?.("Pastas foram ignoradas; selecione apenas arquivos");
+    }
+    addFiles(dropped.files);
   };
-  const dragHasFiles = (event: DragEvent) => Array.from(event.dataTransfer.types || []).includes("Files");
+  const dragHasFiles = (event: DragEvent) => dataTransferHasFiles(event.dataTransfer);
 
   return (
     <div className="space-y-3">
@@ -66,7 +75,7 @@ export function RelationshipAttachmentEditor({
         onDragEnter={(event) => { if (dragHasFiles(event)) { event.preventDefault(); event.stopPropagation(); if (!disabled) setDragging(true); } }}
         onDragOver={(event) => { if (dragHasFiles(event)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = disabled ? "none" : "copy"; } }}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setDragging(false); }}
-        onDrop={dropFiles}
+        onDrop={(event) => void dropFiles(event)}
       >
         <UploadCloud className="mx-auto size-6 text-teal-700" />
         <p className="mt-2 text-xs leading-5 text-slate-500">Arraste fotos, áudios ou arquivos aqui</p>

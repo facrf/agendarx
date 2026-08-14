@@ -293,6 +293,22 @@ pub struct HistoricoBuscaResponse {
     pub data_captura: String,
 }
 
+#[derive(Debug, Deserialize, Default)]
+pub struct HistoricoBuscaFiltro {
+    pub busca: Option<String>,
+    pub pagina: Option<i64>,
+    pub por_pagina: Option<i64>,
+}
+
+#[derive(Debug, Serialize)]
+pub struct HistoricoBuscaPaginadoResponse {
+    pub itens: Vec<HistoricoBuscaResponse>,
+    pub total: i64,
+    pub pagina: i64,
+    pub por_pagina: i64,
+    pub total_paginas: i64,
+}
+
 #[derive(Debug, Serialize)]
 pub struct VarreduraResponse {
     pub situacao: String,

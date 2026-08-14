@@ -179,6 +179,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
                     onPendingChange={setPendingFiles}
                     onDeleteExisting={(attachment) => void deleteAttachment(attachment)}
                     onRenameExisting={(attachment) => void renameAttachment(attachment)}
+                    onInvalidFiles={(message) => notify(message, "erro")}
                   />
                 )}
               </div>

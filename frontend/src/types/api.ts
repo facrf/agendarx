@@ -256,6 +256,14 @@ export interface HistoricoBuscaPublica {
   data_captura: string;
 }
 
+export interface HistoricoBuscaPaginado {
+  itens: HistoricoBuscaPublica[];
+  total: number;
+  pagina: number;
+  por_pagina: number;
+  total_paginas: number;
+}
+
 export interface VarreduraPublicaResponse {
   situacao: "concluida" | "parcial" | "inconclusiva";
   parametros_processados: number;

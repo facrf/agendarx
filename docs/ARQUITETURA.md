@@ -81,8 +81,10 @@ podem ser alterados sem regravar o BLOB ou a miniatura.
 O cliente envia anexos de tarefas sequencialmente via `XMLHttpRequest` para exibir
 progresso e permitir nova tentativa sem duplicar os arquivos concluídos. Eventos
 globais de drag-and-drop de arquivos têm a navegação padrão cancelada; as áreas de
-upload e o calendário então tratam somente os tipos de arraste que reconhecem. Isso
-evita que Chromium ou Firefox abram o arquivo em outra aba no Linux.
+upload extraem `DataTransferItem`, resolvem entradas reais de arquivo e ignoram
+diretórios antes do fallback para `DataTransfer.files`. O calendário trata
+separadamente apenas o arraste interno de tarefas. Isso evita arquivos-fantasma
+vazios e que Chromium ou Firefox abram o arquivo em outra aba no Linux.
 
 ## Recorrência e lembretes
 

@@ -17,6 +17,7 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { ChangeEvent, DragEvent } from "react";
 import { api, apiUrl, errorMessage } from "../services/api";
 import type { AnexoDossie } from "../types/api";
+import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { formatBytes, formatDate } from "../utils/format";
 import { useToast } from "../contexts/ToastContext";
 import { AttachmentPreviewModal, AttachmentThumbnail, previewKind } from "./AttachmentPreview";
@@ -52,9 +53,14 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
 
   const enviarArquivos = async (arquivos: File[]) => {
     if (arquivos.length === 0) return;
+    const arquivosValidos = arquivos.filter((arquivo) => arquivo.size > 0);
+    if (arquivosValidos.length !== arquivos.length) {
+      notify("Arquivos vazios não podem ser anexados", "erro");
+    }
+    if (arquivosValidos.length === 0) return;
     setEnviando(true);
     try {
-      const uploads = await Promise.allSettled(arquivos.map((arquivo) => {
+      const uploads = await Promise.allSettled(arquivosValidos.map((arquivo) => {
         const form = new FormData();
         form.append("arquivo", arquivo);
         return api.post<AnexoDossie>(`/api/dossie/pessoas/${pessoaId}/anexos`, form);
@@ -77,12 +83,17 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
     void enviarArquivos(arquivos);
   };
 
-  const soltarArquivos = (event: DragEvent<HTMLElement>) => {
-    if (!Array.from(event.dataTransfer.types || []).includes("Files")) return;
+  const soltarArquivos = async (event: DragEvent<HTMLElement>) => {
+    if (!dataTransferHasFiles(event.dataTransfer)) return;
     event.preventDefault();
     event.stopPropagation();
     setArrastando(false);
-    if (!enviando) void enviarArquivos(Array.from(event.dataTransfer.files || []));
+    if (enviando) return;
+    const dropped = await droppedFiles(event.dataTransfer);
+    if (dropped.ignoredDirectories > 0) {
+      notify("Pastas foram ignoradas; selecione apenas arquivos", "erro");
+    }
+    await enviarArquivos(dropped.files);
   };
 
   const excluir = async (anexo: AnexoDossie) => {
@@ -118,10 +129,10 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
           "flex flex-col gap-4 rounded-3xl border-2 border-dashed bg-teal-50/70 p-5 transition sm:flex-row sm:items-center sm:justify-between",
           arrastando ? "border-teal-500 ring-4 ring-teal-100" : "border-teal-300",
         )}
-        onDragEnter={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); if (!enviando) setArrastando(true); } }}
-        onDragOver={(event) => { if (Array.from(event.dataTransfer.types || []).includes("Files")) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = enviando ? "none" : "copy"; } }}
+        onDragEnter={(event) => { if (dataTransferHasFiles(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); if (!enviando) setArrastando(true); } }}
+        onDragOver={(event) => { if (dataTransferHasFiles(event.dataTransfer)) { event.preventDefault(); event.stopPropagation(); event.dataTransfer.dropEffect = enviando ? "none" : "copy"; } }}
         onDragLeave={(event) => { if (!event.currentTarget.contains(event.relatedTarget as Node | null)) setArrastando(false); }}
-        onDrop={soltarArquivos}
+        onDrop={(event) => void soltarArquivos(event)}
       >
         <div className="flex items-center gap-4">
           <div className="grid size-12 place-items-center rounded-2xl bg-white text-teal-700 shadow-sm"><UploadCloud className="size-6" /></div>

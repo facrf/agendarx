@@ -5,6 +5,27 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.5.0] - 2026-08-14
+
+### Adicionado
+
+- Pesquisa textual na linha do tempo de achados, com paginação configurável em
+  10, 50, 100 ou todos os resultados e contagem do intervalo exibido.
+- Exclusão individual de achados da linha do tempo, preservando explicitamente
+  eventuais PDFs já arquivados no dossiê.
+
+### Alterado
+
+- O visualizador compartilhado de anexos agora ocupa somente a área útil da
+  janela, mantém PDFs dentro da tela e oferece ações para abrir em nova aba ou baixar.
+- A extração de arquivos arrastados passou a usar as entradas nativas do
+  `DataTransfer`, com fallback compatível e aviso para pastas.
+
+### Corrigido
+
+- Upload por drag-and-drop na agenda, no dossiê, nos vínculos e na foto de perfil,
+  evitando que entradas de diretório sejam interpretadas como arquivos vazios.
+
 ## [0.4.0] - 2026-08-13
 
 ### Adicionado
@@ -118,7 +139,8 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.4.0...HEAD
+[Não publicado]: https://github.com/facrf/agendarx/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/facrf/agendarx/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/facrf/agendarx/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/facrf/agendarx/compare/v0.2.1...v0.3.0
 [0.2.1]: https://github.com/facrf/agendarx/compare/v0.2.0...v0.2.1
