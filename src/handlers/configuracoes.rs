@@ -1,3 +1,5 @@
+use std::path::Path as FsPath;
+
 use axum::{
     Json, Router,
     extract::{Path, State},
@@ -8,7 +10,10 @@ use axum::{
 use crate::{
     AppState,
     error::AppError,
-    models::{CategoriaInput, CategoriaPessoa, TipoMeioContato, TipoMeioContatoInput},
+    models::{
+        CategoriaInput, CategoriaPessoa, ConsumoUsuarioAdminResponse,
+        DiagnosticoArmazenamentoResponse, TipoMeioContato, TipoMeioContatoInput,
+    },
 };
 
 pub fn rotas() -> Router<AppState> {
@@ -21,6 +26,7 @@ pub fn rotas() -> Router<AppState> {
                 .delete(excluir_categoria),
         )
         .route("/tipos-contato", get(listar_tipos).post(criar_tipo_contato))
+        .route("/admin/diagnostico-armazenamento", get(obter_diagnostico_armazenamento))
         .route(
             "/tipos-contato/{id}",
             get(obter_tipo_contato)
@@ -29,6 +35,68 @@ pub fn rotas() -> Router<AppState> {
         )
         .merge(super::identidade::rotas_protegidas())
         .merge(super::intercambio::rotas())
+}
+
+/// Nesta versão de usuário único, toda sessão autenticada é a sessão administrativa.
+/// Ao introduzir papéis, este endpoint deve exigir explicitamente o papel ADMIN.
+async fn obter_diagnostico_armazenamento(
+    State(state): State<AppState>,
+) -> Result<Json<DiagnosticoArmazenamentoResponse>, AppError> {
+    let (dossie_bytes, dossie_total): (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_dossie",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    let (vinculos_bytes, vinculos_total): (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_vinculo",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    let (tarefas_bytes, tarefas_anexos_total): (i64, i64) = sqlx::query_as(
+        "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_tarefa_calendario",
+    )
+    .fetch_one(&state.pool)
+    .await?;
+    let pessoas_total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM pessoa")
+        .fetch_one(&state.pool)
+        .await?;
+    let usuarios = sqlx::query_as::<_, ConsumoUsuarioAdminResponse>(
+        "SELECT u.id, u.login, COUNT(DISTINCT t.id) AS tarefas_total, COUNT(a.id) AS anexos_tarefas_total, \
+                COALESCE(SUM(a.tamanho_bytes), 0) AS armazenamento_tarefas_bytes \
+         FROM usuario u \
+         LEFT JOIN tarefa_calendario t ON t.usuario_id = u.id \
+         LEFT JOIN anexo_tarefa_calendario a ON a.tarefa_id = t.id \
+         GROUP BY u.id, u.login ORDER BY armazenamento_tarefas_bytes DESC, u.login COLLATE NOCASE",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    let banco_bytes = tamanho_banco(&state.config.database_url);
+    Ok(Json(DiagnosticoArmazenamentoResponse {
+        banco_bytes,
+        dossie_bytes,
+        vinculos_bytes,
+        tarefas_bytes,
+        midia_total_bytes: dossie_bytes + vinculos_bytes + tarefas_bytes,
+        anexos_total: dossie_total + vinculos_total + tarefas_anexos_total,
+        pessoas_total,
+        limite_usuario_tarefas_bytes: state.config.task_storage_quota_bytes,
+        max_arquivo_bytes: state.config.max_upload_bytes as i64,
+        usuarios,
+    }))
+}
+
+fn tamanho_banco(database_url: &str) -> i64 {
+    let Some(caminho) = database_url
+        .strip_prefix("sqlite://")
+        .and_then(|valor| valor.split('?').next())
+    else {
+        return 0;
+    };
+    std::fs::metadata(FsPath::new(caminho))
+        .ok()
+        .and_then(|metadata| i64::try_from(metadata.len()).ok())
+        .unwrap_or(0)
 }
 
 async fn listar_categorias(

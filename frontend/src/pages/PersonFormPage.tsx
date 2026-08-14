@@ -29,6 +29,7 @@ export function PersonFormPage() {
   const { notify } = useToast();
   const [nome, setNome] = useState("");
   const [descricao, setDescricao] = useState("");
+  const [pessoaJuridica, setPessoaJuridica] = useState(false);
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
   const [contatos, setContatos] = useState<ContatoPayload[]>([]);
   const [contatosOriginais, setContatosOriginais] = useState<number[]>([]);
@@ -54,6 +55,7 @@ export function PersonFormPage() {
         if (pessoa) {
           setNome(pessoa.nome);
           setDescricao(pessoa.descricao || "");
+          setPessoaJuridica(pessoa.pessoa_juridica);
           setCategoriaId(pessoa.categoria_id);
           setContatos(pessoa.contatos.map((contato) => ({ ...contato })));
           setContatosOriginais(pessoa.contatos.map((contato) => contato.id));
@@ -123,6 +125,7 @@ export function PersonFormPage() {
           nome: nome.trim(),
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
+          pessoa_juridica: pessoaJuridica,
           contatos: contatos.map(({ tipo_contato_id, valor }) => ({ tipo_contato_id, valor: valor.trim() })),
         });
         destinoId = criada.id;
@@ -131,6 +134,7 @@ export function PersonFormPage() {
           nome: nome.trim(),
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
+          pessoa_juridica: pessoaJuridica,
         });
         const idsAtuais = new Set(contatos.flatMap((contato) => (contato.id ? [contato.id] : [])));
         await Promise.all(
@@ -185,6 +189,10 @@ export function PersonFormPage() {
                   {categorias.map((categoria) => <option key={categoria.id} value={categoria.id}>{categoria.nome_categoria}</option>)}
                 </select>
               </div>
+              <label className="flex cursor-pointer items-start gap-3 rounded-2xl border border-slate-200 bg-slate-50 p-4 transition hover:border-teal-300">
+                <input type="checkbox" className="mt-0.5 size-4 accent-teal-700" checked={pessoaJuridica} onChange={(event) => setPessoaJuridica(event.target.checked)} />
+                <span><span className="block text-sm font-semibold text-slate-800">Pessoa jurídica</span><span className="mt-0.5 block text-xs leading-5 text-slate-500">Identifica empresas e organizações com um avatar quadrado.</span></span>
+              </label>
             </div>
             <div>
               <label className="field-label">Foto principal</label>

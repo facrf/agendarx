@@ -47,6 +47,7 @@ interface AvatarProps {
   size?: "sm" | "md" | "lg" | "xl";
   cacheKey?: string | number;
   className?: string;
+  pessoaJuridica?: boolean;
 }
 
 export function Avatar({
@@ -57,6 +58,7 @@ export function Avatar({
   size = "md",
   cacheKey,
   className,
+  pessoaJuridica = false,
 }: AvatarProps) {
   const [erro, setErro] = useState(false);
   const dimensoes = { sm: "size-10", md: "size-14", lg: "size-20", xl: "size-28" }[size];
@@ -66,7 +68,7 @@ export function Avatar({
   useEffect(() => setErro(false), [pessoaId, temFoto, cacheKey]);
 
   return (
-    <div className={cn("avatar", dimensoes, className)} style={style}>
+    <div className={cn("avatar", pessoaJuridica && "avatar-juridica", dimensoes, className)} style={style}>
       {temFoto && !erro ? (
         <img
           src={apiUrl(`/api/dossie/pessoas/${pessoaId}/foto${query}`)}

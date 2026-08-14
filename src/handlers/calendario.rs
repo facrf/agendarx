@@ -568,7 +568,7 @@ async fn montar_resposta(
     row: TarefaCalendarioRow,
 ) -> Result<TarefaCalendarioResponse, AppError> {
     let pessoas = sqlx::query_as::<_, PessoaTarefaResumo>(
-        "SELECT p.id, p.nome, c.cor_hex, (p.foto_principal IS NOT NULL) AS tem_foto \
+        "SELECT p.id, p.nome, c.cor_hex, (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica \
          FROM tarefa_calendario_pessoa tp \
          JOIN pessoa p ON p.id = tp.pessoa_id \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \

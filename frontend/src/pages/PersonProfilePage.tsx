@@ -79,9 +79,9 @@ export function PersonProfilePage() {
       <section className="panel relative mb-6 overflow-hidden p-5 sm:p-7">
         <div className="absolute inset-x-0 top-0 h-1.5 bg-[var(--person-color)]" />
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} cor={cor} size="xl" />
+          <Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} pessoaJuridica={pessoa.pessoa_juridica} cor={cor} size="xl" />
           <div className="min-w-0 flex-1">
-            <span className="chip"><span className="size-2 rounded-full bg-[var(--person-color)]" />{pessoa.nome_categoria || "Sem categoria"}</span>
+            <div className="flex flex-wrap gap-2"><span className="chip"><span className="size-2 rounded-full bg-[var(--person-color)]" />{pessoa.nome_categoria || "Sem categoria"}</span>{pessoa.pessoa_juridica && <span className="chip bg-slate-50 font-semibold">Pessoa jurídica</span>}</div>
             <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl" style={{ color: cor }}>{pessoa.nome}</h1>
             <p className="mt-2 flex items-center gap-2 text-sm text-slate-400"><CalendarDays className="size-4" /> Cadastrado em {formatDate(pessoa.data_cadastro)}</p>
           </div>

@@ -50,6 +50,7 @@ export interface PessoaResumo {
   nome_categoria: string | null;
   cor_hex: string | null;
   tem_foto: boolean;
+  pessoa_juridica: boolean;
   data_cadastro: string;
 }
 
@@ -61,6 +62,7 @@ export interface PessoaPayload {
   nome: string;
   categoria_id: number | null;
   descricao: string | null;
+  pessoa_juridica: boolean;
   contatos?: ContatoPayload[];
 }
 
@@ -146,6 +148,7 @@ export interface PessoaTarefaResumo {
   nome: string;
   cor_hex: string | null;
   tem_foto: boolean;
+  pessoa_juridica: boolean;
 }
 
 export interface TarefaCalendario {
@@ -210,6 +213,27 @@ export interface ArmazenamentoTarefas {
   limite_tarefa_bytes: number;
   max_arquivo_bytes: number;
   anexos_total: number;
+}
+
+export interface ConsumoUsuarioAdmin {
+  id: number;
+  login: string;
+  tarefas_total: number;
+  anexos_tarefas_total: number;
+  armazenamento_tarefas_bytes: number;
+}
+
+export interface DiagnosticoArmazenamento {
+  banco_bytes: number;
+  dossie_bytes: number;
+  vinculos_bytes: number;
+  tarefas_bytes: number;
+  midia_total_bytes: number;
+  anexos_total: number;
+  pessoas_total: number;
+  limite_usuario_tarefas_bytes: number;
+  max_arquivo_bytes: number;
+  usuarios: ConsumoUsuarioAdmin[];
 }
 
 export interface ImportacaoContatosResultado {

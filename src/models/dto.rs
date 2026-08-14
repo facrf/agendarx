@@ -70,6 +70,7 @@ pub struct PessoaTarefaResumo {
     pub nome: String,
     pub cor_hex: Option<String>,
     pub tem_foto: bool,
+    pub pessoa_juridica: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -112,6 +113,29 @@ pub struct ArmazenamentoTarefasResponse {
     pub anexos_total: i64,
 }
 
+#[derive(Debug, Clone, Serialize, FromRow)]
+pub struct ConsumoUsuarioAdminResponse {
+    pub id: i64,
+    pub login: String,
+    pub tarefas_total: i64,
+    pub anexos_tarefas_total: i64,
+    pub armazenamento_tarefas_bytes: i64,
+}
+
+#[derive(Debug, Serialize)]
+pub struct DiagnosticoArmazenamentoResponse {
+    pub banco_bytes: i64,
+    pub dossie_bytes: i64,
+    pub vinculos_bytes: i64,
+    pub tarefas_bytes: i64,
+    pub midia_total_bytes: i64,
+    pub anexos_total: i64,
+    pub pessoas_total: i64,
+    pub limite_usuario_tarefas_bytes: i64,
+    pub max_arquivo_bytes: i64,
+    pub usuarios: Vec<ConsumoUsuarioAdminResponse>,
+}
+
 #[derive(Debug, Clone, Serialize)]
 pub struct AnexoTarefaResumo {
     pub id: i64,
@@ -149,6 +173,8 @@ pub struct PessoaInput {
     pub categoria_id: Option<i64>,
     pub descricao: Option<String>,
     #[serde(default)]
+    pub pessoa_juridica: bool,
+    #[serde(default)]
     pub contatos: Vec<ContatoInput>,
 }
 
@@ -157,6 +183,8 @@ pub struct PessoaUpdateInput {
     pub nome: String,
     pub categoria_id: Option<i64>,
     pub descricao: Option<String>,
+    #[serde(default)]
+    pub pessoa_juridica: bool,
 }
 
 #[derive(Debug, Deserialize)]
@@ -174,6 +202,7 @@ pub struct PessoaResumo {
     pub nome_categoria: Option<String>,
     pub cor_hex: Option<String>,
     pub tem_foto: bool,
+    pub pessoa_juridica: bool,
     pub data_cadastro: String,
 }
 

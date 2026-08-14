@@ -113,6 +113,10 @@ button:not(:disabled),
   .avatar img {
     @apply h-full w-full object-cover;
   }
+
+  .avatar-juridica {
+    @apply rounded-2xl;
+  }
 }
 
 @keyframes toast-in {

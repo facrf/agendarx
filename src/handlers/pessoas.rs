@@ -37,7 +37,7 @@ async fn listar_pessoas(
 ) -> Result<Json<Vec<PessoaResumo>>, AppError> {
     let pessoas = sqlx::query_as::<_, PessoaResumo>(
         "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
-                (p.foto_principal IS NOT NULL) AS tem_foto, p.data_cadastro \
+                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          ORDER BY p.nome COLLATE NOCASE",
@@ -66,11 +66,12 @@ async fn criar_pessoa(
 
     let mut tx = state.pool.begin().await?;
     let pessoa_id: i64 = sqlx::query_scalar(
-        "INSERT INTO pessoa (nome, categoria_id, descricao) VALUES (?, ?, ?) RETURNING id",
+        "INSERT INTO pessoa (nome, categoria_id, descricao, pessoa_juridica) VALUES (?, ?, ?, ?) RETURNING id",
     )
     .bind(input.nome.trim())
     .bind(input.categoria_id)
     .bind(normalizar_descricao(input.descricao))
+    .bind(input.pessoa_juridica)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -96,10 +97,11 @@ async fn atualizar_pessoa(
     validar_nome(&input.nome)?;
     validar_descricao(input.descricao.as_deref())?;
     let resultado =
-        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ? WHERE id = ?")
+        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ? WHERE id = ?")
             .bind(input.nome.trim())
             .bind(input.categoria_id)
             .bind(normalizar_descricao(input.descricao))
+            .bind(input.pessoa_juridica)
             .bind(id)
             .execute(&state.pool)
             .await?;
@@ -206,7 +208,7 @@ async fn excluir_contato(
 async fn buscar_pessoa_detalhe(state: &AppState, id: i64) -> Result<PessoaDetalhe, AppError> {
     let pessoa = sqlx::query_as::<_, PessoaResumo>(
         "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
-                (p.foto_principal IS NOT NULL) AS tem_foto, p.data_cadastro \
+                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          WHERE p.id = ?",

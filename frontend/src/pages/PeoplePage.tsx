@@ -126,12 +126,13 @@ function PersonCard({ pessoa }: { pessoa: PessoaResumo }) {
     >
       <div className="absolute inset-x-0 top-0 h-1 bg-[var(--category-color)]" />
       <div className="flex items-start justify-between gap-4">
-        <Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} cor={cor} size="lg" />
+        <Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} pessoaJuridica={pessoa.pessoa_juridica} cor={cor} size="lg" />
         <div className="grid size-9 place-items-center rounded-full bg-slate-50 text-slate-400 transition group-hover:bg-teal-50 group-hover:text-teal-700">
           <ArrowRight className="size-4 transition group-hover:translate-x-0.5" />
         </div>
       </div>
       <h2 className="mt-5 font-display text-xl font-semibold" style={{ color: cor }}>{pessoa.nome}</h2>
+      {pessoa.pessoa_juridica && <span className="mt-2 inline-flex rounded-lg bg-slate-100 px-2 py-1 text-[10px] font-bold uppercase tracking-wide text-slate-500">Pessoa jurídica</span>}
       <div className="mt-2 flex items-center gap-2 text-xs text-slate-500">
         <span className="size-2 rounded-full" style={{ backgroundColor: cor }} />
         <span>{pessoa.nome_categoria || "Sem categoria"}</span>
@@ -140,4 +141,3 @@ function PersonCard({ pessoa }: { pessoa: PessoaResumo }) {
     </Link>
   );
 }
-

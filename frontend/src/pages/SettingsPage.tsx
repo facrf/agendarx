@@ -1,6 +1,7 @@
 import {
   Check,
   Edit3,
+  HardDrive,
   Palette,
   Plus,
   Save,
@@ -15,7 +16,8 @@ import { Button, EmptyState, PageHeader, Spinner } from "../components/ui";
 import { AdminCredentialsManager, BrandingManager, ContactTransferManager, TaskNotificationManager } from "../components/SettingsTools";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
-import type { Categoria, TipoMeioContato } from "../types/api";
+import type { Categoria, DiagnosticoArmazenamento, TipoMeioContato } from "../types/api";
+import { formatBytes } from "../utils/format";
 
 const HEX_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 
@@ -44,12 +46,56 @@ export function SettingsPage() {
         <BrandingManager />
         <AdminCredentialsManager />
         <TaskNotificationManager />
+        <StorageDiagnostics />
         <CategoryManager categorias={categorias} setCategorias={setCategorias} />
         <ContactTypeManager tipos={tipos} setTipos={setTipos} />
         <ContactTransferManager />
       </div>
     </div>
   );
+}
+
+function StorageDiagnostics() {
+  const [diagnostico, setDiagnostico] = useState<DiagnosticoArmazenamento | null>(null);
+  const [carregando, setCarregando] = useState(true);
+  const { notify } = useToast();
+
+  useEffect(() => {
+    api.get<DiagnosticoArmazenamento>("/api/configuracoes/admin/diagnostico-armazenamento")
+      .then(setDiagnostico)
+      .catch((error) => notify(errorMessage(error), "erro"))
+      .finally(() => setCarregando(false));
+  }, [notify]);
+
+  return (
+    <section className="panel overflow-hidden xl:col-span-2">
+      <header className="flex items-center justify-between gap-3 border-b border-slate-100 p-5 sm:p-6">
+        <div className="flex items-center gap-3"><div className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700"><HardDrive className="size-5" /></div><div><h2 className="font-display text-xl font-semibold">Diagnóstico de armazenamento</h2><p className="text-sm text-slate-500">Acompanhe o crescimento do piloto e as cotas de tarefas.</p></div></div>
+        <Button variant="secondary" type="button" onClick={() => { setCarregando(true); api.get<DiagnosticoArmazenamento>("/api/configuracoes/admin/diagnostico-armazenamento").then(setDiagnostico).catch((error) => notify(errorMessage(error), "erro")).finally(() => setCarregando(false)); }}>Atualizar</Button>
+      </header>
+      {carregando || !diagnostico ? <div className="p-6"><Spinner label="Lendo armazenamento" /></div> : <div className="p-5 sm:p-6">
+        <div className="grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+          <DiagnosticStat label="Banco de dados" value={formatBytes(diagnostico.banco_bytes)} />
+          <DiagnosticStat label="Mídias armazenadas" value={formatBytes(diagnostico.midia_total_bytes)} />
+          <DiagnosticStat label="Anexos" value={String(diagnostico.anexos_total)} />
+          <DiagnosticStat label="Pessoas cadastradas" value={String(diagnostico.pessoas_total)} />
+        </div>
+        <div className="mt-5 grid gap-3 text-sm sm:grid-cols-3"><DiagnosticLine label="Dossiês" value={formatBytes(diagnostico.dossie_bytes)} /><DiagnosticLine label="Vínculos" value={formatBytes(diagnostico.vinculos_bytes)} /><DiagnosticLine label="Tarefas" value={formatBytes(diagnostico.tarefas_bytes)} /></div>
+        <div className="mt-6 overflow-x-auto rounded-2xl border border-slate-100">
+          <table className="w-full min-w-[38rem] text-left text-sm"><thead className="bg-slate-50 text-xs uppercase tracking-wide text-slate-400"><tr><th className="px-4 py-3 font-semibold">Usuário</th><th className="px-4 py-3 font-semibold">Tarefas</th><th className="px-4 py-3 font-semibold">Anexos</th><th className="px-4 py-3 font-semibold">Uso de tarefas</th></tr></thead><tbody className="divide-y divide-slate-100">{diagnostico.usuarios.map((usuario) => <tr key={usuario.id}><td className="px-4 py-3 font-medium text-slate-800">{usuario.login}</td><td className="px-4 py-3 text-slate-500">{usuario.tarefas_total}</td><td className="px-4 py-3 text-slate-500">{usuario.anexos_tarefas_total}</td><td className="px-4 py-3"><div className="flex items-center gap-3"><div className="h-2 w-24 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600" style={{ width: `${Math.min(100, (usuario.armazenamento_tarefas_bytes / diagnostico.limite_usuario_tarefas_bytes) * 100)}%` }} /></div><span className="text-slate-600">{formatBytes(usuario.armazenamento_tarefas_bytes)}</span></div></td></tr>)}</tbody></table>
+        </div>
+        <p className="mt-4 text-xs leading-5 text-slate-400">Limite por usuário nas tarefas: {formatBytes(diagnostico.limite_usuario_tarefas_bytes)} · arquivo individual: {formatBytes(diagnostico.max_arquivo_bytes)}. Dossiês e vínculos ainda pertencem à agenda global neste piloto; serão atribuídos por usuário na etapa multiusuário.</p>
+      </div>}
+    </section>
+  );
+}
+
+function DiagnosticStat({ label, value }: { label: string; value: string }) {
+  return <div className="rounded-2xl border border-slate-100 bg-slate-50 p-4"><p className="text-xs font-semibold uppercase tracking-wide text-slate-400">{label}</p><p className="mt-2 font-display text-2xl font-semibold text-slate-900">{value}</p></div>;
+}
+
+function DiagnosticLine({ label, value }: { label: string; value: string }) {
+  return <div className="flex items-center justify-between rounded-xl bg-slate-50 px-4 py-3"><span className="text-slate-500">{label}</span><span className="font-semibold text-slate-800">{value}</span></div>;
 }
 
 function CategoryManager({ categorias, setCategorias }: {
