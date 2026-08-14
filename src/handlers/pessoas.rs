@@ -36,7 +36,7 @@ async fn listar_pessoas(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PessoaResumo>>, AppError> {
     let pessoas = sqlx::query_as::<_, PessoaResumo>(
-        "SELECT p.id, p.nome, p.categoria_id, c.nome_categoria, c.cor_hex, \
+        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.data_cadastro \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
@@ -59,17 +59,20 @@ async fn criar_pessoa(
     Json(input): Json<PessoaInput>,
 ) -> Result<(StatusCode, Json<PessoaDetalhe>), AppError> {
     validar_nome(&input.nome)?;
+    validar_descricao(input.descricao.as_deref())?;
     for contato in &input.contatos {
         validar_contato(contato)?;
     }
 
     let mut tx = state.pool.begin().await?;
-    let pessoa_id: i64 =
-        sqlx::query_scalar("INSERT INTO pessoa (nome, categoria_id) VALUES (?, ?) RETURNING id")
-            .bind(input.nome.trim())
-            .bind(input.categoria_id)
-            .fetch_one(&mut *tx)
-            .await?;
+    let pessoa_id: i64 = sqlx::query_scalar(
+        "INSERT INTO pessoa (nome, categoria_id, descricao) VALUES (?, ?, ?) RETURNING id",
+    )
+    .bind(input.nome.trim())
+    .bind(input.categoria_id)
+    .bind(normalizar_descricao(input.descricao))
+    .fetch_one(&mut *tx)
+    .await?;
 
     for contato in input.contatos {
         sqlx::query("INSERT INTO contato (pessoa_id, tipo_contato_id, valor) VALUES (?, ?, ?)")
@@ -91,12 +94,15 @@ async fn atualizar_pessoa(
     Json(input): Json<PessoaUpdateInput>,
 ) -> Result<Json<PessoaDetalhe>, AppError> {
     validar_nome(&input.nome)?;
-    let resultado = sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ? WHERE id = ?")
-        .bind(input.nome.trim())
-        .bind(input.categoria_id)
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    validar_descricao(input.descricao.as_deref())?;
+    let resultado =
+        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ? WHERE id = ?")
+            .bind(input.nome.trim())
+            .bind(input.categoria_id)
+            .bind(normalizar_descricao(input.descricao))
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa"));
     }
@@ -199,7 +205,7 @@ async fn excluir_contato(
 
 async fn buscar_pessoa_detalhe(state: &AppState, id: i64) -> Result<PessoaDetalhe, AppError> {
     let pessoa = sqlx::query_as::<_, PessoaResumo>(
-        "SELECT p.id, p.nome, p.categoria_id, c.nome_categoria, c.cor_hex, \
+        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.data_cadastro \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
@@ -237,6 +243,22 @@ fn validar_nome(nome: &str) -> Result<(), AppError> {
     Ok(())
 }
 
+fn validar_descricao(descricao: Option<&str>) -> Result<(), AppError> {
+    if descricao.is_some_and(|valor| valor.chars().count() > 5_000) {
+        return Err(AppError::BadRequest(
+            "a descrição deve ter no máximo 5000 caracteres".to_owned(),
+        ));
+    }
+    Ok(())
+}
+
+fn normalizar_descricao(descricao: Option<String>) -> Option<String> {
+    descricao.and_then(|valor| {
+        let valor = valor.trim().to_owned();
+        (!valor.is_empty()).then_some(valor)
+    })
+}
+
 fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
     if input.tipo_contato_id <= 0 || input.valor.trim().is_empty() {
         return Err(AppError::BadRequest(
@@ -244,4 +266,24 @@ fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
         ));
     }
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::{normalizar_descricao, validar_descricao};
+
+    #[test]
+    fn normaliza_descricao_vazia_e_remove_espacos() {
+        assert_eq!(normalizar_descricao(Some("   ".to_owned())), None);
+        assert_eq!(
+            normalizar_descricao(Some("  Perfil detalhado  ".to_owned())),
+            Some("Perfil detalhado".to_owned())
+        );
+    }
+
+    #[test]
+    fn limita_descricao_por_caracteres() {
+        assert!(validar_descricao(Some(&"á".repeat(5_000))).is_ok());
+        assert!(validar_descricao(Some(&"á".repeat(5_001))).is_err());
+    }
 }

@@ -5,6 +5,27 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.6.0] - 2026-08-14
+
+### Adicionado
+
+- Descrição livre de até 5.000 caracteres no cadastro, edição e visualização do
+  perfil de cada pessoa.
+- Exportação do mapa interpessoal pela impressão do navegador, pronta para salvar
+  como PDF, com imagem da rede e listas de pessoas, contatos e vínculos visíveis.
+
+### Alterado
+
+- O relatório do mapa respeita categoria, pessoa em foco, grau de conexão e layout,
+  e inclui nomes, descrições, categorias, meios de contato e detalhes dos vínculos.
+- A API do grafo passa a fornecer descrição e meios de contato dos nós para
+  relatórios.
+
+### Corrigido
+
+- Drag-and-drop de anexos no painel “Adicionar e editar arquivos” quando o navegador
+  expõe itens protegidos, mas mantém os arquivos válidos no fallback do `DataTransfer`.
+
 ## [0.5.0] - 2026-08-14
 
 ### Adicionado
@@ -139,7 +160,8 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.5.0...HEAD
+[Não publicado]: https://github.com/facrf/agendarx/compare/v0.6.0...HEAD
+[0.6.0]: https://github.com/facrf/agendarx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/facrf/agendarx/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/facrf/agendarx/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/facrf/agendarx/compare/v0.2.1...v0.3.0

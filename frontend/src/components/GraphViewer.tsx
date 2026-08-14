@@ -1,6 +1,6 @@
 import cytoscape from "cytoscape";
 import type { Core, ElementDefinition, StylesheetJson } from "cytoscape";
-import { useEffect, useRef } from "react";
+import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { apiUrl } from "../services/api";
 import type { GrafoResponse } from "../types/api";
 
@@ -14,15 +14,34 @@ interface GraphViewerProps {
   onNodeDoubleClick: (nodeId: number) => void;
 }
 
-export function GraphViewer({
+export interface GraphViewerHandle {
+  exportPng: () => string | null;
+}
+
+export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(function GraphViewer({
   graph,
   layout,
   focusedNodeId,
   onEdgeClick,
   onNodeDoubleClick,
-}: GraphViewerProps) {
+}, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
+
+  useImperativeHandle(ref, () => ({
+    exportPng: () => {
+      const cy = cyRef.current;
+      if (!cy) return null;
+      const image = cy.png({
+        bg: "#FFFFFF",
+        full: true,
+        maxHeight: 1_800,
+        maxWidth: 2_400,
+        scale: 2,
+      });
+      return typeof image === "string" ? image : null;
+    },
+  }), []);
 
   useEffect(() => {
     if (!containerRef.current) return;
@@ -133,7 +152,7 @@ export function GraphViewer({
       aria-label="Grafo interativo de relacionamentos"
     />
   );
-}
+});
 
 function hierarchicalRoots(graph: GrafoResponse): string[] {
   const targets = new Set(graph.edges.map((edge) => edge.target));

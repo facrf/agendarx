@@ -190,6 +190,10 @@ limites por arquivo, tarefa e usuário. Além do limite individual de
 
 ### Grafo
 
+Pessoas aceitam `descricao` opcional no `POST` e no `PUT`; textos vazios são
+normalizados para `null` e o limite é de 5.000 caracteres. O campo também é
+devolvido nas listagens e no perfil detalhado.
+
 ```json
 {
   "nodes": [
@@ -198,7 +202,11 @@ limites por arquivo, tarefa e usuário. Além do limite individual de
       "label": "Ana",
       "color": "#EF4444",
       "foto_url": "/api/dossie/pessoas/1/foto",
-      "categoria": "Família"
+      "categoria": "Família",
+      "descricao": "Descrição do perfil de Ana",
+      "contatos": [
+        { "tipo": "WhatsApp", "valor": "+55 11 99999-0000" }
+      ]
     }
   ],
   "edges": [

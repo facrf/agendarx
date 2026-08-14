@@ -28,6 +28,7 @@ export function PersonFormPage() {
   const navigate = useNavigate();
   const { notify } = useToast();
   const [nome, setNome] = useState("");
+  const [descricao, setDescricao] = useState("");
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
   const [contatos, setContatos] = useState<ContatoPayload[]>([]);
   const [contatosOriginais, setContatosOriginais] = useState<number[]>([]);
@@ -52,6 +53,7 @@ export function PersonFormPage() {
         setTipos(tiposData);
         if (pessoa) {
           setNome(pessoa.nome);
+          setDescricao(pessoa.descricao || "");
           setCategoriaId(pessoa.categoria_id);
           setContatos(pessoa.contatos.map((contato) => ({ ...contato })));
           setContatosOriginais(pessoa.contatos.map((contato) => contato.id));
@@ -120,11 +122,16 @@ export function PersonFormPage() {
         const criada = await api.post<PessoaDetalhe>("/api/pessoas", {
           nome: nome.trim(),
           categoria_id: categoriaId,
+          descricao: descricao.trim() || null,
           contatos: contatos.map(({ tipo_contato_id, valor }) => ({ tipo_contato_id, valor: valor.trim() })),
         });
         destinoId = criada.id;
       } else {
-        await api.put(`/api/pessoas/${destinoId}`, { nome: nome.trim(), categoria_id: categoriaId });
+        await api.put(`/api/pessoas/${destinoId}`, {
+          nome: nome.trim(),
+          categoria_id: categoriaId,
+          descricao: descricao.trim() || null,
+        });
         const idsAtuais = new Set(contatos.flatMap((contato) => (contato.id ? [contato.id] : [])));
         await Promise.all(
           contatosOriginais.filter((contatoId) => !idsAtuais.has(contatoId)).map((contatoId) => api.delete(`/api/pessoas/contatos/${contatoId}`)),
@@ -220,6 +227,20 @@ export function PersonFormPage() {
               ))}
             </div>
           )}
+        </section>
+
+        <section className="panel p-5 sm:p-7">
+          <label className="field-label" htmlFor="descricao">Descrição</label>
+          <p className="mb-3 text-sm text-slate-500">Registre contexto, características ou outras informações relevantes sobre esta pessoa.</p>
+          <textarea
+            id="descricao"
+            className="field min-h-36 resize-y"
+            maxLength={5000}
+            value={descricao}
+            onChange={(event) => setDescricao(event.target.value)}
+            placeholder="Descreva esta pessoa…"
+          />
+          <p className="mt-2 text-right text-xs text-slate-400">{descricao.length}/5000</p>
         </section>
 
         <div className="flex justify-end gap-3">

@@ -1,5 +1,6 @@
 import {
   Edit3,
+  FileDown,
   Filter,
   GitFork,
   Info,
@@ -13,11 +14,11 @@ import {
   Workflow,
   X,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
 import { useNavigate, useSearchParams } from "react-router-dom";
 import { GraphViewer } from "../components/GraphViewer";
-import type { GraphLayout } from "../components/GraphViewer";
+import type { GraphLayout, GraphViewerHandle } from "../components/GraphViewer";
 import { RelationshipDrawer } from "../components/RelationshipDrawer";
 import { RelationshipAttachmentEditor } from "../components/RelationshipMedia";
 import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
@@ -59,6 +60,8 @@ export function GraphPage() {
   const [relationshipAttachments, setRelationshipAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingRelationshipFiles, setPendingRelationshipFiles] = useState<File[]>([]);
   const [loadingRelationshipAttachments, setLoadingRelationshipAttachments] = useState(false);
+  const [printImage, setPrintImage] = useState<string | null>(null);
+  const graphViewerRef = useRef<GraphViewerHandle>(null);
   const navigate = useNavigate();
   const { notify } = useToast();
 
@@ -81,6 +84,23 @@ export function GraphPage() {
       .finally(() => setLoading(false));
   }, [loadGraphData, notify]);
 
+  useEffect(() => {
+    if (!printImage) return;
+    const previousTitle = document.title;
+    document.title = "Mapa interpessoal - AgendarX";
+    const finishPrinting = () => {
+      document.title = previousTitle;
+      setPrintImage(null);
+    };
+    window.addEventListener("afterprint", finishPrinting, { once: true });
+    const timeout = window.setTimeout(() => window.print(), 150);
+    return () => {
+      window.clearTimeout(timeout);
+      window.removeEventListener("afterprint", finishPrinting);
+      document.title = previousTitle;
+    };
+  }, [printImage]);
+
   const categoryGraph = useMemo(() => filterByCategory(graph, category), [graph, category]);
   const focusedNode = useMemo(
     () => findFocusedNode(categoryGraph.nodes, search),
@@ -90,6 +110,23 @@ export function GraphPage() {
     () => isolateConnections(categoryGraph, focusedNode?.id ?? null, depth),
     [categoryGraph, focusedNode?.id, depth],
   );
+
+  const generatePdf = async () => {
+    try {
+      const image = graphViewerRef.current?.exportPng();
+      if (!image) {
+        notify("O mapa ainda não está pronto para exportação", "erro");
+        return;
+      }
+      const preload = new Image();
+      preload.src = image;
+      await preload.decode().catch(() => undefined);
+      setPrintImage(image);
+      notify("Na janela de impressão, escolha “Salvar como PDF”");
+    } catch {
+      notify("Não foi possível gerar a imagem do mapa para o PDF", "erro");
+    }
+  };
 
   const submitRelationship = async (event: FormEvent) => {
     event.preventDefault();
@@ -274,6 +311,9 @@ export function GraphPage() {
             onCategory={setCategory}
             onDepth={setDepth}
             onLayout={setLayout}
+            onGeneratePdf={() => void generatePdf()}
+            generatingPdf={printImage !== null}
+            canGeneratePdf={visibleGraph.nodes.length > 0}
           />
 
           <div className="relative min-h-[42rem] bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]">
@@ -291,6 +331,7 @@ export function GraphPage() {
               </div>
             ) : (
               <GraphViewer
+                ref={graphViewerRef}
                 graph={visibleGraph}
                 layout={layout}
                 focusedNodeId={focusedNode?.id ?? null}
@@ -321,6 +362,17 @@ export function GraphPage() {
           });
         }}
       />
+
+      {printImage && (
+        <GraphPrintReport
+          graph={visibleGraph}
+          image={printImage}
+          category={category}
+          focusedNode={focusedNode}
+          depth={depth}
+          layout={layout}
+        />
+      )}
     </div>
   );
 }
@@ -390,12 +442,15 @@ interface GraphToolbarProps {
   onCategory: (value: string) => void;
   onDepth: (value: number) => void;
   onLayout: (value: GraphLayout) => void;
+  onGeneratePdf: () => void;
+  generatingPdf: boolean;
+  canGeneratePdf: boolean;
 }
 
-function GraphToolbar({ graph, categories, search, category, depth, layout, focusedNode, onSearch, onCategory, onDepth, onLayout }: GraphToolbarProps) {
+function GraphToolbar({ graph, categories, search, category, depth, layout, focusedNode, onSearch, onCategory, onDepth, onLayout, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
   return (
     <div className="space-y-3 border-b border-slate-100 p-4">
-      <div className="grid gap-3 lg:grid-cols-[minmax(15rem,1fr)_13rem_11rem_auto]">
+      <div className="grid gap-3 lg:grid-cols-[minmax(15rem,1fr)_13rem_11rem_auto_auto]">
         <label className="relative">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input className="field pl-9" list="graph-people" placeholder="Buscar e focar uma pessoa..." value={search} onChange={(event) => onSearch(event.target.value)} />
@@ -407,12 +462,76 @@ function GraphToolbar({ graph, categories, search, category, depth, layout, focu
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "force" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("force")} title="Layout em teia"><Orbit className="size-4" /> Teia</button>
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "hierarchical" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("hierarchical")} title="Layout hierárquico"><Workflow className="size-4" /> UML</button>
         </div>
+        <Button type="button" variant="secondary" loading={generatingPdf} disabled={!canGeneratePdf} onClick={onGeneratePdf}>
+          <FileDown className="size-4" /> Gerar PDF
+        </Button>
       </div>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{graph.nodes.length} pessoas · {graph.edges.length} vínculos</span>
         {focusedNode && <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 font-medium text-teal-800"><span className="size-2 rounded-full" style={{ backgroundColor: focusedNode.color }} /> Foco: {focusedNode.label} · até {depth}º grau <button type="button" onClick={() => onSearch("")} aria-label="Limpar foco"><X className="size-3" /></button></span>}
       </div>
     </div>
+  );
+}
+
+function GraphPrintReport({ graph, image, category, focusedNode, depth, layout }: {
+  graph: GrafoResponse;
+  image: string;
+  category: string;
+  focusedNode?: GrafoNode;
+  depth: number;
+  layout: GraphLayout;
+}) {
+  const generatedAt = new Date().toLocaleString("pt-BR", { dateStyle: "long", timeStyle: "short" });
+  const nodeById = new Map(graph.nodes.map((node) => [node.id, node]));
+  const filters = [
+    category ? `Categoria: ${category}` : "Todas as categorias",
+    focusedNode ? `Foco: ${focusedNode.label} (até ${depth}º grau)` : "Rede completa",
+    `Layout: ${layout === "force" ? "Teia" : "Hierárquico"}`,
+  ];
+
+  return (
+    <article className="graph-print-report" aria-hidden="true">
+      <header className="graph-print-header">
+        <div>
+          <p className="graph-print-brand">AgendarX</p>
+          <h1>Mapa interpessoal</h1>
+          <p>{filters.join(" · ")}</p>
+        </div>
+        <p>Gerado em {generatedAt}</p>
+      </header>
+
+      <figure className="graph-print-map">
+        <img src={image} alt="Mapa interpessoal exportado" />
+        <figcaption>{graph.nodes.length} pessoa(s) · {graph.edges.length} vínculo(s)</figcaption>
+      </figure>
+
+      <section className="graph-print-section">
+        <h2>Pessoas</h2>
+        {graph.nodes.map((node) => (
+          <article key={node.id} className="graph-print-item">
+            <div className="graph-print-item-title">
+              <span style={{ backgroundColor: node.color }} />
+              <h3>{node.label}</h3>
+              <small>{node.categoria || "Sem categoria"}</small>
+            </div>
+            <p><strong>Descrição:</strong> {node.descricao || "Não informada."}</p>
+            <p><strong>Meios de contato:</strong> {node.contatos.length > 0 ? node.contatos.map((contact) => `${contact.tipo}: ${contact.valor}`).join(" · ") : "Nenhum cadastrado."}</p>
+          </article>
+        ))}
+      </section>
+
+      <section className="graph-print-section">
+        <h2>Vínculos</h2>
+        {graph.edges.length === 0 ? <p>Nenhum vínculo visível.</p> : graph.edges.map((edge) => (
+          <article key={edge.id} className="graph-print-item">
+            <h3>{nodeById.get(edge.source)?.label || `Pessoa #${edge.source}`} → {nodeById.get(edge.target)?.label || `Pessoa #${edge.target}`}</h3>
+            <p><strong>Tipo:</strong> {edge.label}</p>
+            <p><strong>Descrição:</strong> {edge.descricao || "Não informada."}</p>
+          </article>
+        ))}
+      </section>
+    </article>
   );
 }
 

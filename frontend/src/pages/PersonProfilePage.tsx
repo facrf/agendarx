@@ -1,5 +1,6 @@
 import {
   ArrowLeft,
+  AlignLeft,
   AtSign,
   CalendarDays,
   CheckCircle2,
@@ -111,6 +112,16 @@ export function PersonProfilePage() {
                 })}
               </div>
             )}
+
+            <div className="mt-7 border-t border-slate-100 pt-6">
+              <div className="flex items-center gap-2">
+                <AlignLeft className="size-5 text-teal-700" />
+                <h2 className="font-display text-xl font-semibold">Descrição</h2>
+              </div>
+              <div className="mt-3 whitespace-pre-wrap rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+                {pessoa.descricao || "Nenhuma descrição cadastrada para esta pessoa."}
+              </div>
+            </div>
           </section>
           <aside className="panel p-5">
             <div className="grid size-11 place-items-center rounded-2xl bg-coral/10 text-coral"><GitFork className="size-5" /></div>

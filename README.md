@@ -9,7 +9,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 
 ## Funcionalidades
 
-- Cadastro de pessoas, categorias coloridas e meios de contato dinâmicos.
+- Cadastro de pessoas com descrição livre, categorias coloridas e meios de
+  contato dinâmicos.
 - Calendário mensal responsivo com busca e filtros, recorrência, lembretes,
   prioridades, anexos, vínculo com pessoas e conclusão rápida.
 - Movimentação de tarefas por arrastar e soltar no computador e por seleção de
@@ -23,6 +24,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Streaming de mídia com suporte a HTTP Range.
 - Grafo interativo de vínculos com layouts de teia e hierárquico; ao selecionar
   uma aresta, o painel permite editar a relação e gerenciar seus arquivos.
+- Exportação do mapa interpessoal para PDF, com imagem da rede e relação detalhada
+  de pessoas, descrições, categorias, meios de contato e vínculos visíveis.
 - Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
 - Ícone visual configurável, aplicado também ao favicon do navegador.
 - Usuário e senha do administrador alteráveis nas configurações, com revogação
@@ -72,13 +75,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.5.0
+docker pull ghcr.io/facrf/agendarx:0.6.0
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.5.0
+  ghcr.io/facrf/agendarx:0.6.0
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -109,7 +112,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.5.0
+    image: ghcr.io/facrf/agendarx:0.6.0
     restart: unless-stopped
     ports:
       - "12000:12000"

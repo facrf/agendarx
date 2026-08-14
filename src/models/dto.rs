@@ -147,6 +147,7 @@ pub struct TipoMeioContatoInput {
 pub struct PessoaInput {
     pub nome: String,
     pub categoria_id: Option<i64>,
+    pub descricao: Option<String>,
     #[serde(default)]
     pub contatos: Vec<ContatoInput>,
 }
@@ -155,6 +156,7 @@ pub struct PessoaInput {
 pub struct PessoaUpdateInput {
     pub nome: String,
     pub categoria_id: Option<i64>,
+    pub descricao: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -168,6 +170,7 @@ pub struct PessoaResumo {
     pub id: i64,
     pub nome: String,
     pub categoria_id: Option<i64>,
+    pub descricao: Option<String>,
     pub nome_categoria: Option<String>,
     pub cor_hex: Option<String>,
     pub tem_foto: bool,
@@ -240,13 +243,21 @@ pub struct GrafoResponse {
     pub edges: Vec<GrafoEdge>,
 }
 
-#[derive(Debug, Serialize, FromRow)]
+#[derive(Debug, Serialize)]
 pub struct GrafoNode {
     pub id: i64,
     pub label: String,
     pub color: String,
     pub foto_url: Option<String>,
     pub categoria: Option<String>,
+    pub descricao: Option<String>,
+    pub contatos: Vec<GrafoContato>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct GrafoContato {
+    pub tipo: String,
+    pub valor: String,
 }
 
 #[derive(Debug, Serialize, FromRow)]

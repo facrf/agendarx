@@ -46,6 +46,7 @@ export interface PessoaResumo {
   id: number;
   nome: string;
   categoria_id: number | null;
+  descricao: string | null;
   nome_categoria: string | null;
   cor_hex: string | null;
   tem_foto: boolean;
@@ -59,6 +60,7 @@ export interface PessoaDetalhe extends PessoaResumo {
 export interface PessoaPayload {
   nome: string;
   categoria_id: number | null;
+  descricao: string | null;
   contatos?: ContatoPayload[];
 }
 
@@ -108,6 +110,13 @@ export interface GrafoNode {
   color: string;
   foto_url: string | null;
   categoria: string | null;
+  descricao: string | null;
+  contatos: GrafoContato[];
+}
+
+export interface GrafoContato {
+  tipo: string;
+  valor: string;
 }
 
 export interface GrafoEdge {

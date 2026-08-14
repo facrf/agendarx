@@ -1,3 +1,5 @@
+use std::collections::HashMap;
+
 use axum::{
     Json, Router,
     extract::{Multipart, Path, State},
@@ -11,8 +13,8 @@ use crate::{
     AppState,
     error::AppError,
     models::{
-        AnexoNomeInput, AnexoVinculo, AnexoVinculoResumo, GrafoEdge, GrafoNode, GrafoResponse,
-        PessoaVinculo, VinculoInput,
+        AnexoNomeInput, AnexoVinculo, AnexoVinculoResumo, GrafoContato, GrafoEdge, GrafoNode,
+        GrafoResponse, PessoaVinculo, VinculoInput,
     },
 };
 
@@ -343,19 +345,49 @@ async fn excluir_vinculo(
 }
 
 async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse>, AppError> {
-    let nodes = sqlx::query_as::<_, GrafoNode>(
+    let node_rows = sqlx::query_as::<_, GrafoNodeLinha>(
         "SELECT p.id, p.nome AS label, COALESCE(c.cor_hex, '#86A6A3') AS color, \
                 CASE WHEN p.foto_principal IS NOT NULL \
                     THEN '/api/dossie/pessoas/' || p.id || '/foto' \
                     ELSE NULL \
                 END AS foto_url, \
-                c.nome_categoria AS categoria \
+                c.nome_categoria AS categoria, p.descricao \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          ORDER BY p.nome COLLATE NOCASE",
     )
     .fetch_all(&state.pool)
     .await?;
+    let contact_rows = sqlx::query_as::<_, GrafoContatoLinha>(
+        "SELECT co.pessoa_id, t.nome_tipo AS tipo, co.valor \
+         FROM contato co \
+         JOIN tipo_meio_contato t ON t.id = co.tipo_contato_id \
+         ORDER BY co.pessoa_id, co.id",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    let mut contacts_by_person = HashMap::<i64, Vec<GrafoContato>>::new();
+    for contact in contact_rows {
+        contacts_by_person
+            .entry(contact.pessoa_id)
+            .or_default()
+            .push(GrafoContato {
+                tipo: contact.tipo,
+                valor: contact.valor,
+            });
+    }
+    let nodes = node_rows
+        .into_iter()
+        .map(|node| GrafoNode {
+            id: node.id,
+            label: node.label,
+            color: node.color,
+            foto_url: node.foto_url,
+            categoria: node.categoria,
+            descricao: node.descricao,
+            contatos: contacts_by_person.remove(&node.id).unwrap_or_default(),
+        })
+        .collect();
     let edges = sqlx::query_as::<_, GrafoEdge>(
         "SELECT id, pessoa_origem_id AS source, pessoa_destino_id AS target, \
                 tipo_vinculo AS label, descricao \
@@ -364,6 +396,23 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
     .fetch_all(&state.pool)
     .await?;
     Ok(Json(GrafoResponse { nodes, edges }))
+}
+
+#[derive(sqlx::FromRow)]
+struct GrafoNodeLinha {
+    id: i64,
+    label: String,
+    color: String,
+    foto_url: Option<String>,
+    categoria: Option<String>,
+    descricao: Option<String>,
+}
+
+#[derive(sqlx::FromRow)]
+struct GrafoContatoLinha {
+    pessoa_id: i64,
+    tipo: String,
+    valor: String,
 }
 
 async fn buscar_vinculo(state: &AppState, id: i64) -> Result<PessoaVinculo, AppError> {

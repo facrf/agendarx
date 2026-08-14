@@ -66,6 +66,7 @@ pub struct Pessoa {
     pub id: i64,
     pub nome: String,
     pub categoria_id: Option<i64>,
+    pub descricao: Option<String>,
     #[serde(skip_serializing)]
     pub foto_principal: Option<Vec<u8>>,
     pub data_cadastro: String,
