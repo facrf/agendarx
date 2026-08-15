@@ -5,6 +5,31 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
 ## [Não publicado]
 
+## [0.6.2] - 2026-08-14
+
+### Adicionado
+
+- Detecção local de geotag em imagens JPEG, TIFF, PNG e WebP, exibindo mapa,
+  coordenadas, altitude e dados disponíveis da captura.
+
+### Corrigido
+
+- Pessoas jurídicas mantêm o formato quadrado na tela do grafo, inclusive ao
+  receber foco ou destaque.
+- Imagens, vídeos, textos e PDFs permanecem alinhados e enquadrados na área útil
+  do visualizador em telas grandes e pequenas.
+- Drag-and-drop copia os arquivos enquanto o evento ainda está disponível,
+  tornando anexos arbitrários compatíveis com Firefox, Chromium e gerenciadores
+  de arquivos.
+
+## [0.6.1] - 2026-08-14
+
+### Adicionado
+
+- Identificação de pessoas jurídicas com apresentação própria nos perfis e listas.
+- Diagnóstico administrativo das configurações e serviços da aplicação.
+- Leitura inicial de metadados EXIF e localização GPS nas imagens anexadas.
+
 ## [0.6.0] - 2026-08-14
 
 ### Adicionado
@@ -160,7 +185,9 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.6.0...HEAD
+[Não publicado]: https://github.com/facrf/agendarx/compare/v0.6.2...HEAD
+[0.6.2]: https://github.com/facrf/agendarx/compare/v0.6.1...v0.6.2
+[0.6.1]: https://github.com/facrf/agendarx/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/facrf/agendarx/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/facrf/agendarx/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/facrf/agendarx/compare/v0.3.0...v0.4.0

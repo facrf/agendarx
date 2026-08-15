@@ -10,18 +10,21 @@ export function dataTransferHasFiles(dataTransfer: DataTransfer): boolean {
 }
 
 export async function droppedFiles(dataTransfer: DataTransfer): Promise<DroppedFiles> {
-  // Capture os itens enquanto o evento de drop ainda está ativo. Alguns
-  // navegadores protegem o DataTransfer assim que o handler devolve o controle.
+  // Copie primeiro DataTransfer.files. Firefox e alguns gerenciadores de
+  // arquivos invalidam DataTransferItem assim que o handler devolve o controle.
+  const directFiles = Array.from(dataTransfer.files);
   const items = Array.from(dataTransfer.items).filter((item) => item.kind === "file");
-  const fallbackFiles = Array.from(dataTransfer.files);
-  let ignoredDirectories = 0;
+  const ignoredDirectories = items.reduce((total, item) => {
+    return total + (item.webkitGetAsEntry?.()?.isDirectory ? 1 : 0);
+  }, 0);
+
+  if (directFiles.length > 0) {
+    return { files: directFiles, ignoredDirectories };
+  }
 
   const candidates = items.flatMap((item) => {
     const entry = item.webkitGetAsEntry?.() ?? null;
-    if (entry?.isDirectory) {
-      ignoredDirectories += 1;
-      return [];
-    }
+    if (entry?.isDirectory) return [];
     return [{ entry, fallback: item.getAsFile() }];
   });
 
@@ -31,15 +34,7 @@ export async function droppedFiles(dataTransfer: DataTransfer): Promise<DroppedF
     }
     return Promise.resolve(fallback);
   }));
-  const files = resolved.filter((file): file is File => file !== null);
-
-  return {
-    // Alguns navegadores/gerenciadores expõem DataTransferItem, mas retornam
-    // null em getAsFile()/entry.file(). Nessa situação, DataTransfer.files ainda
-    // contém a seleção correta e não deve ser descartado.
-    files: files.length > 0 ? files : candidates.length > 0 || items.length === 0 ? fallbackFiles : [],
-    ignoredDirectories,
-  };
+  return { files: resolved.filter((file): file is File => file !== null), ignoredDirectories };
 }
 
 function fileFromEntry(entry: FileSystemFileEntry, fallback: File | null): Promise<File | null> {

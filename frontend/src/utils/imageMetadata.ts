@@ -4,20 +4,29 @@ export interface ImageMetadata {
   make?: string;
   model?: string;
   capturedAt?: string;
+  altitude?: number;
 }
 
-// EXIF is embedded in JPEG APP1 segments as a TIFF structure. Reading it in the
-// browser keeps the original image private and avoids sending coordinates to a
-// third-party metadata service.
+// EXIF usa uma estrutura TIFF, diretamente ou dentro de JPEG, PNG e WebP.
+// A leitura local evita enviar as coordenadas a um serviço de metadados.
 export async function readImageMetadata(url: string): Promise<ImageMetadata | null> {
   const response = await fetch(url, { credentials: "include" });
   if (!response.ok) throw new Error("Não foi possível ler os metadados da imagem");
-  return parseJpegExif(await response.arrayBuffer());
+  return parseImageExif(await response.arrayBuffer());
 }
 
-function parseJpegExif(buffer: ArrayBuffer): ImageMetadata | null {
+function parseImageExif(buffer: ArrayBuffer): ImageMetadata | null {
   const view = new DataView(buffer);
-  if (view.byteLength < 4 || view.getUint16(0) !== 0xffd8) return null;
+  if (view.byteLength < 8) return null;
+
+  // TIFF também pode ser anexado diretamente, sem um contêiner JPEG.
+  if (view.getUint16(0) === 0x4949 || view.getUint16(0) === 0x4d4d) {
+    return parseTiff(view, 0, view.byteLength);
+  }
+  if (isPng(view)) return parsePngExif(view);
+  if (ascii(view, 0, 4) === "RIFF" && ascii(view, 8, 4) === "WEBP") return parseWebpExif(view);
+  if (view.getUint16(0) !== 0xffd8) return null;
+
   let cursor = 2;
   while (cursor + 4 <= view.byteLength) {
     if (view.getUint8(cursor) !== 0xff) break;
@@ -28,6 +37,42 @@ function parseJpegExif(buffer: ArrayBuffer): ImageMetadata | null {
     }
     if (length < 2) break;
     cursor += 2 + length;
+  }
+  return null;
+}
+
+function isPng(view: DataView) {
+  return view.byteLength >= 8
+    && view.getUint32(0) === 0x89504e47
+    && view.getUint32(4) === 0x0d0a1a0a;
+}
+
+function parsePngExif(view: DataView): ImageMetadata | null {
+  let cursor = 8;
+  while (cursor + 12 <= view.byteLength) {
+    const length = view.getUint32(cursor);
+    const dataStart = cursor + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd + 4 > view.byteLength) return null;
+    if (ascii(view, cursor + 4, 4) === "eXIf") return parseTiff(view, dataStart, dataEnd);
+    cursor = dataEnd + 4;
+  }
+  return null;
+}
+
+function parseWebpExif(view: DataView): ImageMetadata | null {
+  let cursor = 12;
+  while (cursor + 8 <= view.byteLength) {
+    const type = ascii(view, cursor, 4);
+    const length = view.getUint32(cursor + 4, true);
+    const dataStart = cursor + 8;
+    const dataEnd = dataStart + length;
+    if (dataEnd > view.byteLength) return null;
+    if (type === "EXIF") {
+      const tiffStart = ascii(view, dataStart, 6) === "Exif\0\0" ? dataStart + 6 : dataStart;
+      return parseTiff(view, tiffStart, dataEnd);
+    }
+    cursor = dataEnd + (length % 2);
   }
   return null;
 }
@@ -84,6 +129,13 @@ function parseTiff(view: DataView, base: number, limit: number): ImageMetadata |
     const ref = text(gps.get(refTag));
     return ref === "S" || ref === "W" ? -value : value;
   };
+  const altitudeEntry = gps.get(0x0006);
+  const altitudeOffset = altitudeEntry?.type === 5 && altitudeEntry.count >= 1
+    ? valueOffset(altitudeEntry)
+    : undefined;
+  const altitudeValue = altitudeOffset === undefined ? undefined : rational(altitudeOffset);
+  const altitudeRef = gps.get(0x0005);
+  const belowSeaLevel = altitudeRef ? view.getUint8(valueOffset(altitudeRef)) === 1 : false;
 
   const metadata: ImageMetadata = {
     make: text(root.get(0x010f)),
@@ -91,6 +143,9 @@ function parseTiff(view: DataView, base: number, limit: number): ImageMetadata |
     capturedAt: text(exif.get(0x9003)) || text(exif.get(0x9004)) || text(root.get(0x0132)),
     latitude: coordinate(0x0002, 0x0001),
     longitude: coordinate(0x0004, 0x0003),
+    altitude: altitudeValue !== undefined && Number.isFinite(altitudeValue)
+      ? (belowSeaLevel ? -altitudeValue : altitudeValue)
+      : undefined,
   };
   return Object.values(metadata).some((value) => value !== undefined) ? metadata : null;
 }

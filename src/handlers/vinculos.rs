@@ -351,7 +351,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
                     THEN '/api/dossie/pessoas/' || p.id || '/foto' \
                     ELSE NULL \
                 END AS foto_url, \
-                c.nome_categoria AS categoria, p.descricao \
+                c.nome_categoria AS categoria, p.pessoa_juridica, p.descricao \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          ORDER BY p.nome COLLATE NOCASE",
@@ -384,6 +384,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
             color: node.color,
             foto_url: node.foto_url,
             categoria: node.categoria,
+            pessoa_juridica: node.pessoa_juridica,
             descricao: node.descricao,
             contatos: contacts_by_person.remove(&node.id).unwrap_or_default(),
         })
@@ -405,6 +406,7 @@ struct GrafoNodeLinha {
     color: String,
     foto_url: Option<String>,
     categoria: Option<String>,
+    pessoa_juridica: bool,
     descricao: Option<String>,
 }
 

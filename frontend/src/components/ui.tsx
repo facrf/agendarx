@@ -147,12 +147,12 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
 
   if (!open) return null;
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
+    <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
       <section
         role="dialog"
         aria-modal="true"
         aria-label={title}
-        className={cn("animate-modal max-h-[calc(100dvh-1rem)] w-full max-w-2xl overflow-auto rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl", className)}
+        className={cn("animate-modal flex max-h-[calc(100dvh-1rem)] min-h-0 w-full max-w-2xl flex-col overflow-hidden rounded-2xl bg-white shadow-2xl sm:max-h-[calc(100dvh-2rem)] sm:rounded-3xl", className)}
         onMouseDown={(event) => event.stopPropagation()}
       >
         <header className="sticky top-0 z-10 flex shrink-0 items-center justify-between gap-3 border-b border-slate-100 bg-white/95 px-4 py-3 backdrop-blur sm:px-6 sm:py-4">
@@ -161,7 +161,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
             <X className="size-5" />
           </button>
         </header>
-        <div className={bodyClassName ?? "p-4 sm:p-6"}>{children}</div>
+        <div className={bodyClassName ?? "min-h-0 overflow-y-auto p-4 sm:p-6"}>{children}</div>
       </section>
     </div>
   );

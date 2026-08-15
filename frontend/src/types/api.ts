@@ -112,6 +112,7 @@ export interface GrafoNode {
   color: string;
   foto_url: string | null;
   categoria: string | null;
+  pessoa_juridica: boolean;
   descricao: string | null;
   contatos: GrafoContato[];
 }

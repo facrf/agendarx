@@ -55,6 +55,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
           color: node.color || "#86A6A3",
           image: node.foto_url ? apiUrl(node.foto_url) : "none",
           category: node.categoria || "Sem categoria",
+          legalEntity: node.pessoa_juridica,
         },
       })),
       ...graph.edges.map((edge) => ({
@@ -186,6 +187,12 @@ const graphStyles: StylesheetJson = [
       "overlay-opacity": 0,
       "transition-property": "width height border-width border-color",
       "transition-duration": 160,
+    },
+  },
+  {
+    selector: "node[?legalEntity]",
+    style: {
+      shape: "round-rectangle",
     },
   },
   {

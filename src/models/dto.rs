@@ -279,6 +279,7 @@ pub struct GrafoNode {
     pub color: String,
     pub foto_url: Option<String>,
     pub categoria: Option<String>,
+    pub pessoa_juridica: bool,
     pub descricao: Option<String>,
     pub contatos: Vec<GrafoContato>,
 }

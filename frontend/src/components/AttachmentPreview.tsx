@@ -37,12 +37,12 @@ export function AttachmentPreviewModal({ attachment, onClose }: {
       open={Boolean(attachment)}
       onClose={onClose}
       title={attachment?.nome_arquivo || "Pré-visualização"}
-      className="flex h-[calc(100dvh-1rem)] max-w-6xl flex-col overflow-hidden sm:h-[calc(100dvh-2rem)]"
+      className="h-[calc(100dvh-1rem)] max-w-6xl sm:h-[calc(100dvh-2rem)]"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       {attachment && (
         <div className="flex min-h-0 flex-1 flex-col">
-          <div className="min-h-0 flex-1 overflow-auto p-2 sm:p-4">
+          <div className="min-h-0 flex-1 overflow-hidden p-2 sm:p-4">
             <PreviewContent attachment={attachment} kind={kind} />
           </div>
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-3 py-3 sm:px-4">
@@ -77,7 +77,7 @@ function PreviewContent({ attachment, kind }: { attachment: PreviewAttachment; k
     return <ImagePreview source={source} name={attachment.nome_arquivo} />;
   }
   if (kind === "video") {
-    return <video className="mx-auto h-full max-h-full w-full rounded-xl bg-slate-950 object-contain" controls preload="metadata" src={source}>Seu navegador não suporta vídeo.</video>;
+    return <video className="mx-auto block h-full max-h-full w-full max-w-full rounded-xl bg-slate-950 object-contain" controls preload="metadata" src={source}>Seu navegador não suporta vídeo.</video>;
   }
   if (kind === "audio") {
     return (
@@ -90,7 +90,7 @@ function PreviewContent({ attachment, kind }: { attachment: PreviewAttachment; k
   if (kind === "pdf" || kind === "text") {
     return (
       <iframe
-        className="h-full min-h-64 w-full rounded-xl border border-slate-200 bg-slate-50"
+        className="block h-full min-h-0 w-full rounded-xl border border-slate-200 bg-slate-50"
         src={source}
         title={`Pré-visualização de ${attachment.nome_arquivo}`}
       />
@@ -123,11 +123,11 @@ function ImagePreview({ source, name }: { source: string; name: string }) {
 
   const hasLocation = metadata?.latitude !== undefined && metadata.longitude !== undefined;
   return (
-    <div className="grid min-h-full gap-4 lg:grid-cols-[minmax(0,1fr)_20rem]">
-      <div className="grid min-h-64 place-items-center rounded-xl bg-slate-950/95">
-        <img className="max-h-[70dvh] w-full rounded-xl object-contain" src={source} alt={name} />
+    <div className="flex h-full min-h-0 flex-col gap-4 overflow-y-auto lg:grid lg:grid-cols-[minmax(0,1fr)_20rem] lg:overflow-hidden">
+      <div className="grid min-h-64 flex-1 place-items-center overflow-hidden rounded-xl bg-slate-950/95 lg:min-h-0">
+        <img className="block max-h-[65dvh] max-w-full rounded-xl object-contain lg:h-full lg:max-h-full lg:w-full" src={source} alt={name} />
       </div>
-      <aside className="rounded-2xl border border-slate-200 bg-slate-50 p-4">
+      <aside className="shrink-0 rounded-2xl border border-slate-200 bg-slate-50 p-4 lg:min-h-0 lg:overflow-y-auto">
         <div className="flex items-center gap-2 font-semibold text-slate-800"><MapPin className="size-4 text-teal-700" /> Local da foto</div>
         {loading ? (
           <p className="mt-4 flex items-center gap-2 text-sm text-slate-500"><LoaderCircle className="size-4 animate-spin" /> Lendo geotag da imagem…</p>
@@ -135,6 +135,7 @@ function ImagePreview({ source, name }: { source: string; name: string }) {
           <>
             <iframe className="mt-4 h-52 w-full rounded-xl border-0" title={`Mapa de ${name}`} loading="lazy" src={osmEmbed(metadata.latitude!, metadata.longitude!)} />
             <p className="mt-3 font-mono text-xs text-slate-600">{metadata.latitude!.toFixed(6)}, {metadata.longitude!.toFixed(6)}</p>
+            {metadata.altitude !== undefined && <p className="mt-1 text-xs text-slate-500">Altitude: {metadata.altitude.toFixed(1)} m</p>}
             <a className="btn btn-secondary mt-3 w-full" href={`https://www.openstreetmap.org/?mlat=${metadata.latitude}&mlon=${metadata.longitude}#map=16/${metadata.latitude}/${metadata.longitude}`} target="_blank" rel="noopener noreferrer"><ExternalLink className="size-4" /> Abrir mapa</a>
           </>
         ) : <p className="mt-4 text-sm leading-6 text-slate-500">Esta imagem não contém coordenadas GPS nos metadados EXIF.</p>}
