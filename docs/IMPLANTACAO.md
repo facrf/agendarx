@@ -94,6 +94,33 @@ aplicação usa `http://searxng:8080`.
 O contêiner principal aplica filesystem raiz somente leitura, remove capabilities,
 impede elevação de privilégio e mantém apenas o volume de dados gravável.
 
+### Atualizando uma Stack para uma nova imagem
+
+Espere a tag estar disponível no GHCR antes de atualizar o Portainer. A publicação
+da release é assíncrona; uma tag Git já enviada não significa que a imagem esteja
+pronta para pull. Verifique no workflow **Publicar versão** do GitHub e na página
+do pacote antes de prosseguir.
+
+1. Em **Stacks**, abra a Stack do AgendarX e clique em **Editor**.
+2. Defina `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:0.6.3` nas variáveis da Stack,
+   ou atualize a tag padrão no YAML.
+3. Marque **Pull latest image** e clique em **Update the stack**. A atualização
+   recria somente os contêineres; o volume `agendarx_data` é preservado.
+4. Confirme `GET /health` e os logs do serviço `agendarx`. O banco aplica as
+   migrações automaticamente durante a inicialização.
+
+No terminal, o equivalente é:
+
+```bash
+docker compose -f deploy/portainer-stack.yml pull agendarx
+docker compose -f deploy/portainer-stack.yml up -d agendarx
+curl -fsS http://127.0.0.1:12000/health
+```
+
+Use uma tag numérica, como `0.6.3`, para atualizações reproduzíveis. A tag
+`latest` serve apenas para acompanhar a versão mais recente e não é indicada para
+uma implantação que exija rollback previsível.
+
 ## Erro HTTP 403 do SearXNG
 
 A API de pesquisa usa `GET /search?format=json`. De acordo com a

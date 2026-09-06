@@ -41,21 +41,26 @@ frontend compilado, `.env.example`, README e o exemplo do Portainer.
 1. Atualize `version` no `Cargo.toml`.
 2. Registre as mudanças no `CHANGELOG.md`.
 3. Faça merge e confirme que o workflow `CI` passou.
-4. Envie o commit ao Gitea e aguarde o espelho atualizar `main` no GitHub.
-5. Crie a tag anotada no mesmo commit e envie-a ao Gitea:
+4. Confirme que o remoto `github` aponta para `https://github.com/facrf/agendarx.git`.
+5. Envie o commit e a tag anotada diretamente para o GitHub:
 
 ```bash
-git remote get-url origin
-# neste projeto, origin pode apontar para o Gitea que espelha no GitHub
-git push origin main
-git tag -a v0.6.0 -m "AgendarX v0.6.0"
-git push origin v0.6.0
+git remote get-url github
+# https://github.com/facrf/agendarx.git
+git push github main
+git tag -a v0.6.3 -m "AgendarX v0.6.3"
+git push github v0.6.3
 ```
 
-Confirme que a tag também apareceu em `github.com/facrf/agendarx`; somente então o
-workflow é disparado. O GitHub Actions cria a Release com notas automáticas,
-pacotes e arquivos `.sha256`. Também publica no GHCR as tags `0.6.0`, `0.6`, `0`
-e `latest`.
+Não use `git push origin` nesse fluxo: neste projeto `origin` é o espelho Gitea.
+O envio direto ao remoto `github` evita publicar a mudança no Gitea.
+
+A tag dispara o workflow no GitHub. Acompanhe-o em **Actions > Publicar versão**.
+Só considere a imagem pronta quando o job **Imagem Docker multi-arquitetura**
+terminar com sucesso e a tag aparecer em
+[Packages > agendarx](https://github.com/facrf/agendarx/pkgs/container/agendarx).
+O workflow cria a Release com notas automáticas, pacotes e arquivos `.sha256` e
+publica no GHCR as tags `0.6.3`, `0.6`, `0` e `latest`.
 
 Na primeira publicação, o GitHub pode criar o pacote GHCR como privado. Para
 permitir `docker pull` sem login, abra **Packages > agendarx > Package settings >
@@ -66,8 +71,8 @@ Change visibility**, escolha **Public** e confirme. Essa mudança é permanente.
 Use a imagem publicada pelo projeto no GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.0
-docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.0
+docker pull ghcr.io/facrf/agendarx:0.6.3
+docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.3
 ```
 
 O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
@@ -75,9 +80,9 @@ O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
 ## Usando um pacote binário
 
 ```bash
-sha256sum -c agendarx-0.6.0-linux-riscv64.tar.gz.sha256
-tar -xzf agendarx-0.6.0-linux-riscv64.tar.gz
-cd agendarx-0.6.0-linux-riscv64
+sha256sum -c agendarx-0.6.3-linux-riscv64.tar.gz.sha256
+tar -xzf agendarx-0.6.3-linux-riscv64.tar.gz
+cd agendarx-0.6.3-linux-riscv64
 cp .env.example .env
 ./agendarx
 ```
