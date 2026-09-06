@@ -1,6 +1,7 @@
 export interface UsuarioSessao {
   id: number;
   login: string;
+  perfil: "admin" | "usuario";
   tem_icone: boolean;
   icone_atualizado_em: string | null;
 }

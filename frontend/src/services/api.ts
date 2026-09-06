@@ -28,7 +28,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     const message =
       body && typeof body.erro === "string"
         ? body.erro
-        : `A requisição falhou (${response.status})`;
+        : httpErrorMessage(response.status);
     if (response.status === 401 && path !== "/api/auth/login") {
       window.dispatchEvent(new Event("agendarx:unauthorized"));
     }
@@ -85,7 +85,7 @@ export const api = {
         if (xhr.status === 401) window.dispatchEvent(new Event("agendarx:unauthorized"));
         const message = xhr.response && typeof xhr.response.erro === "string"
           ? xhr.response.erro
-          : `A requisição falhou (${xhr.status})`;
+          : httpErrorMessage(xhr.status);
         reject(new ApiError(xhr.status, message));
       });
       xhr.addEventListener("error", () => reject(new ApiError(0, "Falha de rede durante o upload")));
@@ -98,4 +98,10 @@ export const api = {
 export function errorMessage(error: unknown): string {
   if (error instanceof Error) return error.message;
   return "Ocorreu um erro inesperado";
+}
+
+function httpErrorMessage(status: number): string {
+  return status === 413
+    ? "O arquivo excede o limite de envio do servidor. Selecione um arquivo menor ou solicite ao administrador a revisão do limite."
+    : `A requisição falhou (${status})`;
 }

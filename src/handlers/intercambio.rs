@@ -25,19 +25,12 @@ async fn importar_contatos(
     mut multipart: Multipart,
 ) -> Result<Json<ImportacaoContatosResponse>, AppError> {
     let mut arquivo = None;
-    while let Some(campo) = multipart
-        .next_field()
-        .await
-        .map_err(|erro| AppError::BadRequest(format!("multipart inválido: {erro}")))?
-    {
+    while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
         if campo.name() != Some("arquivo") {
             continue;
         }
         let nome = campo.file_name().unwrap_or("contatos.csv").to_owned();
-        let conteudo = campo
-            .bytes()
-            .await
-            .map_err(|erro| AppError::BadRequest(format!("falha no upload: {erro}")))?;
+        let conteudo = campo.bytes().await.map_err(AppError::from)?;
         arquivo = Some((nome, conteudo));
         break;
     }

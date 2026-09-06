@@ -71,7 +71,7 @@ async fn criar_admin_inicial(pool: &SqlitePool, config: &Config) -> Result<(), A
     .map_err(|_| AppError::interno("falha ao gerar hash da senha"))?
     .map_err(|_| AppError::interno("falha ao gerar hash da senha"))?;
 
-    sqlx::query("INSERT INTO usuario (login, senha_hash) VALUES (?, ?)")
+    sqlx::query("INSERT INTO usuario (login, senha_hash, perfil) VALUES (?, ?, 'admin')")
         .bind(login)
         .bind(senha_hash)
         .execute(pool)

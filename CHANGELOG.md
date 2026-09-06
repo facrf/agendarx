@@ -3,7 +3,24 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não publicado]
+## [0.6.3] - 2026-09-06
+
+### Corrigido
+
+- Limite interno de 2 MiB que rejeitava fotos e anexos antes do limite configurado.
+- Mensagens de upload agora mostram o motivo da falha no dossiê e preservam HTTP 413.
+- Nova tentativa após falha na foto reutiliza a pessoa e os contatos já salvos.
+- Edição de dados e contatos passa a ser transacional, sem alterações parciais.
+- Fotos e anexos não persistem no cache HTTP do navegador.
+- Anexos de vínculos que falham no formulário do grafo permanecem selecionados para nova tentativa.
+
+### Adicionado
+
+- Dossiê exibe progresso por arquivo e permite reenviar uma falha ou todas, preservando os envios concluídos.
+- Cadastro de administradores e usuários nas configurações, com autorização no servidor.
+- Migração preserva as contas existentes como administradoras; novas contas têm perfil explícito.
+- Busca, categoria, grau e layout do grafo são lembrados por conta neste navegador, com ação para limpar.
+- Teste de integração para upload, recuperação de arquivos, miniaturas, limites, transações e permissões.
 
 ## [0.6.2] - 2026-08-14
 
@@ -185,7 +202,7 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
-[Não publicado]: https://github.com/facrf/agendarx/compare/v0.6.2...HEAD
+[0.6.3]: https://github.com/facrf/agendarx/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/facrf/agendarx/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/facrf/agendarx/compare/v0.6.0...v0.6.1
 [0.6.0]: https://github.com/facrf/agendarx/compare/v0.5.0...v0.6.0

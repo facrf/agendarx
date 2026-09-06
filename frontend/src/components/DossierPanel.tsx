@@ -10,6 +10,7 @@ import {
   ImageIcon,
   Music2,
   Plus,
+  RefreshCcw,
   Trash2,
   UploadCloud,
 } from "lucide-react";
@@ -24,13 +25,34 @@ import { AttachmentPreviewModal, AttachmentThumbnail, previewKind } from "./Atta
 import { Button, EmptyState, Spinner, cn } from "./ui";
 
 export function DossierPanel({ pessoaId }: { pessoaId: number }) {
+  return <DossierContent key={pessoaId} pessoaId={pessoaId} />;
+}
+
+interface EnvioArquivo {
+  id: number;
+  arquivo: File;
+  progresso: number;
+  status: "aguardando" | "enviando" | "salvo" | "falhou";
+  erro?: string;
+}
+
+function DossierContent({ pessoaId }: { pessoaId: number }) {
   const [anexos, setAnexos] = useState<AnexoDossie[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
+  const [envios, setEnvios] = useState<EnvioArquivo[]>([]);
+  const envioEmCurso = useRef(false);
+  const proximoEnvioId = useRef(0);
+  const ativo = useRef(true);
   const [arrastando, setArrastando] = useState(false);
   const [arquivoAberto, setArquivoAberto] = useState<AnexoDossie | null>(null);
   const inputRef = useRef<HTMLInputElement>(null);
   const { notify } = useToast();
+
+  useEffect(() => {
+    ativo.current = true;
+    return () => { ativo.current = false; };
+  }, []);
 
   const carregar = useCallback(async () => {
     try {
@@ -51,30 +73,55 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
     arquivos: anexos.filter((anexo) => !["image", "audio", "video"].includes(previewKind(anexo))),
   }), [anexos]);
 
-  const enviarArquivos = async (arquivos: File[]) => {
-    if (arquivos.length === 0) return;
-    const arquivosValidos = arquivos.filter((arquivo) => arquivo.size > 0);
-    if (arquivosValidos.length !== arquivos.length) {
-      notify("Arquivos vazios não podem ser anexados", "erro");
-    }
-    if (arquivosValidos.length === 0) return;
+  const executarEnvios = async (lote: EnvioArquivo[]) => {
+    if (envioEmCurso.current || lote.length === 0 || !ativo.current) return;
+    envioEmCurso.current = true;
     setEnviando(true);
+    const ids = new Set(lote.map((item) => item.id));
+    setEnvios((atuais) => atuais.map((item) => ids.has(item.id)
+      ? { ...item, status: "aguardando", progresso: 0, erro: undefined } : item));
+    const atualizar = (id: number, patch: Partial<EnvioArquivo>) => {
+      if (ativo.current) setEnvios((atuais) => atuais.map((item) => item.id === id ? { ...item, ...patch } : item));
+    };
+    let enviados = 0;
+    let falhas = 0;
     try {
-      const uploads = await Promise.allSettled(arquivosValidos.map((arquivo) => {
-        const form = new FormData();
-        form.append("arquivo", arquivo);
-        return api.post<AnexoDossie>(`/api/dossie/pessoas/${pessoaId}/anexos`, form);
-      }));
-      const enviados = uploads.flatMap((resultado) => resultado.status === "fulfilled" ? [resultado.value] : []);
-      const falhas = uploads.length - enviados.length;
-      if (enviados.length > 0) setAnexos((atuais) => [...enviados, ...atuais]);
-      if (falhas > 0) notify(`${falhas} arquivo(s) não puderam ser enviados`, "erro");
-      else notify(`${enviados.length} arquivo(s) adicionado(s) ao dossiê`);
-    } catch (error) {
-      notify(errorMessage(error), "erro");
+      for (const item of lote) {
+        if (!ativo.current) return;
+        atualizar(item.id, { status: "enviando" });
+        try {
+          const form = new FormData();
+          form.append("arquivo", item.arquivo);
+          const anexo = await api.upload<AnexoDossie>(`/api/dossie/pessoas/${pessoaId}/anexos`, form,
+            (progresso) => atualizar(item.id, { progresso }));
+          if (!ativo.current) return;
+          setAnexos((atuais) => [anexo, ...atuais.filter((atual) => atual.id !== anexo.id)]);
+          atualizar(item.id, { status: "salvo", progresso: 100 });
+          enviados++;
+        } catch (error) {
+          atualizar(item.id, { status: "falhou", erro: errorMessage(error) });
+          falhas++;
+        }
+      }
+      if (!ativo.current) return;
+      if (falhas > 0) notify(`${enviados} arquivo(s) salvo(s); ${falhas} falharam. Confira os detalhes e use “Reenviar falhas”.`, "erro");
+      else notify(`${enviados} arquivo(s) adicionado(s) ao dossiê`);
     } finally {
-      setEnviando(false);
+      envioEmCurso.current = false;
+      if (ativo.current) setEnviando(false);
     }
+  };
+
+  const enviarArquivos = async (arquivos: File[]) => {
+    if (envioEmCurso.current || !ativo.current) return;
+    const validos = arquivos.filter((arquivo) => arquivo.size > 0);
+    if (validos.length !== arquivos.length) notify("Arquivos vazios não podem ser anexados", "erro");
+    const lote: EnvioArquivo[] = validos.map((arquivo) => ({
+      id: ++proximoEnvioId.current, arquivo, progresso: 0, status: "aguardando",
+    }));
+    if (lote.length === 0) return;
+    setEnvios((atuais) => [...atuais, ...lote]);
+    await executarEnvios(lote);
   };
 
   const enviar = (event: ChangeEvent<HTMLInputElement>) => {
@@ -138,9 +185,34 @@ export function DossierPanel({ pessoaId }: { pessoaId: number }) {
           <div className="grid size-12 place-items-center rounded-2xl bg-white text-teal-700 shadow-sm"><UploadCloud className="size-6" /></div>
           <div><h3 className="font-display text-lg font-semibold text-slate-950">{arrastando ? "Solte os arquivos aqui" : "Adicionar ao dossiê"}</h3><p className="text-sm text-slate-500">Fotos, áudios, PDFs, ZIPs ou qualquer arquivo relevante.</p></div>
         </div>
-        <input ref={inputRef} className="sr-only" type="file" multiple onChange={enviar} />
+        <input ref={inputRef} className="sr-only" type="file" multiple disabled={enviando} onChange={enviar} />
         <Button type="button" loading={enviando} onClick={() => inputRef.current?.click()}><Plus className="size-4" /> Selecionar arquivo</Button>
       </section>
+
+      {envios.length > 0 && (
+        <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Progresso dos uploads">
+          <div className="flex flex-wrap items-center justify-between gap-3">
+            <h3 className="font-semibold text-slate-800">Envio de arquivos</h3>
+            <div className="flex flex-wrap gap-2">
+              {envios.some((item) => item.status === "falhou") && <Button type="button" variant="secondary" disabled={enviando} onClick={() => void executarEnvios(envios.filter((item) => item.status === "falhou"))}><RefreshCcw className="size-4" /> Reenviar falhas ({envios.filter((item) => item.status === "falhou").length})</Button>}
+              <Button type="button" variant="secondary" disabled={enviando} onClick={() => setEnvios([])}>Limpar lista</Button>
+            </div>
+          </div>
+          <p className="mt-2 text-xs text-slate-500" role="status">{envios.filter((item) => item.status === "salvo").length} de {envios.length} arquivo(s) salvo(s). {enviando ? "Aguarde nesta página até o envio terminar." : "Limpar a lista não exclui os anexos salvos. As falhas ficam disponíveis para reenvio enquanto esta página estiver aberta."}</p>
+          <ul className="mt-4 max-h-80 space-y-3 overflow-auto">
+            {envios.map((item) => (
+              <li key={item.id} className="rounded-xl bg-slate-50 p-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1"><p className="break-all text-sm font-medium text-slate-800">{item.arquivo.name}</p><p className="text-xs text-slate-500">{formatBytes(item.arquivo.size)} · {item.status === "salvo" ? "Salvo" : item.status === "falhou" ? "Falha no envio" : item.status === "aguardando" ? "Aguardando" : item.progresso === 100 ? "Salvando no dossiê…" : `Enviando: ${item.progresso}%`}</p></div>
+                  {item.status === "falhou" && <Button type="button" variant="secondary" disabled={enviando} onClick={() => void executarEnvios([item])} aria-label={`Reenviar ${item.arquivo.name}`}><RefreshCcw className="size-4" /> Reenviar</Button>}
+                </div>
+                {(item.status === "enviando" || item.status === "aguardando") && <progress className="mt-2 h-2 w-full accent-teal-600" max={100} value={item.progresso} aria-label={`Envio de ${item.arquivo.name}`} />}
+                {item.erro && <p className="mt-2 break-words text-xs text-rose-600">{item.erro}</p>}
+              </li>
+            ))}
+          </ul>
+        </section>
+      )}
 
       {anexos.length === 0 ? (
         <EmptyState icon={<Archive className="size-7" />} title="Dossiê ainda vazio" description="Adicione fotos, gravações, documentos e outros registros relacionados a esta pessoa." />

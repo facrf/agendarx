@@ -96,6 +96,18 @@ async fn atualizar_pessoa(
 ) -> Result<Json<PessoaDetalhe>, AppError> {
     validar_nome(&input.nome)?;
     validar_descricao(input.descricao.as_deref())?;
+    if let Some(contatos) = &input.contatos {
+        let mut ids = std::collections::HashSet::new();
+        for contato in contatos {
+            validar_contato(&contato.contato)?;
+            if let Some(id) = contato.id {
+                if !ids.insert(id) {
+                    return Err(AppError::BadRequest("contato repetido".to_owned()));
+                }
+            }
+        }
+    }
+    let mut tx = state.pool.begin().await?;
     let resultado =
         sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ? WHERE id = ?")
             .bind(input.nome.trim())
@@ -103,11 +115,48 @@ async fn atualizar_pessoa(
             .bind(normalizar_descricao(input.descricao))
             .bind(input.pessoa_juridica)
             .bind(id)
-            .execute(&state.pool)
+            .execute(&mut *tx)
             .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa"));
     }
+    if let Some(contatos) = input.contatos {
+        let anteriores: Vec<i64> = sqlx::query_scalar("SELECT id FROM contato WHERE pessoa_id = ?")
+            .bind(id)
+            .fetch_all(&mut *tx)
+            .await?;
+        for anterior in anteriores {
+            if !contatos.iter().any(|contato| contato.id == Some(anterior)) {
+                sqlx::query("DELETE FROM contato WHERE id = ? AND pessoa_id = ?")
+                    .bind(anterior)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        for item in contatos {
+            if let Some(contato_id) = item.id {
+                let atualizado = sqlx::query("UPDATE contato SET tipo_contato_id = ?, valor = ? WHERE id = ? AND pessoa_id = ?")
+                    .bind(item.contato.tipo_contato_id).bind(item.contato.valor.trim())
+                    .bind(contato_id).bind(id).execute(&mut *tx).await?;
+                if atualizado.rows_affected() == 0 {
+                    return Err(AppError::BadRequest(
+                        "contato não pertence à pessoa".to_owned(),
+                    ));
+                }
+            } else {
+                sqlx::query(
+                    "INSERT INTO contato (pessoa_id, tipo_contato_id, valor) VALUES (?, ?, ?)",
+                )
+                .bind(id)
+                .bind(item.contato.tipo_contato_id)
+                .bind(item.contato.valor.trim())
+                .execute(&mut *tx)
+                .await?;
+            }
+        }
+    }
+    tx.commit().await?;
     Ok(Json(buscar_pessoa_detalhe(&state, id).await?))
 }
 

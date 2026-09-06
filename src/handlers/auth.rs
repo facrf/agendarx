@@ -55,7 +55,7 @@ async fn login(
     }
 
     let usuario = sqlx::query_as::<_, Usuario>(
-        "SELECT id, login, senha_hash, icone_admin_blob, icone_admin_mime_type, \
+        "SELECT id, login, perfil, senha_hash, icone_admin_blob, icone_admin_mime_type, \
                 icone_admin_atualizado_em, data_criacao \
          FROM usuario WHERE login = ?",
     )
@@ -116,6 +116,7 @@ async fn login(
         usuario: UsuarioSessao {
             id: usuario.id,
             login: usuario.login,
+            perfil: usuario.perfil,
             tem_icone: usuario.icone_admin_blob.is_some(),
             icone_atualizado_em: usuario.icone_admin_atualizado_em,
         },
@@ -180,7 +181,7 @@ async fn atualizar_credenciais(
     }
 
     let usuario = sqlx::query_as::<_, Usuario>(
-        "SELECT id, login, senha_hash, icone_admin_blob, icone_admin_mime_type, \
+        "SELECT id, login, perfil, senha_hash, icone_admin_blob, icone_admin_mime_type, \
                 icone_admin_atualizado_em, data_criacao \
          FROM usuario WHERE id = ?",
     )
@@ -337,6 +338,7 @@ async fn atualizar_icone_admin(
     Ok(Json(UsuarioSessao {
         id: sessao.usuario.id,
         login: sessao.usuario.login,
+        perfil: sessao.usuario.perfil,
         tem_icone: true,
         icone_atualizado_em: Some(atualizado_em),
     }))
@@ -356,7 +358,7 @@ async fn excluir_icone_admin(
     Ok(StatusCode::NO_CONTENT)
 }
 
-fn validar_novo_login(login: &str) -> Result<(), AppError> {
+pub(super) fn validar_novo_login(login: &str) -> Result<(), AppError> {
     let tamanho = login.chars().count();
     if !(3..=64).contains(&tamanho) {
         return Err(AppError::BadRequest(
@@ -371,7 +373,7 @@ fn validar_novo_login(login: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validar_nova_senha(senha: String) -> Result<String, AppError> {
+pub(super) fn validar_nova_senha(senha: String) -> Result<String, AppError> {
     let tamanho = senha.chars().count();
     if !(8..=1024).contains(&tamanho) {
         return Err(AppError::BadRequest(

@@ -12,6 +12,8 @@ pub enum AppError {
     BadRequest(String),
     #[error("não autenticado")]
     Unauthorized,
+    #[error("esta operação exige um administrador")]
+    Forbidden,
     #[error("{0}")]
     NotFound(String),
     #[error("{0}")]
@@ -48,6 +50,7 @@ impl IntoResponse for AppError {
         let status = match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
+            Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
@@ -64,6 +67,16 @@ impl IntoResponse for AppError {
             }),
         )
             .into_response()
+    }
+}
+
+impl From<axum::extract::multipart::MultipartError> for AppError {
+    fn from(erro: axum::extract::multipart::MultipartError) -> Self {
+        if erro.status() == StatusCode::PAYLOAD_TOO_LARGE {
+            Self::PayloadTooLarge
+        } else {
+            Self::BadRequest(format!("falha ao ler arquivo: {erro}"))
+        }
     }
 }
 

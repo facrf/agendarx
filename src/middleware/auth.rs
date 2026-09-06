@@ -48,8 +48,8 @@ pub async fn exigir_autenticacao(
         .parse::<i64>()
         .map_err(|_| AppError::Unauthorized)?;
     let agora = Utc::now().timestamp();
-    let usuario_sessao = sqlx::query_as::<_, (String, bool, Option<String>)>(
-        "SELECT u.login, (u.icone_admin_blob IS NOT NULL), u.icone_admin_atualizado_em \
+    let usuario_sessao = sqlx::query_as::<_, (String, bool, Option<String>, String)>(
+        "SELECT u.login, (u.icone_admin_blob IS NOT NULL), u.icone_admin_atualizado_em, u.perfil \
          FROM sessao s JOIN usuario u ON u.id = s.usuario_id \
          WHERE s.id = ? AND s.usuario_id = ? AND s.expira_em > ? AND u.login = ?",
     )
@@ -60,12 +60,27 @@ pub async fn exigir_autenticacao(
     .fetch_optional(&state.pool)
     .await?;
 
-    let (login, tem_icone, icone_atualizado_em) = usuario_sessao.ok_or(AppError::Unauthorized)?;
+    let (login, tem_icone, icone_atualizado_em, perfil) =
+        usuario_sessao.ok_or(AppError::Unauthorized)?;
+
+    let caminho = request.uri().path();
+    let configuracao = caminho.starts_with("/api/configuracoes/");
+    let leitura = matches!(
+        *request.method(),
+        axum::http::Method::GET | axum::http::Method::HEAD
+    );
+    if perfil != "admin"
+        && configuracao
+        && (!leitura || caminho.starts_with("/api/configuracoes/admin/"))
+    {
+        return Err(AppError::Forbidden);
+    }
 
     request.extensions_mut().insert(SessaoAutenticada {
         usuario: UsuarioSessao {
             id: usuario_id,
             login,
+            perfil,
             tem_icone,
             icone_atualizado_em,
         },

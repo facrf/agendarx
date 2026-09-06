@@ -692,20 +692,13 @@ async fn enviar_anexo(
     }
 
     let mut arquivo = None;
-    while let Some(campo) = multipart
-        .next_field()
-        .await
-        .map_err(|erro| AppError::BadRequest(format!("multipart inválido: {erro}")))?
-    {
+    while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
         if campo.name() != Some("arquivo") {
             continue;
         }
         let nome = campo.file_name().unwrap_or("arquivo.bin").to_owned();
         let mime = campo.content_type().map(str::to_owned);
-        let conteudo = campo
-            .bytes()
-            .await
-            .map_err(|erro| AppError::BadRequest(format!("falha no upload: {erro}")))?;
+        let conteudo = campo.bytes().await.map_err(AppError::from)?;
         arquivo = Some((nome, mime, conteudo));
         break;
     }

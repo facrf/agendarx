@@ -21,6 +21,7 @@ pub struct LoginResponse {
 pub struct UsuarioSessao {
     pub id: i64,
     pub login: String,
+    pub perfil: String,
     pub tem_icone: bool,
     pub icone_atualizado_em: Option<String>,
 }
@@ -185,6 +186,14 @@ pub struct PessoaUpdateInput {
     pub descricao: Option<String>,
     #[serde(default)]
     pub pessoa_juridica: bool,
+    pub contatos: Option<Vec<ContatoEdicaoInput>>,
+}
+
+#[derive(Debug, Deserialize)]
+pub struct ContatoEdicaoInput {
+    pub id: Option<i64>,
+    #[serde(flatten)]
+    pub contato: ContatoInput,
 }
 
 #[derive(Debug, Deserialize)]

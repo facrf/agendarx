@@ -18,10 +18,14 @@ import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type { Categoria, DiagnosticoArmazenamento, TipoMeioContato } from "../types/api";
 import { formatBytes } from "../utils/format";
+import { useAuth } from "../contexts/AuthContext";
+import { UserManager } from "../components/UserManager";
 
 const HEX_PATTERN = /^#[0-9A-Fa-f]{6}$/;
 
 export function SettingsPage() {
+  const { usuario } = useAuth();
+  const admin = usuario?.perfil === "admin";
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tipos, setTipos] = useState<TipoMeioContato[]>([]);
   const [carregando, setCarregando] = useState(true);
@@ -43,13 +47,14 @@ export function SettingsPage() {
     <div>
       <PageHeader eyebrow="Personalização" title="Configurações" description="Defina a identidade visual, organize categorias e transfira sua agenda." />
       <div className="grid gap-6 xl:grid-cols-2">
-        <BrandingManager />
+        {admin && <BrandingManager />}
         <AdminCredentialsManager />
         <TaskNotificationManager />
-        <StorageDiagnostics />
-        <CategoryManager categorias={categorias} setCategorias={setCategorias} />
-        <ContactTypeManager tipos={tipos} setTipos={setTipos} />
-        <ContactTransferManager />
+        {admin && <UserManager />}
+        {admin && <StorageDiagnostics />}
+        {admin && <CategoryManager categorias={categorias} setCategorias={setCategorias} />}
+        {admin && <ContactTypeManager tipos={tipos} setTipos={setTipos} />}
+        {admin && <ContactTransferManager />}
       </div>
     </div>
   );

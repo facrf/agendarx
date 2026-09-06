@@ -32,7 +32,6 @@ export function PersonFormPage() {
   const [pessoaJuridica, setPessoaJuridica] = useState(false);
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
   const [contatos, setContatos] = useState<ContatoPayload[]>([]);
-  const [contatosOriginais, setContatosOriginais] = useState<number[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tipos, setTipos] = useState<TipoMeioContato[]>([]);
   const [temFoto, setTemFoto] = useState(false);
@@ -41,6 +40,7 @@ export function PersonFormPage() {
   const [arrastandoFoto, setArrastandoFoto] = useState(false);
   const [carregando, setCarregando] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [pessoaSalvaId, setPessoaSalvaId] = useState<number | null>(null);
 
   useEffect(() => {
     const requests: [Promise<Categoria[]>, Promise<TipoMeioContato[]>, Promise<PessoaDetalhe> | null] = [
@@ -58,7 +58,6 @@ export function PersonFormPage() {
           setPessoaJuridica(pessoa.pessoa_juridica);
           setCategoriaId(pessoa.categoria_id);
           setContatos(pessoa.contatos.map((contato) => ({ ...contato })));
-          setContatosOriginais(pessoa.contatos.map((contato) => contato.id));
           setTemFoto(pessoa.tem_foto);
         }
       })
@@ -119,7 +118,7 @@ export function PersonFormPage() {
 
     setSalvando(true);
     try {
-      let destinoId = pessoaId;
+      let destinoId = pessoaId || pessoaSalvaId;
       if (!destinoId) {
         const criada = await api.post<PessoaDetalhe>("/api/pessoas", {
           nome: nome.trim(),
@@ -129,29 +128,26 @@ export function PersonFormPage() {
           contatos: contatos.map(({ tipo_contato_id, valor }) => ({ tipo_contato_id, valor: valor.trim() })),
         });
         destinoId = criada.id;
+        setPessoaSalvaId(criada.id);
+        setContatos(criada.contatos.map((contato) => ({ ...contato })));
       } else {
-        await api.put(`/api/pessoas/${destinoId}`, {
+        const atualizada = await api.put<PessoaDetalhe>(`/api/pessoas/${destinoId}`, {
           nome: nome.trim(),
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
           pessoa_juridica: pessoaJuridica,
+          contatos: contatos.map(({ id, tipo_contato_id, valor }) => ({ id, tipo_contato_id, valor: valor.trim() })),
         });
-        const idsAtuais = new Set(contatos.flatMap((contato) => (contato.id ? [contato.id] : [])));
-        await Promise.all(
-          contatosOriginais.filter((contatoId) => !idsAtuais.has(contatoId)).map((contatoId) => api.delete(`/api/pessoas/contatos/${contatoId}`)),
-        );
-        await Promise.all(
-          contatos.map((contato) => {
-            const payload = { tipo_contato_id: contato.tipo_contato_id, valor: contato.valor.trim() };
-            return contato.id
-              ? api.put(`/api/pessoas/contatos/${contato.id}`, payload)
-              : api.post(`/api/pessoas/${destinoId}/contatos`, payload);
-          }),
-        );
+        setContatos(atualizada.contatos.map((contato) => ({ ...contato })));
       }
 
-      if (foto) await api.put(`/api/dossie/pessoas/${destinoId}/foto`, foto, foto.type);
-      else if (removerFoto && temFoto) await api.delete(`/api/dossie/pessoas/${destinoId}/foto`);
+      try {
+        if (foto) await api.put(`/api/dossie/pessoas/${destinoId}/foto`, foto, foto.type || "application/octet-stream");
+        else if (removerFoto && temFoto) await api.delete(`/api/dossie/pessoas/${destinoId}/foto`);
+      } catch (error) {
+        notify(`Dados da pessoa salvos, mas a foto não foi atualizada: ${errorMessage(error)}. Você pode tentar salvar novamente.`, "erro");
+        return;
+      }
 
       notify(editando ? "Pessoa atualizada" : "Pessoa cadastrada");
       navigate(`/pessoas/${destinoId}`, { replace: true });

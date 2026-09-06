@@ -72,20 +72,13 @@ async fn enviar_anexo(
     garantir_pessoa(&state, pessoa_id).await?;
     let mut arquivo = None;
 
-    while let Some(campo) = multipart
-        .next_field()
-        .await
-        .map_err(|erro| AppError::BadRequest(format!("multipart inválido: {erro}")))?
-    {
+    while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
         if campo.name() != Some("arquivo") {
             continue;
         }
         let nome_arquivo = campo.file_name().unwrap_or("arquivo.bin").to_owned();
         let mime_informado = campo.content_type().map(str::to_owned);
-        let conteudo = campo
-            .bytes()
-            .await
-            .map_err(|erro| AppError::BadRequest(format!("falha no upload: {erro}")))?;
+        let conteudo = campo.bytes().await.map_err(AppError::from)?;
         arquivo = Some((nome_arquivo, mime_informado, conteudo));
         break;
     }
@@ -394,6 +387,10 @@ pub(super) fn servir_blob(
     let mut response = Response::new(Body::from(corpo));
     *response.status_mut() = status;
     let headers = response.headers_mut();
+    headers.insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
     headers.insert(header::ACCEPT_RANGES, HeaderValue::from_static("bytes"));
     headers.insert(
         header::X_CONTENT_TYPE_OPTIONS,

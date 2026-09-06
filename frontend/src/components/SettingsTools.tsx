@@ -203,7 +203,7 @@ export function AdminCredentialsManager() {
     try {
       await api.put("/api/auth/icone", arquivo, arquivo.type || "image/png");
       await verificarSessao();
-      notify("Ícone do administrador atualizado");
+      notify("Ícone da conta atualizado");
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -213,12 +213,12 @@ export function AdminCredentialsManager() {
   };
 
   const restaurarIcone = async () => {
-    if (!window.confirm("Restaurar o ícone do administrador para as iniciais?")) return;
+    if (!window.confirm("Restaurar o ícone da conta para as iniciais?")) return;
     setSalvandoIcone(true);
     try {
       await api.delete("/api/auth/icone");
       await verificarSessao();
-      notify("Ícone do administrador restaurado");
+      notify("Ícone da conta restaurado");
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -230,13 +230,13 @@ export function AdminCredentialsManager() {
     <section className="panel overflow-hidden">
       <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
         <div className="grid size-11 place-items-center rounded-2xl bg-violet-50 text-violet-700"><ShieldCheck className="size-5" /></div>
-        <div><h2 className="font-display text-xl font-semibold">Administrador</h2><p className="text-sm text-slate-500">Altere o usuário e a senha de acesso.</p></div>
+        <div><h2 className="font-display text-xl font-semibold">Minha conta</h2><p className="text-sm text-slate-500">Altere seu login e sua senha de acesso.</p></div>
       </header>
       <form className="space-y-4 p-5 sm:p-6" onSubmit={salvar}>
         <div className="flex flex-col gap-4 rounded-2xl border border-slate-100 bg-slate-50/70 p-4 sm:flex-row sm:items-center">
           <AdminIcon className="size-18 text-xl shadow-sm ring-4 ring-white" />
           <div className="min-w-0 flex-1">
-            <p className="text-sm font-semibold text-slate-800">Ícone do administrador</p>
+            <p className="text-sm font-semibold text-slate-800">Ícone da conta</p>
             <p className="mt-1 text-xs leading-5 text-slate-500">Aparece no painel da sessão. Use uma imagem quadrada de até 2 MB.</p>
             <input ref={iconeInputRef} className="sr-only" type="file" accept="image/*,.ico" onChange={enviarIcone} />
             <div className="mt-3 flex flex-wrap gap-2">
@@ -246,7 +246,7 @@ export function AdminCredentialsManager() {
           </div>
         </div>
         <div>
-          <label className="field-label" htmlFor="admin-login">Usuário administrador</label>
+          <label className="field-label" htmlFor="admin-login">Meu login</label>
           <div className="relative">
             <UserRound className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
             <input id="admin-login" className="field pl-10" autoComplete="username" minLength={3} maxLength={64} required value={login} onChange={(event) => setLogin(event.target.value)} />

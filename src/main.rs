@@ -2,10 +2,12 @@ mod config;
 mod db;
 mod error;
 mod handlers;
+#[cfg(test)]
+mod integration_tests;
 mod middleware;
 mod models;
 
-use axum::{Json, Router, middleware::from_fn_with_state, routing::get};
+use axum::{Json, Router, extract::DefaultBodyLimit, middleware::from_fn_with_state, routing::get};
 use serde_json::json;
 use sqlx::SqlitePool;
 use tower_http::services::{ServeDir, ServeFile};
@@ -31,14 +33,26 @@ async fn main() -> Result<(), AppError> {
         .init();
 
     let config = Config::from_env()?;
-    // Multipart inclui cabeçalhos e delimitadores além dos bytes do arquivo.
-    // Os handlers continuam validando o tamanho real contra MAX_UPLOAD_BYTES.
-    let limite_corpo_requisicao = config.max_upload_bytes.saturating_add(1024 * 1024);
     let pool = db::conectar(&config).await?;
     let state = AppState {
         pool,
         config: config.clone(),
     };
+
+    let app = construir_app(state);
+    let listener = tokio::net::TcpListener::bind(config.endereco).await?;
+    tracing::info!(endereco = %config.endereco, "AgendarX iniciado");
+    axum::serve(listener, app)
+        .with_graceful_shutdown(encerrar_graciosamente())
+        .await?;
+    Ok(())
+}
+
+fn construir_app(state: AppState) -> Router {
+    let config = &state.config;
+    // Bytes e Multipart têm um limite próprio (2 MiB por padrão), além do tower-http.
+    // A margem cobre os delimitadores; handlers validam o tamanho real do arquivo.
+    let limite_corpo_requisicao = config.max_upload_bytes.saturating_add(1024 * 1024);
 
     let protegidas = Router::new()
         .nest("/api/auth", handlers::auth::rotas_protegidas())
@@ -57,23 +71,17 @@ async fn main() -> Result<(), AppError> {
     let arquivos_frontend =
         ServeDir::new(&config.frontend_dir).fallback(ServeFile::new(index_frontend));
 
-    let app = Router::new()
+    Router::new()
         .route("/health", get(health))
         .nest("/api/auth", handlers::auth::rotas_publicas())
         .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
+        .layer(DefaultBodyLimit::max(limite_corpo_requisicao))
         .layer(RequestBodyLimitLayer::new(limite_corpo_requisicao))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .fallback_service(arquivos_frontend)
-        .with_state(state);
-
-    let listener = tokio::net::TcpListener::bind(config.endereco).await?;
-    tracing::info!(endereco = %config.endereco, "AgendarX iniciado");
-    axum::serve(listener, app)
-        .with_graceful_shutdown(encerrar_graciosamente())
-        .await?;
-    Ok(())
+        .with_state(state)
 }
 
 async fn health() -> Json<serde_json::Value> {

@@ -5,6 +5,7 @@ use sqlx::FromRow;
 pub struct Usuario {
     pub id: i64,
     pub login: String,
+    pub perfil: String,
     #[serde(skip_serializing)]
     pub senha_hash: String,
     #[serde(skip_serializing)]

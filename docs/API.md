@@ -12,6 +12,29 @@ Erros usam o formato:
 
 ## Rotas
 
+As sessões incluem `usuario.perfil` (`admin` ou `usuario`). Somente administradores
+podem alterar `/api/configuracoes/*` e consultar `/api/configuracoes/admin/*`.
+Cada conta pode alterar suas próprias credenciais e ícone em `/api/auth/*`.
+Pessoas, dossiês e vínculos são compartilhados; tarefas são privadas por usuário.
+
+`GET /api/configuracoes/admin/usuarios` lista contas sem senhas/hashes.
+`POST /api/configuracoes/admin/usuarios` cria uma conta com
+`{"login":"novo-login","senha":"senha-inicial","perfil":"usuario"}`.
+Login aceita 3–64 caracteres e senha 8–1024. Perfil inválido retorna 400,
+login duplicado 409 e acesso sem perfil administrativo 403.
+
+`PUT /api/pessoas/{id}` aceita opcionalmente `contatos`, com `id` para contatos
+existentes e `tipo_contato_id`/`valor`. A lista substitui os contatos da pessoa
+na mesma transação dos dados básicos; omitir o campo preserva os contatos.
+IDs pertencentes a outra pessoa e IDs repetidos são rejeitados.
+
+Uploads respeitam `MAX_UPLOAD_BYTES` (padrão: 26.214.400 bytes / 25 MiB).
+Os limites HTTP e dos extratores são alinhados, com 1 MiB adicional para o
+envelope multipart. O limite individual continua validado em cada handler.
+Um proxy reverso também precisa aceitar esse tamanho de requisição.
+Fotos e anexos usam `Cache-Control: private, no-store` para evitar cópias antigas
+e persistência de mídia privada no cache do navegador.
+
 | Área | Método e rota | Uso |
 |---|---|---|
 | Saúde | `GET /health` | Estado básico do processo |

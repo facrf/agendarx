@@ -23,6 +23,7 @@ import { RelationshipDrawer } from "../components/RelationshipDrawer";
 import { RelationshipAttachmentEditor } from "../components/RelationshipMedia";
 import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
+import { useAuth } from "../contexts/AuthContext";
 import { api, errorMessage } from "../services/api";
 import type {
   AnexoVinculo,
@@ -44,14 +45,23 @@ const emptyRelationship: VinculoPayload = {
 
 export function GraphPage() {
   const [searchParams] = useSearchParams();
+  const { usuario } = useAuth();
+  const filterKey = `agendarx:graph-filters:${usuario?.id}`;
+  const [savedFilters] = useState(() => {
+    try {
+      const saved: unknown = JSON.parse(localStorage.getItem(filterKey) || "{}");
+      if (saved && typeof saved === "object") return saved as Record<string, unknown>;
+    } catch { /* O grafo continua disponível sem armazenamento local. */ }
+    return {} as Record<string, unknown>;
+  });
   const [graph, setGraph] = useState<GrafoResponse>({ nodes: [], edges: [] });
   const [people, setPeople] = useState<PessoaResumo[]>([]);
   const [categories, setCategories] = useState<Categoria[]>([]);
   const [relationships, setRelationships] = useState<PessoaVinculo[]>([]);
-  const [search, setSearch] = useState(searchParams.get("busca") || "");
-  const [category, setCategory] = useState("");
-  const [depth, setDepth] = useState(1);
-  const [layout, setLayout] = useState<GraphLayout>("force");
+  const [search, setSearch] = useState(searchParams.get("busca") ?? (typeof savedFilters.search === "string" ? savedFilters.search : ""));
+  const [category, setCategory] = useState(typeof savedFilters.category === "string" ? savedFilters.category : "");
+  const [depth, setDepth] = useState(typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
+  const [layout, setLayout] = useState<GraphLayout>(savedFilters.layout === "hierarchical" ? "hierarchical" : "force");
   const [form, setForm] = useState<VinculoPayload>(emptyRelationship);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -64,6 +74,11 @@ export function GraphPage() {
   const graphViewerRef = useRef<GraphViewerHandle>(null);
   const navigate = useNavigate();
   const { notify } = useToast();
+
+  useEffect(() => {
+    try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout })); }
+    catch { /* Armazenamento indisponível não impede a busca. */ }
+  }, [filterKey, search, category, depth, layout]);
 
   const loadGraphData = useCallback(async () => {
     const [graphData, peopleData, categoryData, relationshipData] = await Promise.all([
@@ -159,7 +174,13 @@ export function GraphPage() {
       );
       const failedUploads = uploads.filter((result) => result.status === "rejected");
       if (failedUploads.length > 0) {
-        notify(`Vínculo salvo, mas ${failedUploads.length} anexo(s) falharam`, "erro");
+        setEditingId(saved.id);
+        setPendingRelationshipFiles(pendingRelationshipFiles.filter((_, index) => uploads[index].status === "rejected"));
+        setRelationshipAttachments((items) => [...items, ...uploads.flatMap((result) => result.status === "fulfilled" ? [result.value] : [])]);
+        const details = uploads.flatMap((result, index) => result.status === "rejected" ? [`${pendingRelationshipFiles[index].name}: ${errorMessage(result.reason)}`] : []);
+        notify(`Vínculo salvo, mas ${failedUploads.length} anexo(s) falharam. ${details.join("; ")}. Tente salvar novamente.`, "erro");
+        await loadGraphData();
+        return;
       } else {
         notify(editingId ? "Vínculo atualizado" : "Vínculo criado");
       }
@@ -315,6 +336,10 @@ export function GraphPage() {
             generatingPdf={printImage !== null}
             canGeneratePdf={visibleGraph.nodes.length > 0}
           />
+          <div className="px-4 pb-3 text-xs text-slate-500">
+            Filtros lembrados neste navegador.
+            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); }}>Limpar filtros</button>
+          </div>
 
           <div className="relative min-h-[42rem] bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]">
             {visibleGraph.nodes.length === 0 ? (

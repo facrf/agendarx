@@ -1,7 +1,7 @@
 use std::path::Path as FsPath;
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Path, State},
     http::StatusCode,
     routing::get,
@@ -26,7 +26,11 @@ pub fn rotas() -> Router<AppState> {
                 .delete(excluir_categoria),
         )
         .route("/tipos-contato", get(listar_tipos).post(criar_tipo_contato))
-        .route("/admin/diagnostico-armazenamento", get(obter_diagnostico_armazenamento))
+        .route(
+            "/admin/diagnostico-armazenamento",
+            get(obter_diagnostico_armazenamento),
+        )
+        .route("/admin/usuarios", get(listar_usuarios).post(criar_usuario))
         .route(
             "/tipos-contato/{id}",
             get(obter_tipo_contato)
@@ -37,21 +41,85 @@ pub fn rotas() -> Router<AppState> {
         .merge(super::intercambio::rotas())
 }
 
-/// Nesta versão de usuário único, toda sessão autenticada é a sessão administrativa.
-/// Ao introduzir papéis, este endpoint deve exigir explicitamente o papel ADMIN.
+#[derive(serde::Serialize, sqlx::FromRow)]
+struct UsuarioResumo {
+    id: i64,
+    login: String,
+    perfil: String,
+    data_criacao: String,
+}
+
+#[derive(serde::Deserialize)]
+struct NovoUsuario {
+    login: String,
+    senha: String,
+    perfil: String,
+}
+
+fn exigir_admin(sessao: &crate::middleware::auth::SessaoAutenticada) -> Result<(), AppError> {
+    if sessao.usuario.perfil != "admin" {
+        return Err(AppError::Forbidden);
+    }
+    Ok(())
+}
+
+async fn listar_usuarios(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<crate::middleware::auth::SessaoAutenticada>,
+) -> Result<Json<Vec<UsuarioResumo>>, AppError> {
+    exigir_admin(&sessao)?;
+    Ok(Json(
+        sqlx::query_as(
+            "SELECT id, login, perfil, data_criacao FROM usuario ORDER BY login COLLATE NOCASE",
+        )
+        .fetch_all(&state.pool)
+        .await?,
+    ))
+}
+
+async fn criar_usuario(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<crate::middleware::auth::SessaoAutenticada>,
+    Json(input): Json<NovoUsuario>,
+) -> Result<(StatusCode, Json<UsuarioResumo>), AppError> {
+    use argon2::{
+        Argon2, PasswordHasher,
+        password_hash::{SaltString, rand_core::OsRng},
+    };
+    exigir_admin(&sessao)?;
+    let login = input.login.trim();
+    super::auth::validar_novo_login(login)?;
+    let senha = super::auth::validar_nova_senha(input.senha)?;
+    if !matches!(input.perfil.as_str(), "admin" | "usuario") {
+        return Err(AppError::BadRequest(
+            "perfil deve ser admin ou usuario".to_owned(),
+        ));
+    }
+    let hash = tokio::task::spawn_blocking(move || {
+        Argon2::default()
+            .hash_password(senha.as_bytes(), &SaltString::generate(&mut OsRng))
+            .map(|hash| hash.to_string())
+    })
+    .await
+    .map_err(|_| AppError::interno("falha ao proteger senha"))?
+    .map_err(|_| AppError::interno("falha ao proteger senha"))?;
+    let usuario = sqlx::query_as(
+        "INSERT INTO usuario (login, senha_hash, perfil) VALUES (?, ?, ?) RETURNING id, login, perfil, data_criacao"
+    ).bind(login).bind(hash).bind(input.perfil).fetch_one(&state.pool).await?;
+    Ok((StatusCode::CREATED, Json(usuario)))
+}
+
 async fn obter_diagnostico_armazenamento(
     State(state): State<AppState>,
 ) -> Result<Json<DiagnosticoArmazenamentoResponse>, AppError> {
-    let (dossie_bytes, dossie_total): (i64, i64) = sqlx::query_as(
-        "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_dossie",
-    )
-    .fetch_one(&state.pool)
-    .await?;
-    let (vinculos_bytes, vinculos_total): (i64, i64) = sqlx::query_as(
-        "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_vinculo",
-    )
-    .fetch_one(&state.pool)
-    .await?;
+    let (dossie_bytes, dossie_total): (i64, i64) =
+        sqlx::query_as("SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_dossie")
+            .fetch_one(&state.pool)
+            .await?;
+    let (vinculos_bytes, vinculos_total): (i64, i64) =
+        sqlx::query_as("SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_vinculo")
+            .fetch_one(&state.pool)
+            .await?;
     let (tarefas_bytes, tarefas_anexos_total): (i64, i64) = sqlx::query_as(
         "SELECT COALESCE(SUM(tamanho_bytes), 0), COUNT(*) FROM anexo_tarefa_calendario",
     )
