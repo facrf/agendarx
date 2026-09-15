@@ -3,7 +3,7 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não publicado]
+## [0.6.3] - 2026-09-15
 
 ### Adicionado
 
@@ -14,21 +14,17 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Backup SQLite diário com retenção de sete cópias, restauração e exportação ZIP AES-256.
 - Legenda, filtros por tipo/data de vínculo e posições persistentes por usuário no grafo.
 - Teste permanente de navegador para os principais fluxos regressivos.
+- Dossiê exibe progresso por arquivo e permite reenviar uma falha ou todas, preservando os envios concluídos.
+- Cadastro de administradores e usuários nas configurações, com autorização no servidor.
+- Migração preserva as contas existentes como administradoras; novas contas têm perfil explícito.
+- Busca, categoria, grau e layout do grafo são lembrados por conta neste navegador, com ação para limpar.
+- Teste de integração para upload, recuperação de arquivos, miniaturas, limites, transações e permissões.
 
 ### Corrigido
 
 - Foto principal otimizada e enviada por multipart com progresso e nova tentativa segura.
 - Cor da categoria preservada quando um nó do grafo recebe foco.
 - Filtros e agrupamento da lista de pessoas persistidos por usuário.
-
-### Alterado
-
-- Páginas autenticadas carregadas sob demanda, reduzindo em cerca de 55% o JavaScript inicial.
-
-## [0.6.3] - 2026-09-06
-
-### Corrigido
-
 - Limite interno de 2 MiB que rejeitava fotos e anexos antes do limite configurado.
 - Mensagens de upload agora mostram o motivo da falha no dossiê e preservam HTTP 413.
 - Nova tentativa após falha na foto reutiliza a pessoa e os contatos já salvos.
@@ -36,13 +32,9 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Fotos e anexos não persistem no cache HTTP do navegador.
 - Anexos de vínculos que falham no formulário do grafo permanecem selecionados para nova tentativa.
 
-### Adicionado
+### Alterado
 
-- Dossiê exibe progresso por arquivo e permite reenviar uma falha ou todas, preservando os envios concluídos.
-- Cadastro de administradores e usuários nas configurações, com autorização no servidor.
-- Migração preserva as contas existentes como administradoras; novas contas têm perfil explícito.
-- Busca, categoria, grau e layout do grafo são lembrados por conta neste navegador, com ação para limpar.
-- Teste de integração para upload, recuperação de arquivos, miniaturas, limites, transações e permissões.
+- Páginas autenticadas carregadas sob demanda, reduzindo em cerca de 55% o JavaScript inicial.
 
 ## [0.6.2] - 2026-08-14
 
