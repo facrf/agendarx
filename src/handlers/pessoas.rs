@@ -137,10 +137,10 @@ async fn atualizar_pessoa(
         let mut ids = std::collections::HashSet::new();
         for contato in contatos {
             validar_contato(&contato.contato)?;
-            if let Some(id) = contato.id {
-                if !ids.insert(id) {
-                    return Err(AppError::BadRequest("contato repetido".to_owned()));
-                }
+            if let Some(id) = contato.id
+                && !ids.insert(id)
+            {
+                return Err(AppError::BadRequest("contato repetido".to_owned()));
             }
         }
     }
