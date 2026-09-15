@@ -33,6 +33,7 @@ import type {
   GrafoResponse,
   PessoaResumo,
   PessoaVinculo,
+  PosicaoGrafo,
   VinculoPayload,
 } from "../types/api";
 
@@ -62,6 +63,10 @@ export function GraphPage() {
   const [category, setCategory] = useState(typeof savedFilters.category === "string" ? savedFilters.category : "");
   const [depth, setDepth] = useState(typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
   const [layout, setLayout] = useState<GraphLayout>(savedFilters.layout === "hierarchical" ? "hierarchical" : "force");
+  const [relationshipType, setRelationshipType] = useState(typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
+  const [dateFrom, setDateFrom] = useState(typeof savedFilters.dateFrom === "string" ? savedFilters.dateFrom : "");
+  const [dateTo, setDateTo] = useState(typeof savedFilters.dateTo === "string" ? savedFilters.dateTo : "");
+  const [positions, setPositions] = useState<PosicaoGrafo[]>([]);
   const [form, setForm] = useState<VinculoPayload>(emptyRelationship);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -76,9 +81,18 @@ export function GraphPage() {
   const { notify } = useToast();
 
   useEffect(() => {
-    try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout })); }
+    try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout, relationshipType, dateFrom, dateTo })); }
     catch { /* Armazenamento indisponível não impede a busca. */ }
-  }, [filterKey, search, category, depth, layout]);
+  }, [filterKey, search, category, depth, layout, relationshipType, dateFrom, dateTo]);
+
+  useEffect(() => {
+    api.get<PosicaoGrafo[]>(`/api/produtividade/grafo/posicoes/${layout}`).then(setPositions).catch(() => setPositions([]));
+  }, [layout]);
+
+  const savePositions = useCallback((value: PosicaoGrafo[]) => {
+    setPositions(value);
+    api.put(`/api/produtividade/grafo/posicoes/${layout}`, value).catch((error) => notify(errorMessage(error), "erro"));
+  }, [layout, notify]);
 
   const loadGraphData = useCallback(async () => {
     const [graphData, peopleData, categoryData, relationshipData] = await Promise.all([
@@ -116,7 +130,9 @@ export function GraphPage() {
     };
   }, [printImage]);
 
-  const categoryGraph = useMemo(() => filterByCategory(graph, category), [graph, category]);
+  const relationshipGraph = useMemo(() => filterRelationships(graph, relationshipType, dateFrom, dateTo), [graph, relationshipType, dateFrom, dateTo]);
+  const categoryGraph = useMemo(() => filterByCategory(relationshipGraph, category), [relationshipGraph, category]);
+  const relationshipTypes = useMemo(() => [...new Set(graph.edges.map((edge) => edge.label))].sort((a, b) => a.localeCompare(b, "pt-BR")), [graph.edges]);
   const focusedNode = useMemo(
     () => findFocusedNode(categoryGraph.nodes, search),
     [categoryGraph.nodes, search],
@@ -327,19 +343,27 @@ export function GraphPage() {
             category={category}
             depth={depth}
             layout={layout}
+            relationshipType={relationshipType}
+            relationshipTypes={relationshipTypes}
+            dateFrom={dateFrom}
+            dateTo={dateTo}
             focusedNode={focusedNode}
             onSearch={setSearch}
             onCategory={setCategory}
             onDepth={setDepth}
             onLayout={setLayout}
+            onRelationshipType={setRelationshipType}
+            onDateFrom={setDateFrom}
+            onDateTo={setDateTo}
             onGeneratePdf={() => void generatePdf()}
             generatingPdf={printImage !== null}
             canGeneratePdf={visibleGraph.nodes.length > 0}
           />
           <div className="px-4 pb-3 text-xs text-slate-500">
             Filtros lembrados neste navegador.
-            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); }}>Limpar filtros</button>
+            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); }}>Limpar filtros</button>
           </div>
+          <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 pb-3 text-xs"><strong>Legenda:</strong>{categories.map((item) => <span key={item.id} className="inline-flex items-center gap-1"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} />{item.nome_categoria}</span>)}<span className="inline-flex items-center gap-1"><span className="size-3 rounded-full bg-[#86A6A3]" />Sem categoria</span></div>
 
           <div className="relative min-h-[42rem] bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]">
             {visibleGraph.nodes.length === 0 ? (
@@ -362,6 +386,8 @@ export function GraphPage() {
                 focusedNodeId={focusedNode?.id ?? null}
                 onEdgeClick={openEdge}
                 onNodeDoubleClick={openPerson}
+                positions={positions}
+                onPositionsChange={savePositions}
               />
             )}
             <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
@@ -384,6 +410,7 @@ export function GraphPage() {
             target: relationship.pessoa_destino_id,
             label: relationship.tipo_vinculo,
             descricao: relationship.descricao,
+            data_criacao: relationship.data_criacao,
           });
         }}
       />
@@ -430,7 +457,7 @@ function RelationshipForm({ people, form, editing, saving, loadingAttachments, a
           <div><label className="field-label">Pessoa origem</label><select className="field" value={form.pessoa_origem_id || ""} onChange={(event) => onChange({ ...form, pessoa_origem_id: Number(event.target.value) })} required><option value="">Selecione...</option>{people.map((person) => <option key={person.id} value={person.id}>{person.nome}</option>)}</select></div>
           <div><label className="field-label">Pessoa destino</label><select className="field" value={form.pessoa_destino_id || ""} onChange={(event) => onChange({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione...</option>{people.map((person) => <option key={person.id} value={person.id}>{person.nome}</option>)}</select></div>
           <div><label className="field-label">Tipo de vínculo</label><input className="field" value={form.tipo_vinculo} onChange={(event) => onChange({ ...form, tipo_vinculo: event.target.value })} placeholder="Ex.: Sócio, Irmão" required /></div>
-          <div><label className="field-label">Descrição</label><textarea className="field min-h-28 resize-y" value={form.descricao || ""} onChange={(event) => onChange({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação..." /></div>
+          <div><label className="field-label">Descrição (Markdown)</label><textarea className="field min-h-64 resize-y font-mono" value={form.descricao || ""} onChange={(event) => onChange({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação..." /></div>
           <div>
             <label className="field-label">Anexos da relação</label>
             {loadingAttachments ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-400">Carregando anexos…</p> : (
@@ -462,17 +489,24 @@ interface GraphToolbarProps {
   category: string;
   depth: number;
   layout: GraphLayout;
+  relationshipType: string;
+  relationshipTypes: string[];
+  dateFrom: string;
+  dateTo: string;
   focusedNode?: GrafoNode;
   onSearch: (value: string) => void;
   onCategory: (value: string) => void;
   onDepth: (value: number) => void;
   onLayout: (value: GraphLayout) => void;
+  onRelationshipType: (value: string) => void;
+  onDateFrom: (value: string) => void;
+  onDateTo: (value: string) => void;
   onGeneratePdf: () => void;
   generatingPdf: boolean;
   canGeneratePdf: boolean;
 }
 
-function GraphToolbar({ graph, categories, search, category, depth, layout, focusedNode, onSearch, onCategory, onDepth, onLayout, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
+function GraphToolbar({ graph, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
   return (
     <div className="space-y-3 border-b border-slate-100 p-4">
       <div className="grid gap-3 lg:grid-cols-[minmax(15rem,1fr)_13rem_11rem_auto_auto]">
@@ -490,6 +524,11 @@ function GraphToolbar({ graph, categories, search, category, depth, layout, focu
         <Button type="button" variant="secondary" loading={generatingPdf} disabled={!canGeneratePdf} onClick={onGeneratePdf}>
           <FileDown className="size-4" /> Gerar PDF
         </Button>
+      </div>
+      <div className="grid gap-3 sm:grid-cols-3">
+        <select className="field" aria-label="Tipo de vínculo" value={relationshipType} onChange={(event) => onRelationshipType(event.target.value)}><option value="">Todos os vínculos</option>{relationshipTypes.map((type) => <option key={type}>{type}</option>)}</select>
+        <label className="flex items-center gap-2 text-xs text-slate-500">Desde <input className="field" type="date" value={dateFrom} onChange={(event) => onDateFrom(event.target.value)} /></label>
+        <label className="flex items-center gap-2 text-xs text-slate-500">Até <input className="field" type="date" value={dateTo} onChange={(event) => onDateTo(event.target.value)} /></label>
       </div>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{graph.nodes.length} pessoas · {graph.edges.length} vínculos</span>
@@ -583,6 +622,13 @@ function filterByCategory(graph: GrafoResponse, category: string): GrafoResponse
     nodes: graph.nodes.filter((node) => nodeIds.has(node.id)),
     edges: graph.edges.filter((edge) => nodeIds.has(edge.source) && nodeIds.has(edge.target)),
   };
+}
+
+function filterRelationships(graph: GrafoResponse, type: string, from: string, to: string): GrafoResponse {
+  const edges = graph.edges.filter((edge) => (!type || edge.label === type)
+    && (!from || edge.data_criacao.slice(0, 10) >= from)
+    && (!to || edge.data_criacao.slice(0, 10) <= to));
+  return { nodes: graph.nodes, edges };
 }
 
 function isolateConnections(graph: GrafoResponse, focusId: number | null, depth: number): GrafoResponse {

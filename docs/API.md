@@ -66,8 +66,8 @@ e persistência de mídia privada no cache do navegador.
 | Identidade | `PUT, DELETE /api/configuracoes/icone` | Trocar/restaurar ícone em bytes brutos |
 | Intercâmbio | `POST /api/configuracoes/contatos/importar` | Importar CSV ou vCard no campo multipart `arquivo` |
 | Intercâmbio | `GET /api/configuracoes/contatos/exportar/{formato}` | Exportar toda a agenda em `csv` ou `vcf` |
-| Pessoas | `GET, POST /api/pessoas` | Listar/criar pessoas |
-| Pessoas | `GET, PUT, DELETE /api/pessoas/{id}` | CRUD de pessoa |
+| Pessoas | `GET, POST /api/pessoas` | Listar/pesquisar (`?busca=`) e criar pessoas |
+| Pessoas | `GET, PUT, DELETE /api/pessoas/{id}` | Consultar/editar e mover pessoa para a lixeira |
 | Contatos | `GET, POST /api/pessoas/{pessoa_id}/contatos` | Listar/criar contatos |
 | Contatos | `GET, PUT, DELETE /api/pessoas/contatos/{id}` | CRUD de contato |
 | Dossiê | `GET, POST /api/dossie/pessoas/{id}/anexos` | Listar/upload multipart (`arquivo`) |
@@ -75,7 +75,7 @@ e persistência de mídia privada no cache do navegador.
 | Dossiê | `GET /api/dossie/anexos/{id}/stream` | Conteúdo inline com HTTP Range |
 | Dossiê | `GET /api/dossie/anexos/{id}/download` | Download com HTTP Range |
 | Dossiê | `GET /api/dossie/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
-| Foto | `GET, PUT, DELETE /api/dossie/pessoas/{id}/foto` | Foto principal em bytes brutos |
+| Foto | `GET, PUT, POST, DELETE /api/dossie/pessoas/{id}/foto` | Foto principal; `POST` usa multipart `arquivo` |
 | Vínculos | `GET, POST /api/vinculos` | Listar/criar vínculos |
 | Vínculos | `GET, PUT, DELETE /api/vinculos/{id}` | CRUD de vínculo |
 | Vínculos | `GET, POST /api/vinculos/{id}/anexos` | Listar/upload multipart (`arquivo`) |
@@ -83,6 +83,20 @@ e persistência de mídia privada no cache do navegador.
 | Vínculos | `GET /api/vinculos/anexos/{id}/stream` | Foto, áudio ou arquivo inline com HTTP Range |
 | Vínculos | `GET /api/vinculos/anexos/{id}/download` | Download do anexo com HTTP Range |
 | Vínculos | `GET /api/vinculos/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
+| Organização | `GET, POST /api/produtividade/etiquetas` | Listar/criar etiquetas |
+| Organização | `PUT, DELETE /api/produtividade/etiquetas/{id}` | Editar/excluir etiqueta |
+| Organização | `GET, PUT /api/produtividade/pessoas/{id}/etiquetas` | Etiquetas da pessoa |
+| Organização | `PUT /api/produtividade/pessoas/{id}/favorito` | Favorito do usuário atual |
+| Lixeira | `GET /api/produtividade/lixeira` | Listar pessoas excluídas |
+| Lixeira | `POST /api/produtividade/lixeira/{id}/restaurar` | Restaurar pessoa e dados associados |
+| Lixeira | `DELETE /api/produtividade/lixeira/{id}` | Exclusão definitiva (administrador) |
+| Auditoria | `GET /api/produtividade/auditoria` | Últimas 500 operações (administrador) |
+| Grafo | `GET, PUT /api/produtividade/grafo/posicoes/{layout}` | Posições por usuário e layout |
+| Backup | `GET, POST /api/configuracoes/backups` | Listar/criar backups (administrador) |
+| Backup | `DELETE /api/configuracoes/backups/{id}` | Excluir uma cópia armazenada |
+| Backup | `GET /api/configuracoes/backups/{id}/download` | Baixar snapshot SQLite |
+| Backup | `POST /api/configuracoes/exportacao-segura` | Exportar banco em ZIP AES-256 |
+| Backup | `POST /api/configuracoes/restaurar` | Restaurar `.db` ou `.zip` multipart |
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
@@ -214,8 +228,28 @@ limites por arquivo, tarefa e usuário. Além do limite individual de
 ### Grafo
 
 Pessoas aceitam `descricao` opcional no `POST` e no `PUT`; textos vazios são
-normalizados para `null` e o limite é de 5.000 caracteres. O campo também é
+normalizados para `null` e o limite é de 50.000 caracteres. O campo aceita Markdown e também é
 devolvido nas listagens e no perfil detalhado.
+
+### Notas de anexos e foto principal
+
+Os endpoints abaixo aceitam `GET` para consultar e `PUT` para salvar
+`{"notas":"Texto em Markdown"}` (até 50.000 caracteres; string vazia remove as notas):
+
+- `/api/dossie/anexos/{id}/notas`
+- `/api/vinculos/anexos/{id}/notas`
+- `/api/calendario/anexos/{id}/notas`
+
+As notas persistem no banco junto ao anexo. As notas de tarefas respeitam a
+propriedade da tarefa. A migração `0013_notas_anexos.sql` adiciona os campos sem
+alterar os arquivos existentes.
+
+`POST /api/dossie/pessoas/{id}/foto` aceita multipart com o campo `arquivo`.
+O `PUT` com bytes da imagem continua disponível. Ambos validam formato e
+`MAX_UPLOAD_BYTES`. A interface otimiza a foto principal para até 1600 pixels,
+mostra progresso e permite repetir um envio que falhou sem duplicar a pessoa.
+
+### Exemplo do grafo
 
 ```json
 {

@@ -213,6 +213,10 @@ pub struct PessoaResumo {
     pub tem_foto: bool,
     pub pessoa_juridica: bool,
     pub data_cadastro: String,
+    pub etiquetas: String,
+    #[serde(skip_serializing)]
+    pub conteudo_busca: String,
+    pub favorito: bool,
 }
 
 #[derive(Debug, Serialize)]
@@ -306,6 +310,7 @@ pub struct GrafoEdge {
     pub target: i64,
     pub label: String,
     pub descricao: Option<String>,
+    pub data_criacao: String,
 }
 
 #[derive(Debug, Serialize)]

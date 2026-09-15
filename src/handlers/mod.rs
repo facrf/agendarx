@@ -1,10 +1,13 @@
 pub mod auth;
+pub mod backup;
 pub mod calendario;
 pub mod configuracoes;
 pub mod dossie;
 pub mod identidade;
 pub mod intercambio;
 pub mod miniaturas;
+pub mod notas;
 pub mod osint;
 pub mod pessoas;
+pub mod produtividade;
 pub mod vinculos;

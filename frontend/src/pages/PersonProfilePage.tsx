@@ -1,3 +1,4 @@
+import { MarkdownText } from "../components/MarkdownText";
 import {
   ArrowLeft,
   AlignLeft,
@@ -57,11 +58,11 @@ export function PersonProfilePage() {
   }, [id, notify]);
 
   const excluir = async () => {
-    if (!pessoa || !window.confirm(`Excluir ${pessoa.nome} e todo o dossiê associado?`)) return;
+    if (!pessoa || !window.confirm(`Mover ${pessoa.nome} para a lixeira? O cadastro poderá ser restaurado nas configurações.`)) return;
     setExcluindo(true);
     try {
       await api.delete(`/api/pessoas/${id}`);
-      notify("Pessoa excluída");
+      notify("Pessoa movida para a lixeira");
       navigate("/pessoas", { replace: true });
     } catch (error) {
       notify(errorMessage(error), "erro");
@@ -118,8 +119,8 @@ export function PersonProfilePage() {
                 <AlignLeft className="size-5 text-teal-700" />
                 <h2 className="font-display text-xl font-semibold">Descrição</h2>
               </div>
-              <div className="mt-3 whitespace-pre-wrap rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-                {pessoa.descricao || "Nenhuma descrição cadastrada para esta pessoa."}
+              <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+                <MarkdownText>{pessoa.descricao || "Nenhuma descrição cadastrada para esta pessoa."}</MarkdownText>
               </div>
             </div>
           </section>

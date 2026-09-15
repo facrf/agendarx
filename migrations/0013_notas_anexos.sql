@@ -1,0 +1,3 @@
+ALTER TABLE anexo_dossie ADD COLUMN notas TEXT NOT NULL DEFAULT '';
+ALTER TABLE anexo_vinculo ADD COLUMN notas TEXT NOT NULL DEFAULT '';
+ALTER TABLE anexo_tarefa_calendario ADD COLUMN notas TEXT NOT NULL DEFAULT '';

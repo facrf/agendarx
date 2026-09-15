@@ -66,6 +66,10 @@ button:not(:disabled),
     @apply border border-slate-200 bg-white text-slate-700 shadow-sm hover:border-teal-200 hover:bg-teal-50 hover:text-teal-900;
   }
 
+  .btn-add-contact {
+    @apply border-teal-700 bg-teal-700 text-white shadow-md shadow-teal-950/20 hover:-translate-y-0.5 hover:border-teal-800 hover:bg-teal-800 hover:text-white hover:shadow-lg hover:shadow-teal-950/25 active:translate-y-0 active:scale-[0.98] active:bg-teal-950 focus-visible:ring-teal-700;
+  }
+
   .btn-ghost {
     @apply text-slate-600 hover:bg-slate-100 hover:text-slate-950;
   }
@@ -280,3 +284,20 @@ button:not(:disabled),
     transition-duration: 0.01ms !important;
   }
 }
+/* Markdown descriptions and attachment notes. */
+.markdown-text { overflow-wrap: anywhere; }
+.markdown-text > * + * { margin-top: 1rem; }
+.markdown-text h1, .markdown-text h2, .markdown-text h3, .markdown-text h4 { font-weight: 700; line-height: 1.35; }
+.markdown-text h1 { font-size: 1.75rem; }
+.markdown-text h2 { font-size: 1.4rem; }
+.markdown-text h3 { font-size: 1.2rem; }
+.markdown-text p { white-space: pre-wrap; }
+.markdown-text ul { list-style: disc; padding-left: 1.5rem; }
+.markdown-text ol { list-style: decimal; padding-left: 1.5rem; }
+.markdown-text a { color: #0f766e; text-decoration: underline; }
+.markdown-text blockquote { border-left: 3px solid #94a3b8; padding-left: 1rem; }
+.markdown-text pre { overflow-x: auto; border-radius: .5rem; background: #e2e8f0; padding: 1rem; }
+.markdown-text code { font-family: monospace; }
+.markdown-text table { display: block; overflow-x: auto; border-collapse: collapse; }
+.markdown-text th, .markdown-text td { border: 1px solid #cbd5e1; padding: .5rem .75rem; }
+.markdown-text img { max-width: 100%; }

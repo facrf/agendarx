@@ -76,7 +76,7 @@ pub async fn exigir_autenticacao(
         return Err(AppError::Forbidden);
     }
 
-    request.extensions_mut().insert(SessaoAutenticada {
+    let sessao = SessaoAutenticada {
         usuario: UsuarioSessao {
             id: usuario_id,
             login,
@@ -86,8 +86,37 @@ pub async fn exigir_autenticacao(
         },
         sessao_id: claims.jti,
         expira_em: claims.exp as i64,
-    });
-    Ok(next.run(request).await)
+    };
+    let method = request.method().clone();
+    let recurso = request.uri().path().to_owned();
+    request.extensions_mut().insert(sessao.clone());
+    let response = next.run(request).await;
+
+    if !matches!(
+        method,
+        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+    ) {
+        let acao = match method {
+            axum::http::Method::POST => "CRIAR",
+            axum::http::Method::PUT | axum::http::Method::PATCH => "ALTERAR",
+            axum::http::Method::DELETE => "EXCLUIR",
+            _ => "EXECUTAR",
+        };
+        if let Err(error) = sqlx::query(
+            "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http) VALUES (?, ?, ?, ?, ?)",
+        )
+        .bind(sessao.usuario.id)
+        .bind(&sessao.usuario.login)
+        .bind(acao)
+        .bind(recurso)
+        .bind(i64::from(response.status().as_u16()))
+        .execute(&state.pool)
+        .await
+        {
+            tracing::warn!(%error, "não foi possível registrar auditoria");
+        }
+    }
+    Ok(response)
 }
 
 fn extrair_token(headers: &HeaderMap) -> Option<&str> {

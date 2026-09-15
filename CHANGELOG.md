@@ -3,6 +3,28 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não publicado]
+
+### Adicionado
+
+- Galeria de imagens com navegação pelo teclado e por botões, além de notas em Markdown para anexos.
+- Descrições Markdown de até 50.000 caracteres com pré-visualização.
+- Etiquetas combináveis, favoritos por usuário e busca em contatos, descrições, notas e arquivos de texto.
+- Lixeira recuperável para pessoas e auditoria das operações autenticadas.
+- Backup SQLite diário com retenção de sete cópias, restauração e exportação ZIP AES-256.
+- Legenda, filtros por tipo/data de vínculo e posições persistentes por usuário no grafo.
+- Teste permanente de navegador para os principais fluxos regressivos.
+
+### Corrigido
+
+- Foto principal otimizada e enviada por multipart com progresso e nova tentativa segura.
+- Cor da categoria preservada quando um nó do grafo recebe foco.
+- Filtros e agrupamento da lista de pessoas persistidos por usuário.
+
+### Alterado
+
+- Páginas autenticadas carregadas sob demanda, reduzindo em cerca de 55% o JavaScript inicial.
+
 ## [0.6.3] - 2026-09-06
 
 ### Corrigido

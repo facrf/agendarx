@@ -11,6 +11,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 
 - Cadastro de pessoas com descrição livre, categorias coloridas e meios de
   contato dinâmicos.
+- Descrições e notas de anexos em Markdown, etiquetas combináveis, favoritos,
+  pesquisa textual ampliada e lixeira recuperável.
 - Calendário mensal responsivo com busca e filtros, recorrência, lembretes,
   prioridades, anexos, vínculo com pessoas e conclusão rápida.
 - Movimentação de tarefas por arrastar e soltar no computador e por seleção de
@@ -24,6 +26,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Streaming de mídia com suporte a HTTP Range.
 - Grafo interativo de vínculos com layouts de teia e hierárquico; ao selecionar
   uma aresta, o painel permite editar a relação e gerenciar seus arquivos.
+- Filtros por tipo e período, legenda de categorias e posições do grafo salvas
+  por usuário.
 - Exportação do mapa interpessoal para PDF, com imagem da rede e relação detalhada
   de pessoas, descrições, categorias, meios de contato e vínculos visíveis.
 - Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
@@ -38,6 +42,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
+- Backup automático diário, restauração administrativa, auditoria e exportação
+  completa em ZIP protegido com AES-256.
 
 ## Início rápido
 
@@ -56,6 +62,10 @@ cd ..
 
 cargo run
 ```
+
+Para executar o teste de navegador, instale o Chromium e rode
+`npm run test:browser` dentro de `frontend`. Defina `CHROMIUM_PATH` quando o
+executável não estiver em `/usr/bin/chromium-browser`.
 
 Abra `http://localhost:12000`. As migrações são aplicadas automaticamente e o
 usuário inicial é criado quando `ADMIN_LOGIN` e `ADMIN_PASSWORD` estão definidos.

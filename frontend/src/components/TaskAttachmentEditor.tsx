@@ -220,7 +220,7 @@ export function TaskAttachmentEditor({
         </div>
       )}
 
-      <AttachmentPreviewModal attachment={openAttachment} onClose={() => setOpenAttachment(null)} />
+      <AttachmentPreviewModal attachment={openAttachment} attachments={existing} onClose={() => setOpenAttachment(null)} />
     </div>
   );
 }

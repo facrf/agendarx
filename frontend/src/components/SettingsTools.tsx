@@ -3,6 +3,8 @@ import {
   BellRing,
   ContactRound,
   Download,
+  DatabaseBackup,
+  History,
   Eye,
   EyeOff,
   FileArchive,
@@ -20,11 +22,71 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
-import type { IdentidadeVisual, ImportacaoContatosResultado } from "../types/api";
+import type { AuditoriaItem, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira } from "../types/api";
+import { formatBytes, formatDate } from "../utils/format";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
 import { NOTIFICACOES_TAREFAS_KEY } from "./TaskReminderWatcher";
 import { Button } from "./ui";
+
+function saveBlob(blob: Blob, filename: string) {
+  const url = URL.createObjectURL(blob);
+  const link = document.createElement("a");
+  link.href = url; link.download = filename; link.click();
+  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
+}
+
+export function BackupManager() {
+  const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [senha, setSenha] = useState("");
+  const [busy, setBusy] = useState(false);
+  const inputRef = useRef<HTMLInputElement>(null);
+  const { notify } = useToast();
+  const load = () => api.get<BackupInfo[]>("/api/configuracoes/backups").then(setBackups).catch((e) => notify(errorMessage(e), "erro"));
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const create = async () => {
+    setBusy(true);
+    try { await api.post("/api/configuracoes/backups"); await load(); notify("Backup criado"); }
+    catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
+  };
+  const exportSecure = async () => {
+    if (senha.length < 10) return notify("Use uma senha com pelo menos 10 caracteres", "erro");
+    setBusy(true);
+    try { const file = await api.download("/api/configuracoes/exportacao-segura", { senha }); saveBlob(file.blob, file.filename); notify("Exportação criptografada criada"); }
+    catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
+  };
+  const restore = async (event: ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0]; event.target.value = "";
+    if (!file || !window.confirm("Restaurar este backup? O estado atual será salvo automaticamente e os dados da agenda serão substituídos.")) return;
+    const form = new FormData(); form.append("arquivo", file); form.append("senha", senha);
+    setBusy(true);
+    try { const result = await api.upload<{ mensagem: string; backup_seguranca: string }>("/api/configuracoes/restaurar", form); notify(`${result.mensagem}. Backup de segurança: ${result.backup_seguranca}`); window.location.reload(); }
+    catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
+  };
+  return <section className="panel overflow-hidden xl:col-span-2">
+    <header className="flex items-center gap-3 border-b p-5"><DatabaseBackup className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Backup e restauração</h2><p className="text-sm text-slate-500">Um backup automático diário é mantido por sete dias.</p></div></header>
+    <div className="space-y-4 p-5">
+      <div className="flex flex-wrap gap-2"><Button type="button" loading={busy} onClick={() => void create()}>Criar backup agora</Button><input className="field max-w-xs" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha da exportação segura" /><Button type="button" variant="secondary" disabled={busy} onClick={() => void exportSecure()}><LockKeyhole className="size-4" /> Exportar ZIP AES-256</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => inputRef.current?.click()}><Upload className="size-4" /> Restaurar</Button><input ref={inputRef} className="sr-only" type="file" accept=".db,.zip,application/zip" onChange={restore} /></div>
+      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-400"><th className="py-2">Data</th><th>Tipo</th><th>Tamanho</th><th /></tr></thead><tbody>{backups.slice(0, 10).map((item) => <tr key={item.id} className="border-t"><td className="py-2">{formatDate(item.data_criacao, true)}</td><td>{item.automatico ? "Automático" : "Manual"}</td><td>{formatBytes(item.tamanho_bytes)}</td><td className="flex justify-end gap-1 py-1"><button type="button" className="btn btn-ghost" onClick={async () => { try { const f = await api.download(`/api/configuracoes/backups/${item.id}/download`); saveBlob(f.blob, f.filename); } catch (e) { notify(errorMessage(e), "erro"); } }}><Download className="size-4" /> Baixar</button><button type="button" className="icon-button text-rose-600" title="Excluir backup" onClick={async () => { if (!window.confirm(`Excluir o backup ${item.nome_arquivo}?`)) return; await api.delete(`/api/configuracoes/backups/${item.id}`); await load(); }}><Trash2 className="size-4" /></button></td></tr>)}</tbody></table></div>
+    </div>
+  </section>;
+}
+
+export function TrashAndAuditManager() {
+  const [trash, setTrash] = useState<PessoaLixeira[]>([]);
+  const [audit, setAudit] = useState<AuditoriaItem[]>([]);
+  const { notify } = useToast();
+  const load = () => Promise.all([api.get<PessoaLixeira[]>("/api/produtividade/lixeira"), api.get<AuditoriaItem[]>("/api/produtividade/auditoria")]).then(([a, b]) => { setTrash(a); setAudit(b); }).catch((e) => notify(errorMessage(e), "erro"));
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  return <section className="panel overflow-hidden xl:col-span-2">
+    <header className="flex items-center gap-3 border-b p-5"><History className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Lixeira e auditoria</h2><p className="text-sm text-slate-500">Recupere cadastros e veja as últimas 500 operações.</p></div></header>
+    <div className="grid gap-6 p-5 lg:grid-cols-2">
+      <div><h3 className="mb-3 font-semibold">Pessoas na lixeira</h3>{trash.length === 0 ? <p className="text-sm text-slate-400">A lixeira está vazia.</p> : <div className="space-y-2">{trash.map((p) => <div key={p.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3"><div className="min-w-0 flex-1"><p className="truncate font-medium">{p.nome}</p><p className="text-xs text-slate-400">{formatDate(p.excluida_em, true)}</p></div><Button type="button" variant="secondary" onClick={async () => { await api.post(`/api/produtividade/lixeira/${p.id}/restaurar`); await load(); notify("Pessoa restaurada"); }}>Restaurar</Button><button type="button" className="icon-button text-rose-600" title="Excluir definitivamente" onClick={async () => { if (!window.confirm(`Excluir “${p.nome}” definitivamente?`)) return; await api.delete(`/api/produtividade/lixeira/${p.id}`); await load(); notify("Pessoa excluída definitivamente"); }}><Trash2 className="size-4" /></button></div>)}</div>}</div>
+      <div><h3 className="mb-3 font-semibold">Atividade recente</h3><div className="max-h-80 overflow-y-auto rounded-xl border"><table className="w-full text-xs"><tbody>{audit.map((item) => <tr key={item.id} className="border-t first:border-0"><td className="p-2"><strong>{item.usuario_login}</strong><br /><span className="text-slate-400">{formatDate(item.data_evento, true)}</span></td><td className="p-2">{item.acao}<br /><span className="break-all text-slate-400">{item.recurso}</span></td><td className="p-2">{item.status_http}</td></tr>)}</tbody></table></div></div>
+    </div>
+  </section>;
+}
 
 export function TaskNotificationManager() {
   const supported = "Notification" in window;

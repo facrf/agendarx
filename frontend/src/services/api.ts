@@ -92,6 +92,21 @@ export const api = {
       xhr.addEventListener("abort", () => reject(new ApiError(0, "Upload cancelado")));
       xhr.send(data);
     }),
+  download: async (path: string, data?: unknown) => {
+    const response = await fetch(apiUrl(path), {
+      method: data === undefined ? "GET" : "POST",
+      body: data === undefined ? undefined : JSON.stringify(data),
+      headers: data === undefined ? undefined : { "content-type": "application/json" },
+      credentials: "include",
+    });
+    if (!response.ok) {
+      const body = await response.json().catch(() => null);
+      throw new ApiError(response.status, body?.erro || httpErrorMessage(response.status));
+    }
+    const disposition = response.headers.get("content-disposition") || "";
+    const filename = disposition.match(/filename="([^"]+)"/)?.[1] || "download";
+    return { blob: await response.blob(), filename };
+  },
   delete: <T = void>(path: string) => request<T>(path, { method: "DELETE" }),
 };
 

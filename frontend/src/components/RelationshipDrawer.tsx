@@ -1,4 +1,5 @@
 import { ArrowRight, Edit3, GitFork, Paperclip, Save, Tag, X } from "lucide-react";
+import { MarkdownText } from "./MarkdownText";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { useToast } from "../contexts/ToastContext";
@@ -37,7 +38,10 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
 
   useEffect(() => {
     if (!edge) return;
-    const closeOnEscape = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const closeOnEscape = (event: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (event.key === "Escape" && dialogs.item(dialogs.length - 1)?.getAttribute("aria-label") === "Detalhes do vínculo") onClose();
+    };
     window.addEventListener("keydown", closeOnEscape);
     return () => window.removeEventListener("keydown", closeOnEscape);
   }, [edge, onClose]);
@@ -168,7 +172,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
                 <div><label className="field-label" htmlFor="drawer-target">Pessoa destino</label><select id="drawer-target" className="field" value={form.pessoa_destino_id || ""} onChange={(event) => setForm({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
               </div>
               <div><label className="field-label" htmlFor="drawer-type">Tipo de vínculo</label><input id="drawer-type" className="field" value={form.tipo_vinculo} onChange={(event) => setForm({ ...form, tipo_vinculo: event.target.value })} maxLength={255} required /></div>
-              <div><label className="field-label" htmlFor="drawer-description">Histórico e descrição</label><textarea id="drawer-description" className="field min-h-40 resize-y" value={form.descricao || ""} onChange={(event) => setForm({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação…" /></div>
+              <div><label className="field-label" htmlFor="drawer-description">Histórico e descrição (Markdown)</label><textarea id="drawer-description" className="field min-h-64 resize-y font-mono" value={form.descricao || ""} onChange={(event) => setForm({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação…" /></div>
               <div>
                 <div className="mb-2 flex items-center gap-2"><Paperclip className="size-4 text-teal-700" /><h3 className="text-sm font-semibold text-slate-800">Adicionar e editar arquivos</h3></div>
                 {loadingAttachments ? <p className="rounded-2xl bg-slate-50 p-4 text-sm text-slate-400">Carregando anexos…</p> : (
@@ -198,8 +202,8 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
 
               <div className="mt-6">
                 <div className="mb-3 flex items-center gap-2"><Tag className="size-4 text-teal-700" /><h3 className="text-sm font-semibold text-slate-800">Histórico e descrição</h3></div>
-                <div className="min-h-32 whitespace-pre-wrap rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
-                  {edge.descricao || "Nenhuma descrição detalhada foi registrada para esta relação."}
+                <div className="min-h-32 rounded-2xl border border-slate-200 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
+                  <MarkdownText>{edge.descricao || "Nenhuma descrição detalhada foi registrada para esta relação."}</MarkdownText>
                 </div>
               </div>
 

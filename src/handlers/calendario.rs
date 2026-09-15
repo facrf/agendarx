@@ -57,6 +57,7 @@ pub fn rotas() -> Router<AppState> {
         )
         .route("/anexos/{id}", get(obter_anexo).delete(excluir_anexo))
         .route("/anexos/{id}/stream", get(stream_anexo))
+        .route("/anexos/{id}/notas", get(obter_notas).put(salvar_notas))
         .route("/anexos/{id}/download", get(download_anexo))
         .route("/anexos/{id}/thumbnail", get(obter_miniatura))
         .route("/lembretes", get(listar_lembretes))
@@ -72,11 +73,12 @@ async fn listar_tarefas_da_pessoa(
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(pessoa_id): Path<i64>,
 ) -> Result<Json<Vec<TarefaCalendarioResponse>>, AppError> {
-    let pessoa_existe: bool =
-        sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ?)")
-            .bind(pessoa_id)
-            .fetch_one(&state.pool)
-            .await?;
+    let pessoa_existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ? AND excluida_em IS NULL)",
+    )
+    .bind(pessoa_id)
+    .fetch_one(&state.pool)
+    .await?;
     if !pessoa_existe {
         return Err(AppError::nao_encontrado("pessoa"));
     }
@@ -570,7 +572,7 @@ async fn montar_resposta(
     let pessoas = sqlx::query_as::<_, PessoaTarefaResumo>(
         "SELECT p.id, p.nome, c.cor_hex, (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica \
          FROM tarefa_calendario_pessoa tp \
-         JOIN pessoa p ON p.id = tp.pessoa_id \
+         JOIN pessoa p ON p.id = tp.pessoa_id AND p.excluida_em IS NULL \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          WHERE tp.tarefa_id = ? ORDER BY p.nome COLLATE NOCASE",
     )
@@ -653,6 +655,25 @@ async fn buscar_resumos_anexos(
     .fetch_all(&state.pool)
     .await?;
     Ok(linhas.into_iter().map(Into::into).collect())
+}
+
+async fn obter_notas(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Path(id): Path<i64>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    buscar_linha_anexo(&state, sessao.usuario.id, id).await?;
+    super::notas::obter(&state, super::notas::AnexoTipo::Tarefa, id).await
+}
+
+async fn salvar_notas(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Path(id): Path<i64>,
+    Json(input): Json<super::notas::NotasInput>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    buscar_linha_anexo(&state, sessao.usuario.id, id).await?;
+    super::notas::salvar(&state, super::notas::AnexoTipo::Tarefa, id, input).await
 }
 
 async fn listar_anexos(
@@ -1186,10 +1207,12 @@ async fn validar_pessoas(
     pessoas_ids: &[i64],
 ) -> Result<(), AppError> {
     for pessoa_id in pessoas_ids {
-        let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ?)")
-            .bind(pessoa_id)
-            .fetch_one(&mut **tx)
-            .await?;
+        let existe: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ? AND excluida_em IS NULL)",
+        )
+        .bind(pessoa_id)
+        .fetch_one(&mut **tx)
+        .await?;
         if !existe {
             return Err(AppError::BadRequest(format!(
                 "a pessoa de id {pessoa_id} não existe"

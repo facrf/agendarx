@@ -39,6 +39,7 @@ pub fn rotas() -> Router<AppState> {
         )
         .merge(super::identidade::rotas_protegidas())
         .merge(super::intercambio::rotas())
+        .merge(super::backup::rotas())
 }
 
 #[derive(serde::Serialize, sqlx::FromRow)]

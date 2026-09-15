@@ -1,10 +1,12 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import type { ImgHTMLAttributes } from "react";
-import { Camera, Download, ExternalLink, File, FileAudio, FileText, FileVideo, ImageIcon, LoaderCircle, MapPin } from "lucide-react";
-import { apiUrl } from "../services/api";
+import { Camera, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileAudio, FileText, FileVideo, ImageIcon, LoaderCircle, MapPin } from "lucide-react";
+import { api, apiUrl, errorMessage } from "../services/api";
+import { useToast } from "../contexts/ToastContext";
+import { MarkdownText } from "./MarkdownText";
 import { readImageMetadata } from "../utils/imageMetadata";
 import type { ImageMetadata } from "../utils/imageMetadata";
-import { Modal } from "./ui";
+import { Button, Modal } from "./ui";
 
 export interface PreviewAttachment {
   nome_arquivo: string;
@@ -27,30 +29,72 @@ export function previewKind(attachment: Pick<PreviewAttachment, "nome_arquivo" |
   return "file";
 }
 
-export function AttachmentPreviewModal({ attachment, onClose }: {
+export function AttachmentPreviewModal({ attachment, attachments = [], onClose }: {
   attachment: PreviewAttachment | null;
+  attachments?: PreviewAttachment[];
   onClose: () => void;
 }) {
-  const kind = attachment ? previewKind(attachment) : "file";
+  const [selection, setSelection] = useState<{ origin: string; url: string } | null>(null);
+  const [drafts, setDrafts] = useState<Record<string, string>>({});
+  const [savingNote, setSavingNote] = useState(false);
+  const active = (attachment && selection?.origin === attachment.url_stream
+    ? attachments.find((item) => item.url_stream === selection.url) : null) || attachment;
+  const kind = active ? previewKind(active) : "file";
+  const images = attachments.filter((item) => previewKind(item) === "image");
+  const index = images.findIndex((item) => item.url_stream === active?.url_stream);
+  const navigate = useCallback((delta: number) => {
+    if (!attachment || index < 0 || images.length < 2 || savingNote) return;
+    setSelection({ origin: attachment.url_stream, url: images[(index + delta + images.length) % images.length].url_stream });
+  }, [attachment, index, images, savingNote]);
+  const close = () => {
+    if (savingNote) return;
+    if (Object.keys(drafts).length && !window.confirm("Há notas não salvas. Fechar e descartar essas alterações?")) return;
+    setDrafts({});
+    setSelection(null);
+    onClose();
+  };
+  useEffect(() => {
+    if (!attachment || kind !== "image") return;
+    const handler = (event: KeyboardEvent) => {
+      if (event.target instanceof HTMLElement && event.target.closest("input, textarea, select, [contenteditable=true]")) return;
+      if (event.key === "ArrowLeft" || event.key === "ArrowRight") {
+        event.preventDefault();
+        navigate(event.key === "ArrowRight" ? 1 : -1);
+      }
+    };
+    window.addEventListener("keydown", handler);
+    return () => window.removeEventListener("keydown", handler);
+  }, [attachment, kind, navigate]);
   return (
     <Modal
       open={Boolean(attachment)}
-      onClose={onClose}
-      title={attachment?.nome_arquivo || "Pré-visualização"}
+      onClose={close}
+      title={active?.nome_arquivo || "Pré-visualização"}
       className="h-[calc(100dvh-1rem)] max-w-6xl sm:h-[calc(100dvh-2rem)]"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
-      {attachment && (
+      {active && (
         <div className="flex min-h-0 flex-1 flex-col">
           <div className="min-h-0 flex-1 overflow-hidden p-2 sm:p-4">
-            <PreviewContent attachment={attachment} kind={kind} />
+            <PreviewContent key={active.url_stream} attachment={active} kind={kind} />
           </div>
+          <AttachmentNotes key={active.url_stream} attachment={active} draft={drafts[active.url_stream]} saving={savingNote} onSaving={setSavingNote} onDraft={(value) => setDrafts((current) => {
+            const next = { ...current };
+            if (value === undefined) delete next[active.url_stream];
+            else next[active.url_stream] = value;
+            return next;
+          })} />
           <div className="flex shrink-0 flex-wrap items-center gap-2 border-t border-slate-100 bg-white px-3 py-3 sm:px-4">
-            <p className="min-w-0 flex-1 truncate text-xs text-slate-400">{attachment.mime_type || "Tipo não informado"}</p>
-            <a className="btn btn-ghost" href={apiUrl(attachment.url_stream)} target="_blank" rel="noopener noreferrer">
+            {kind === "image" && images.length > 1 && <div className="flex items-center gap-2">
+              <Button type="button" variant="secondary" disabled={savingNote} onClick={() => navigate(-1)} aria-label="Imagem anterior"><ChevronLeft className="size-4" /></Button>
+              <span className="text-xs" aria-live="polite">{index + 1} / {images.length}</span>
+              <Button type="button" variant="secondary" disabled={savingNote} onClick={() => navigate(1)} aria-label="Próxima imagem"><ChevronRight className="size-4" /></Button>
+            </div>}
+            <p className="min-w-0 flex-1 truncate text-xs text-slate-400">{active.mime_type || "Tipo não informado"}</p>
+            <a className="btn btn-ghost" href={apiUrl(active.url_stream)} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="size-4" /> <span className="hidden sm:inline">Abrir em nova aba</span><span className="sm:hidden">Abrir</span>
             </a>
-            <a className="btn btn-secondary" href={apiUrl(attachment.url_download)} download>
+            <a className="btn btn-secondary" href={apiUrl(active.url_download)} download>
               <Download className="size-4" /> <span className="hidden sm:inline">Baixar arquivo</span><span className="sm:hidden">Baixar</span>
             </a>
           </div>
@@ -58,6 +102,52 @@ export function AttachmentPreviewModal({ attachment, onClose }: {
       )}
     </Modal>
   );
+}
+
+function AttachmentNotes({ attachment, draft, onDraft, saving, onSaving }: {
+  attachment: PreviewAttachment;
+  draft?: string;
+  onDraft: (value: string | undefined) => void;
+  saving: boolean;
+  onSaving: (value: boolean) => void;
+}) {
+  const [saved, setSaved] = useState("");
+  const [loading, setLoading] = useState(true);
+  const [error, setError] = useState("");
+  const [editing, setEditing] = useState(false);
+  const { notify } = useToast();
+  const endpoint = attachment.url_stream.replace(/\/stream$/, "/notas");
+  const supported = /\/anexos\/\d+\/notas$/.test(endpoint);
+  useEffect(() => {
+    if (!supported) return;
+    let active = true;
+    api.get<{ notas: string }>(endpoint).then((data) => { if (active) setSaved(data.notas); })
+      .catch((err) => { if (active) setError(errorMessage(err)); })
+      .finally(() => { if (active) setLoading(false); });
+    return () => { active = false; };
+  }, [endpoint, supported]);
+  if (!supported) return null;
+  const value = draft ?? saved;
+  const save = async () => {
+    onSaving(true);
+    try {
+      const data = await api.put<{ notas: string }>(endpoint, { notas: value });
+      setSaved(data.notas);
+      onDraft(undefined);
+      setEditing(false);
+      notify("Notas do arquivo salvas");
+    } catch (err) { notify(errorMessage(err), "erro"); }
+    finally { onSaving(false); }
+  };
+  return <details className="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-slate-200 bg-slate-50 px-4 py-2">
+    <summary className="cursor-pointer text-sm font-semibold">Notas do arquivo{draft !== undefined ? " · alterações não salvas" : saved ? " · com anotações" : " · adicionar"}</summary>
+    {loading ? <p className="py-2 text-sm">Carregando notas…</p> : error ? <p role="alert" className="py-2 text-sm text-rose-700">Não foi possível carregar as notas: {error}. Feche e abra o arquivo para tentar novamente.</p> : <div className="space-y-2 py-2">
+      {editing || draft !== undefined ? <textarea aria-label="Notas do arquivo" className="field min-h-28 resize-y font-mono" maxLength={50000} disabled={saving} value={value} onChange={(event) => onDraft(event.target.value === saved ? undefined : event.target.value)} placeholder="Descreva o conteúdo, a origem ou o contexto deste arquivo. Aceita Markdown." /> : <MarkdownText>{value || "Nenhuma nota registrada."}</MarkdownText>}
+      <div className="flex gap-2">
+        {editing || draft !== undefined ? <><Button type="button" loading={saving} onClick={() => void save()}>Salvar notas</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => { onDraft(undefined); setEditing(false); }}>Cancelar</Button></> : <Button type="button" variant="secondary" onClick={() => setEditing(true)}>Editar notas</Button>}
+      </div>
+    </div>}
+  </details>;
 }
 
 export function AttachmentThumbnail({ attachment, ...props }: {

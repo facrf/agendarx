@@ -188,7 +188,7 @@ export function RelationshipMediaList({
         </div>
       )}
 
-      <AttachmentPreviewModal attachment={openAttachment} onClose={() => setOpenAttachment(null)} />
+      <AttachmentPreviewModal attachment={openAttachment} attachments={attachments} onClose={() => setOpenAttachment(null)} />
     </div>
   );
 }

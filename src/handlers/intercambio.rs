@@ -92,6 +92,7 @@ async fn exportar_contatos(
                 t.nome_tipo AS tipo, co.valor \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
+         WHERE p.excluida_em IS NULL \
          LEFT JOIN contato co ON co.pessoa_id = p.id \
          LEFT JOIN tipo_meio_contato t ON t.id = co.tipo_contato_id \
          ORDER BY p.nome COLLATE NOCASE, p.id, co.id",

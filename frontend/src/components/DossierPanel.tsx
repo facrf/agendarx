@@ -286,7 +286,7 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
         </>
       )}
 
-      <AttachmentPreviewModal attachment={arquivoAberto} onClose={() => setArquivoAberto(null)} />
+      <AttachmentPreviewModal attachment={arquivoAberto} attachments={anexos} onClose={() => setArquivoAberto(null)} />
     </div>
   );
 }

@@ -7,7 +7,13 @@ mod integration_tests;
 mod middleware;
 mod models;
 
-use axum::{Json, Router, extract::DefaultBodyLimit, middleware::from_fn_with_state, routing::get};
+use axum::{
+    Json, Router,
+    extract::{DefaultBodyLimit, OriginalUri, Request},
+    middleware::from_fn_with_state,
+    response::IntoResponse,
+    routing::get,
+};
 use serde_json::json;
 use sqlx::SqlitePool;
 use tower_http::services::{ServeDir, ServeFile};
@@ -38,6 +44,7 @@ async fn main() -> Result<(), AppError> {
         pool,
         config: config.clone(),
     };
+    handlers::backup::iniciar_rotina(state.clone());
 
     let app = construir_app(state);
     let listener = tokio::net::TcpListener::bind(config.endereco).await?;
@@ -52,13 +59,17 @@ fn construir_app(state: AppState) -> Router {
     let config = &state.config;
     // Bytes e Multipart têm um limite próprio (2 MiB por padrão), além do tower-http.
     // A margem cobre os delimitadores; handlers validam o tamanho real do arquivo.
-    let limite_corpo_requisicao = config.max_upload_bytes.saturating_add(1024 * 1024);
+    let limite_corpo_requisicao = usize::try_from(config.task_storage_quota_bytes)
+        .unwrap_or(config.max_upload_bytes)
+        .max(config.max_upload_bytes)
+        .saturating_add(1024 * 1024);
 
     let protegidas = Router::new()
         .nest("/api/auth", handlers::auth::rotas_protegidas())
         .nest("/api/configuracoes", handlers::configuracoes::rotas())
         .nest("/api/calendario", handlers::calendario::rotas())
         .nest("/api/pessoas", handlers::pessoas::rotas())
+        .nest("/api/produtividade", handlers::produtividade::rotas())
         .nest("/api/dossie", handlers::dossie::rotas())
         .nest("/api/osint", handlers::osint::rotas())
         .nest("/api/vinculos", handlers::vinculos::rotas())
@@ -80,7 +91,19 @@ fn construir_app(state: AppState) -> Router {
         .layer(RequestBodyLimitLayer::new(limite_corpo_requisicao))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
-        .fallback_service(arquivos_frontend)
+        .fallback(move |OriginalUri(uri): OriginalUri, request: Request| {
+            let mut arquivos_frontend = arquivos_frontend.clone();
+            async move {
+                if uri.path() == "/api" || uri.path().starts_with("/api/") {
+                    return AppError::NotFound("Rota da API não encontrada".to_owned())
+                        .into_response();
+                }
+                match arquivos_frontend.try_call(request).await {
+                    Ok(response) => response.into_response(),
+                    Err(error) => AppError::from(error).into_response(),
+                }
+            }
+        })
         .with_state(state)
 }
 

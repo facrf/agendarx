@@ -1,6 +1,6 @@
 use axum::{
-    Json, Router,
-    extract::{Path, State},
+    Extension, Json, Router,
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
 };
@@ -8,6 +8,7 @@ use axum::{
 use crate::{
     AppState,
     error::AppError,
+    middleware::auth::SessaoAutenticada,
     models::{Contato, ContatoInput, PessoaDetalhe, PessoaInput, PessoaResumo, PessoaUpdateInput},
 };
 
@@ -32,30 +33,65 @@ pub fn rotas() -> Router<AppState> {
         )
 }
 
+#[derive(serde::Deserialize, Default)]
+struct PessoaFiltro {
+    busca: Option<String>,
+}
+
 async fn listar_pessoas(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Query(filtro): Query<PessoaFiltro>,
 ) -> Result<Json<Vec<PessoaResumo>>, AppError> {
-    let pessoas = sqlx::query_as::<_, PessoaResumo>(
+    let busca = filtro
+        .busca
+        .map(|v| normalizar_busca(v.trim()))
+        .filter(|v| !v.is_empty());
+    let conteudo = if busca.is_some() {
+        "trim(COALESCE(p.descricao,'') || ' ' || COALESCE((SELECT group_concat(co.valor, ' ') FROM contato co WHERE co.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(a.nome_arquivo || ' ' || a.notas || ' ' || CASE WHEN a.mime_type LIKE 'text/%' OR lower(a.nome_arquivo) GLOB '*.md' OR lower(a.nome_arquivo) GLOB '*.txt' THEN CAST(a.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_dossie a WHERE a.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(av.nome_arquivo || ' ' || av.notas || ' ' || CASE WHEN av.mime_type LIKE 'text/%' OR lower(av.nome_arquivo) GLOB '*.md' OR lower(av.nome_arquivo) GLOB '*.txt' THEN CAST(av.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_vinculo av JOIN pessoa_vinculo pv ON pv.id=av.vinculo_id WHERE pv.pessoa_origem_id=p.id OR pv.pessoa_destino_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(at.nome_arquivo || ' ' || at.notas || ' ' || CASE WHEN at.mime_type LIKE 'text/%' OR lower(at.nome_arquivo) GLOB '*.md' OR lower(at.nome_arquivo) GLOB '*.txt' THEN CAST(at.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_tarefa_calendario at JOIN tarefa_calendario_pessoa tp ON tp.tarefa_id=at.tarefa_id WHERE tp.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(e.nome, ' ') FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),''))"
+    } else {
+        "''"
+    };
+    let sql = format!(
         "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
-                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro \
+                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
+                COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
+                {conteudo} AS conteudo_busca, \
+                EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=?) AS favorito \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
+         WHERE p.excluida_em IS NULL \
          ORDER BY p.nome COLLATE NOCASE",
-    )
-    .fetch_all(&state.pool)
-    .await?;
+    );
+    let mut pessoas = sqlx::query_as::<_, PessoaResumo>(&sql)
+        .bind(sessao.usuario.id)
+        .fetch_all(&state.pool)
+        .await?;
+    if let Some(busca) = busca {
+        pessoas.retain(|pessoa| {
+            let texto = format!(
+                "{} {} {}",
+                pessoa.nome, pessoa.etiquetas, pessoa.conteudo_busca
+            );
+            normalizar_busca(&texto).contains(&busca)
+        });
+    }
     Ok(Json(pessoas))
 }
 
 async fn obter_pessoa(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
 ) -> Result<Json<PessoaDetalhe>, AppError> {
-    Ok(Json(buscar_pessoa_detalhe(&state, id).await?))
+    Ok(Json(
+        buscar_pessoa_detalhe(&state, id, sessao.usuario.id).await?,
+    ))
 }
 
 async fn criar_pessoa(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
     Json(input): Json<PessoaInput>,
 ) -> Result<(StatusCode, Json<PessoaDetalhe>), AppError> {
     validar_nome(&input.nome)?;
@@ -85,12 +121,13 @@ async fn criar_pessoa(
     }
     tx.commit().await?;
 
-    let pessoa = buscar_pessoa_detalhe(&state, pessoa_id).await?;
+    let pessoa = buscar_pessoa_detalhe(&state, pessoa_id, sessao.usuario.id).await?;
     Ok((StatusCode::CREATED, Json(pessoa)))
 }
 
 async fn atualizar_pessoa(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
     Json(input): Json<PessoaUpdateInput>,
 ) -> Result<Json<PessoaDetalhe>, AppError> {
@@ -157,17 +194,21 @@ async fn atualizar_pessoa(
         }
     }
     tx.commit().await?;
-    Ok(Json(buscar_pessoa_detalhe(&state, id).await?))
+    Ok(Json(
+        buscar_pessoa_detalhe(&state, id, sessao.usuario.id).await?,
+    ))
 }
 
 async fn excluir_pessoa(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let resultado = sqlx::query("DELETE FROM pessoa WHERE id = ?")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    let resultado = sqlx::query(
+        "UPDATE pessoa SET excluida_em = CURRENT_TIMESTAMP WHERE id = ? AND excluida_em IS NULL",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa"));
     }
@@ -254,14 +295,22 @@ async fn excluir_contato(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn buscar_pessoa_detalhe(state: &AppState, id: i64) -> Result<PessoaDetalhe, AppError> {
+async fn buscar_pessoa_detalhe(
+    state: &AppState,
+    id: i64,
+    usuario_id: i64,
+) -> Result<PessoaDetalhe, AppError> {
     let pessoa = sqlx::query_as::<_, PessoaResumo>(
         "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
-                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro \
+                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
+                COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
+                '' AS conteudo_busca, \
+                EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=?) AS favorito \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
-         WHERE p.id = ?",
+         WHERE p.id = ? AND p.excluida_em IS NULL",
     )
+    .bind(usuario_id)
     .bind(id)
     .fetch_optional(&state.pool)
     .await?
@@ -277,10 +326,12 @@ async fn buscar_pessoa_detalhe(state: &AppState, id: i64) -> Result<PessoaDetalh
 }
 
 async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
-    let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ?)")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ? AND excluida_em IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
     if !existe {
         return Err(AppError::nao_encontrado("pessoa"));
     }
@@ -295,9 +346,9 @@ fn validar_nome(nome: &str) -> Result<(), AppError> {
 }
 
 fn validar_descricao(descricao: Option<&str>) -> Result<(), AppError> {
-    if descricao.is_some_and(|valor| valor.chars().count() > 5_000) {
+    if descricao.is_some_and(|valor| valor.chars().count() > 50_000) {
         return Err(AppError::BadRequest(
-            "a descrição deve ter no máximo 5000 caracteres".to_owned(),
+            "a descrição deve ter no máximo 50000 caracteres".to_owned(),
         ));
     }
     Ok(())
@@ -308,6 +359,22 @@ fn normalizar_descricao(descricao: Option<String>) -> Option<String> {
         let valor = valor.trim().to_owned();
         (!valor.is_empty()).then_some(valor)
     })
+}
+
+fn normalizar_busca(valor: &str) -> String {
+    valor
+        .chars()
+        .flat_map(char::to_lowercase)
+        .map(|c| match c {
+            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
+            'é' | 'è' | 'ê' | 'ë' => 'e',
+            'í' | 'ì' | 'î' | 'ï' => 'i',
+            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
+            'ú' | 'ù' | 'û' | 'ü' => 'u',
+            'ç' => 'c',
+            other => other,
+        })
+        .collect()
 }
 
 fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
@@ -321,7 +388,12 @@ fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalizar_descricao, validar_descricao};
+    use super::{normalizar_busca, normalizar_descricao, validar_descricao};
+
+    #[test]
+    fn busca_ignora_acentos_e_caixa() {
+        assert_eq!(normalizar_busca("REUNIÃO São"), "reuniao sao");
+    }
 
     #[test]
     fn normaliza_descricao_vazia_e_remove_espacos() {
@@ -334,7 +406,7 @@ mod tests {
 
     #[test]
     fn limita_descricao_por_caracteres() {
-        assert!(validar_descricao(Some(&"á".repeat(5_000))).is_ok());
-        assert!(validar_descricao(Some(&"á".repeat(5_001))).is_err());
+        assert!(validar_descricao(Some(&"á".repeat(50_000))).is_ok());
+        assert!(validar_descricao(Some(&"á".repeat(50_001))).is_err());
     }
 }

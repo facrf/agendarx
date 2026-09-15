@@ -33,6 +33,7 @@ pub fn rotas() -> Router<AppState> {
                 .delete(excluir_anexo),
         )
         .route("/anexos/{id}/stream", get(stream_anexo))
+        .route("/anexos/{id}/notas", get(obter_notas).put(salvar_notas))
         .route("/anexos/{id}/download", get(download_anexo))
         .route("/anexos/{id}/thumbnail", get(obter_miniatura))
         .route(
@@ -41,6 +42,21 @@ pub fn rotas() -> Router<AppState> {
                 .put(atualizar_vinculo)
                 .delete(excluir_vinculo),
         )
+}
+
+async fn obter_notas(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    super::notas::obter(&state, super::notas::AnexoTipo::Vinculo, id).await
+}
+
+async fn salvar_notas(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<super::notas::NotasInput>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    super::notas::salvar(&state, super::notas::AnexoTipo::Vinculo, id, input).await
 }
 
 async fn listar_anexos(
@@ -347,6 +363,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
                 c.nome_categoria AS categoria, p.pessoa_juridica, p.descricao \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
+         WHERE p.excluida_em IS NULL \
          ORDER BY p.nome COLLATE NOCASE",
     )
     .fetch_all(&state.pool)
@@ -384,8 +401,8 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
         .collect();
     let edges = sqlx::query_as::<_, GrafoEdge>(
         "SELECT id, pessoa_origem_id AS source, pessoa_destino_id AS target, \
-                tipo_vinculo AS label, descricao \
-         FROM pessoa_vinculo ORDER BY id",
+                tipo_vinculo AS label, descricao, data_criacao \
+         FROM pessoa_vinculo WHERE pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
     )
     .fetch_all(&state.pool)
     .await?;

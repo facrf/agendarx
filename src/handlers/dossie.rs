@@ -26,12 +26,31 @@ pub fn rotas() -> Router<AppState> {
                 .delete(excluir_anexo),
         )
         .route("/anexos/{id}/stream", get(stream_anexo))
+        .route("/anexos/{id}/notas", get(obter_notas).put(salvar_notas))
         .route("/anexos/{id}/download", get(download_anexo))
         .route("/anexos/{id}/thumbnail", get(obter_miniatura))
         .route(
             "/pessoas/{pessoa_id}/foto",
-            get(obter_foto).put(atualizar_foto).delete(excluir_foto),
+            get(obter_foto)
+                .put(atualizar_foto)
+                .post(enviar_foto)
+                .delete(excluir_foto),
         )
+}
+
+async fn obter_notas(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    super::notas::obter(&state, super::notas::AnexoTipo::Dossie, id).await
+}
+
+async fn salvar_notas(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<super::notas::NotasInput>,
+) -> Result<Json<super::notas::NotasInput>, AppError> {
+    super::notas::salvar(&state, super::notas::AnexoTipo::Dossie, id, input).await
 }
 
 async fn listar_anexos(
@@ -90,6 +109,7 @@ async fn enviar_anexo(
         return Err(AppError::PayloadTooLarge);
     }
     if conteudo.is_empty() {
+        tracing::warn!(pessoa_id, "upload de foto vazio rejeitado");
         return Err(AppError::BadRequest("o arquivo está vazio".to_owned()));
     }
     let nome_arquivo = normalizar_nome_arquivo(&nome_arquivo)?;
@@ -240,6 +260,22 @@ async fn excluir_anexo(
     Ok(StatusCode::NO_CONTENT)
 }
 
+async fn enviar_foto(
+    State(state): State<AppState>,
+    Path(pessoa_id): Path<i64>,
+    mut multipart: Multipart,
+) -> Result<(StatusCode, Json<MensagemResponse>), AppError> {
+    while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
+        if campo.name() == Some("arquivo") {
+            let conteudo = campo.bytes().await.map_err(AppError::from)?;
+            return atualizar_foto(State(state), Path(pessoa_id), conteudo).await;
+        }
+    }
+    Err(AppError::BadRequest(
+        "envie a foto no campo multipart 'arquivo'".to_owned(),
+    ))
+}
+
 async fn atualizar_foto(
     State(state): State<AppState>,
     Path(pessoa_id): Path<i64>,
@@ -249,10 +285,16 @@ async fn atualizar_foto(
         return Err(AppError::BadRequest("a imagem está vazia".to_owned()));
     }
     if conteudo.len() > state.config.max_upload_bytes {
+        tracing::warn!(
+            pessoa_id,
+            tamanho_bytes = conteudo.len(),
+            "upload de foto excedeu o limite"
+        );
         return Err(AppError::PayloadTooLarge);
     }
     let mime_detectado = infer::get(&conteudo).map(|tipo| tipo.mime_type());
     if !mime_detectado.is_some_and(|mime| mime.starts_with("image/")) {
+        tracing::warn!(pessoa_id, ?mime_detectado, "formato de foto rejeitado");
         return Err(AppError::BadRequest(
             "a foto deve ser uma imagem reconhecida".to_owned(),
         ));
@@ -266,6 +308,12 @@ async fn atualizar_foto(
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa"));
     }
+    tracing::info!(
+        pessoa_id,
+        tamanho_bytes = conteudo.len(),
+        ?mime_detectado,
+        "foto principal atualizada"
+    );
     Ok((
         StatusCode::OK,
         Json(MensagemResponse {
@@ -279,12 +327,13 @@ async fn obter_foto(
     Path(pessoa_id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let foto: Option<Vec<u8>> =
-        sqlx::query_scalar::<_, Option<Vec<u8>>>("SELECT foto_principal FROM pessoa WHERE id = ?")
-            .bind(pessoa_id)
-            .fetch_optional(&state.pool)
-            .await?
-            .ok_or_else(|| AppError::nao_encontrado("pessoa"))?;
+    let foto: Option<Vec<u8>> = sqlx::query_scalar::<_, Option<Vec<u8>>>(
+        "SELECT foto_principal FROM pessoa WHERE id = ? AND excluida_em IS NULL",
+    )
+    .bind(pessoa_id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::nao_encontrado("pessoa"))?;
     let foto = foto.ok_or_else(|| AppError::nao_encontrado("foto"))?;
     let mime = infer::get(&foto)
         .map(|tipo| tipo.mime_type())
@@ -326,10 +375,12 @@ async fn buscar_anexo(state: &AppState, id: i64) -> Result<AnexoDossie, AppError
 }
 
 async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
-    let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ?)")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ? AND excluida_em IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
     if !existe {
         return Err(AppError::nao_encontrado("pessoa"));
     }

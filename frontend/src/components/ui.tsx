@@ -1,5 +1,5 @@
 import { LoaderCircle, UserRound, X } from "lucide-react";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
   CSSProperties,
@@ -134,9 +134,13 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
   className?: string;
   bodyClassName?: string;
 }>) {
+  const dialogRef = useRef<HTMLElement>(null);
   useEffect(() => {
     if (!open) return;
-    const handler = (event: KeyboardEvent) => event.key === "Escape" && onClose();
+    const handler = (event: KeyboardEvent) => {
+      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
+      if (event.key === "Escape" && dialogs.item(dialogs.length - 1) === dialogRef.current) onClose();
+    };
     window.addEventListener("keydown", handler);
     document.body.style.overflow = "hidden";
     return () => {
@@ -149,6 +153,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
       <section
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={title}

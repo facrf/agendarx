@@ -13,10 +13,10 @@ import {
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, EmptyState, PageHeader, Spinner } from "../components/ui";
-import { AdminCredentialsManager, BrandingManager, ContactTransferManager, TaskNotificationManager } from "../components/SettingsTools";
+import { AdminCredentialsManager, BackupManager, BrandingManager, ContactTransferManager, TaskNotificationManager, TrashAndAuditManager } from "../components/SettingsTools";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
-import type { Categoria, DiagnosticoArmazenamento, TipoMeioContato } from "../types/api";
+import type { Categoria, DiagnosticoArmazenamento, Etiqueta, TipoMeioContato } from "../types/api";
 import { formatBytes } from "../utils/format";
 import { useAuth } from "../contexts/AuthContext";
 import { UserManager } from "../components/UserManager";
@@ -52,12 +52,41 @@ export function SettingsPage() {
         <TaskNotificationManager />
         {admin && <UserManager />}
         {admin && <StorageDiagnostics />}
+        {admin && <BackupManager />}
+        {admin && <TrashAndAuditManager />}
         {admin && <CategoryManager categorias={categorias} setCategorias={setCategorias} />}
+        {admin && <TagManager />}
         {admin && <ContactTypeManager tipos={tipos} setTipos={setTipos} />}
         {admin && <ContactTransferManager />}
       </div>
     </div>
   );
+}
+
+function TagManager() {
+  const [items, setItems] = useState<Etiqueta[]>([]);
+  const [nome, setNome] = useState("");
+  const [cor, setCor] = useState("#64748B");
+  const [editing, setEditing] = useState<number | null>(null);
+  const [saving, setSaving] = useState(false);
+  const { notify } = useToast();
+  const load = () => api.get<Etiqueta[]>("/api/produtividade/etiquetas").then(setItems).catch((e) => notify(errorMessage(e), "erro"));
+  useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
+  const reset = () => { setNome(""); setCor("#64748B"); setEditing(null); };
+  const submit = async (event: FormEvent) => {
+    event.preventDefault();
+    setSaving(true);
+    try {
+      if (editing) await api.put(`/api/produtividade/etiquetas/${editing}`, { nome, cor_hex: cor });
+      else await api.post("/api/produtividade/etiquetas", { nome, cor_hex: cor });
+      reset(); await load(); notify(editing ? "Etiqueta atualizada" : "Etiqueta criada");
+    } catch (e) { notify(errorMessage(e), "erro"); } finally { setSaving(false); }
+  };
+  return <section className="panel overflow-hidden">
+    <header className="flex items-center gap-3 border-b p-5"><Tags className="size-6 text-violet-700" /><div><h2 className="font-display text-xl font-semibold">Etiquetas</h2><p className="text-sm text-slate-500">Marcadores que podem ser combinados.</p></div></header>
+    <form className="flex flex-wrap gap-2 border-b bg-slate-50 p-4" onSubmit={submit}><input className="field min-w-48 flex-1" maxLength={50} required value={nome} onChange={(e) => setNome(e.target.value)} placeholder="Ex.: Urgente" /><input type="color" className="h-11 w-14" value={cor} onChange={(e) => setCor(e.target.value.toUpperCase())} /><Button type="submit" loading={saving}>{editing ? "Salvar" : "Criar"}</Button>{editing && <Button type="button" variant="ghost" onClick={reset}>Cancelar</Button>}</form>
+    <div className="space-y-2 p-4">{items.length === 0 ? <p className="text-sm text-slate-400">Nenhuma etiqueta criada.</p> : items.map((item) => <div key={item.id} className="flex items-center gap-3 rounded-xl border p-3"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} /><span className="flex-1 font-medium">{item.nome}</span><button type="button" className="icon-button" onClick={() => { setEditing(item.id); setNome(item.nome); setCor(item.cor_hex); }}><Edit3 className="size-4" /></button><button type="button" className="icon-button text-rose-600" onClick={async () => { if (!window.confirm(`Excluir a etiqueta “${item.nome}”?`)) return; await api.delete(`/api/produtividade/etiquetas/${item.id}`); await load(); }}><Trash2 className="size-4" /></button></div>)}</div>
+  </section>;
 }
 
 function StorageDiagnostics() {

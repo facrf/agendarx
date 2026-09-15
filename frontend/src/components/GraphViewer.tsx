@@ -2,7 +2,7 @@ import cytoscape from "cytoscape";
 import type { Core, ElementDefinition, StylesheetJson } from "cytoscape";
 import { forwardRef, useEffect, useImperativeHandle, useRef } from "react";
 import { apiUrl } from "../services/api";
-import type { GrafoResponse } from "../types/api";
+import type { GrafoResponse, PosicaoGrafo } from "../types/api";
 
 export type GraphLayout = "force" | "hierarchical";
 
@@ -12,6 +12,8 @@ interface GraphViewerProps {
   focusedNodeId: number | null;
   onEdgeClick: (edgeId: number) => void;
   onNodeDoubleClick: (nodeId: number) => void;
+  positions?: PosicaoGrafo[];
+  onPositionsChange?: (positions: PosicaoGrafo[]) => void;
 }
 
 export interface GraphViewerHandle {
@@ -24,6 +26,8 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
   focusedNodeId,
   onEdgeClick,
   onNodeDoubleClick,
+  positions = [],
+  onPositionsChange,
 }, ref) {
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
@@ -108,6 +112,11 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
           },
     );
     layoutRunner.run();
+    for (const saved of positions) {
+      const node = cy.$id(`node-${saved.pessoa_id}`);
+      if (!node.empty()) node.position({ x: saved.x, y: saved.y });
+    }
+    if (positions.length > 0) cy.fit(undefined, 70);
 
     const focusNode = () => {
       if (focusedNodeId === null) return;
@@ -120,7 +129,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
         easing: "ease-out-cubic",
       });
     };
-    window.setTimeout(focusNode, 60);
+    const focusTimer = window.setTimeout(focusNode, 60);
 
     let lastTap = { id: "", at: 0 };
     cy.on("tap", "edge", (event) => onEdgeClick(Number(event.target.data("edgeId"))));
@@ -134,16 +143,22 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
         lastTap = { id, at: now };
       }
     });
+    cy.on("dragfree", "node", () => onPositionsChange?.(cy.nodes().map((node) => ({
+      pessoa_id: Number(node.data("nodeId")),
+      x: node.position("x"),
+      y: node.position("y"),
+    }))));
 
     const observer = new ResizeObserver(() => cy.resize());
     observer.observe(containerRef.current);
 
     return () => {
+      window.clearTimeout(focusTimer);
       observer.disconnect();
       cy.destroy();
       cyRef.current = null;
     };
-  }, [graph, layout, focusedNodeId, onEdgeClick, onNodeDoubleClick]);
+  }, [graph, layout, focusedNodeId, onEdgeClick, onNodeDoubleClick, positions, onPositionsChange]);
 
   return (
     <div
@@ -204,8 +219,11 @@ const graphStyles: StylesheetJson = [
     style: {
       width: 78,
       height: 78,
-      "border-color": "#E7654F",
+      "border-color": "data(color)",
       "border-width": 7,
+      "overlay-color": "#193837",
+      "overlay-opacity": 0.12,
+      "overlay-padding": 8,
     },
   },
   {

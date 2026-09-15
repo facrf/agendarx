@@ -762,10 +762,12 @@ struct PdfBaixado {
 }
 
 async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
-    let existe: bool = sqlx::query_scalar("SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ?)")
-        .bind(id)
-        .fetch_one(&state.pool)
-        .await?;
+    let existe: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id = ? AND excluida_em IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
     if !existe {
         return Err(AppError::nao_encontrado("pessoa"));
     }
