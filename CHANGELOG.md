@@ -3,7 +3,7 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
-## [Não publicado]
+## [0.6.4] - 2026-09-15
 
 ### Adicionado
 
@@ -233,6 +233,7 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.4]: https://github.com/facrf/agendarx/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/facrf/agendarx/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/facrf/agendarx/compare/v0.6.1...v0.6.2
 [0.6.1]: https://github.com/facrf/agendarx/compare/v0.6.0...v0.6.1

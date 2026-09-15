@@ -85,13 +85,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.3
+docker pull ghcr.io/facrf/agendarx:0.6.4
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.3
+  ghcr.io/facrf/agendarx:0.6.4
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -122,7 +122,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.6.3
+    image: ghcr.io/facrf/agendarx:0.6.4
     restart: unless-stopped
     ports:
       - "12000:12000"
