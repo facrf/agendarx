@@ -53,6 +53,14 @@ Em Docker, todo o estado persistente está sob `/app/data`. O volume precisa ser
 mantido entre recriações do contêiner. Como os anexos são BLOBs, o tamanho do banco
 cresce junto com o dossiê; monitore o volume e faça backups regulares.
 
+Os snapshots usam `VACUUM INTO`, são verificados e recebem SHA-256. A exportação
+protegida acrescenta um manifesto de formato, aplicação e schema. Uploads de restore
+são gravados em arquivo temporário com limite próprio; depois da prévia e confirmação,
+a API de backup do SQLite copia todas as páginas para o banco ativo. Um bloqueio de
+manutenção impede requisições concorrentes durante a troca. Migrações, verificação
+final, revogação de sessões e recuperação automática da cópia de segurança completam
+o processo.
+
 ## Autenticação
 
 Senhas são derivadas com Argon2. No login, a aplicação cria um JWT e uma sessão no

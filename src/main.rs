@@ -17,7 +17,7 @@ use axum::{
 use serde_json::json;
 use sqlx::SqlitePool;
 use tower_http::services::{ServeDir, ServeFile};
-use tower_http::{compression::CompressionLayer, limit::RequestBodyLimitLayer, trace::TraceLayer};
+use tower_http::{compression::CompressionLayer, trace::TraceLayer};
 use tracing_subscriber::{layer::SubscriberExt, util::SubscriberInitExt};
 
 use crate::{config::Config, error::AppError};
@@ -26,6 +26,7 @@ use crate::{config::Config, error::AppError};
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: Config,
+    pub backup_runtime: handlers::backup::BackupRuntime,
 }
 
 #[tokio::main]
@@ -43,6 +44,7 @@ async fn main() -> Result<(), AppError> {
     let state = AppState {
         pool,
         config: config.clone(),
+        backup_runtime: handlers::backup::BackupRuntime::default(),
     };
     handlers::backup::iniciar_rotina(state.clone());
 
@@ -76,6 +78,10 @@ fn construir_app(state: AppState) -> Router {
         .route_layer(from_fn_with_state(
             state.clone(),
             middleware::auth::exigir_autenticacao,
+        ))
+        .route_layer(from_fn_with_state(
+            state.clone(),
+            handlers::backup::aguardar_manutencao,
         ));
 
     let index_frontend = config.frontend_dir.join("index.html");
@@ -88,7 +94,6 @@ fn construir_app(state: AppState) -> Router {
         .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
         .layer(DefaultBodyLimit::max(limite_corpo_requisicao))
-        .layer(RequestBodyLimitLayer::new(limite_corpo_requisicao))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
         .fallback(move |OriginalUri(uri): OriginalUri, request: Request| {

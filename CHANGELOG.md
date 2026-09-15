@@ -3,6 +3,23 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
+## [Não publicado]
+
+### Adicionado
+
+- Política de backup configurável pelo administrador, com horário, retenções
+  diária, semanal e mensal, próximo agendamento e última falha visíveis.
+- Manifesto, SHA-256, verificações de integridade, prévia do conteúdo e progresso
+  de upload para restaurações.
+- Limite independente `BACKUP_MAX_UPLOAD_BYTES` e transmissão de arquivos grandes
+  sem manter todo o banco na memória do servidor.
+
+### Alterado
+
+- A restauração substitui o SQLite completo pela API nativa de backup, aplica
+  migrações compatíveis, encerra sessões e recupera automaticamente a cópia de
+  segurança quando a validação posterior falha.
+
 ## [0.6.3] - 2026-09-15
 
 ### Adicionado

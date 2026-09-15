@@ -11,6 +11,7 @@ pub struct Config {
     pub max_upload_bytes: usize,
     pub task_storage_per_task_bytes: i64,
     pub task_storage_quota_bytes: i64,
+    pub backup_max_upload_bytes: usize,
     pub frontend_dir: PathBuf,
     pub cookie_secure: bool,
     pub admin_login: Option<String>,
@@ -61,6 +62,7 @@ impl Config {
         let max_upload_bytes = parse_env("MAX_UPLOAD_BYTES", "26214400")?;
         let task_storage_per_task_bytes = parse_env("TASK_STORAGE_PER_TASK_BYTES", "104857600")?;
         let task_storage_quota_bytes = parse_env("TASK_STORAGE_QUOTA_BYTES", "1073741824")?;
+        let backup_max_upload_bytes = parse_env("BACKUP_MAX_UPLOAD_BYTES", "5368709120")?;
         let osint_timeout_seconds = parse_env("OSINT_TIMEOUT_SECONDS", "20")?;
         let osint_max_results = parse_env("OSINT_MAX_RESULTS", "15")?;
         let osint_max_pdf_bytes = parse_env("OSINT_MAX_PDF_BYTES", "20971520")?;
@@ -86,6 +88,11 @@ impl Config {
         if task_storage_quota_bytes < task_storage_per_task_bytes {
             return Err(AppError::configuracao(
                 "TASK_STORAGE_QUOTA_BYTES não pode ser menor que TASK_STORAGE_PER_TASK_BYTES",
+            ));
+        }
+        if backup_max_upload_bytes == 0 {
+            return Err(AppError::configuracao(
+                "BACKUP_MAX_UPLOAD_BYTES deve ser maior que zero",
             ));
         }
         if osint_timeout_seconds == 0 || osint_max_results == 0 || osint_max_results > 100 {
@@ -120,6 +127,7 @@ impl Config {
             max_upload_bytes,
             task_storage_per_task_bytes,
             task_storage_quota_bytes,
+            backup_max_upload_bytes,
             frontend_dir: env::var("FRONTEND_DIR")
                 .map(PathBuf::from)
                 .unwrap_or_else(|_| PathBuf::from("frontend/dist")),

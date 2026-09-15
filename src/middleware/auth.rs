@@ -92,10 +92,12 @@ pub async fn exigir_autenticacao(
     request.extensions_mut().insert(sessao.clone());
     let response = next.run(request).await;
 
-    if !matches!(
-        method,
-        axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
-    ) {
+    if !(recurso.starts_with("/api/configuracoes/restauracoes/") && recurso.ends_with("/confirmar"))
+        && !matches!(
+            method,
+            axum::http::Method::GET | axum::http::Method::HEAD | axum::http::Method::OPTIONS
+        )
+    {
         let acao = match method {
             axum::http::Method::POST => "CRIAR",
             axum::http::Method::PUT | axum::http::Method::PATCH => "ALTERAR",
@@ -103,8 +105,10 @@ pub async fn exigir_autenticacao(
             _ => "EXECUTAR",
         };
         if let Err(error) = sqlx::query(
-            "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http) VALUES (?, ?, ?, ?, ?)",
+            "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http) \
+             VALUES (CASE WHEN EXISTS(SELECT 1 FROM usuario WHERE id = ?) THEN ? ELSE NULL END, ?, ?, ?, ?)",
         )
+        .bind(sessao.usuario.id)
         .bind(sessao.usuario.id)
         .bind(&sessao.usuario.login)
         .bind(acao)

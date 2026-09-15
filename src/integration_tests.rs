@@ -1,7 +1,7 @@
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 
-use crate::{AppState, config::Config, construir_app, db};
+use crate::{AppState, config::Config, construir_app, db, handlers::backup::BackupRuntime};
 
 struct TestApi {
     client: Client,
@@ -72,7 +72,11 @@ async fn rotas_api_inexistentes_retornam_json_e_preservam_frontend() {
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .connect_lazy("sqlite::memory:")
         .unwrap();
-    let app = construir_app(AppState { pool, config });
+    let app = construir_app(AppState {
+        pool,
+        config,
+        backup_runtime: BackupRuntime::default(),
+    });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
     let base = format!("http://{}", listener.local_addr().unwrap());
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
@@ -142,6 +146,7 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
     let app = construir_app(AppState {
         pool: pool.clone(),
         config,
+        backup_runtime: BackupRuntime::default(),
     });
     let task = tokio::spawn(async move {
         axum::serve(listener, app).await.unwrap();

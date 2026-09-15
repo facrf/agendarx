@@ -138,7 +138,47 @@ export interface Etiqueta { id: number; nome: string; cor_hex: string }
 export interface PessoaLixeira { id: number; nome: string; excluida_em: string }
 export interface AuditoriaItem { id: number; usuario_login: string; acao: string; recurso: string; status_http: number; data_evento: string }
 export interface PosicaoGrafo { pessoa_id: number; x: number; y: number }
-export interface BackupInfo { id: number; nome_arquivo: string; tamanho_bytes: number; automatico: boolean; data_criacao: string }
+export interface BackupInfo {
+  id: number;
+  nome_arquivo: string;
+  tamanho_bytes: number;
+  automatico: boolean;
+  data_criacao: string;
+  tipo: "manual" | "automatico" | "seguranca";
+  sha256: string;
+  integridade_ok: boolean;
+  versao_app: string | null;
+  schema_versao: number | null;
+}
+
+export interface BackupConfiguracao {
+  ativo: boolean;
+  horario: string;
+  manter_diarios: number;
+  manter_semanais: number;
+  manter_mensais: number;
+  ultima_execucao_em: string | null;
+  ultima_tentativa_em: string | null;
+  ultimo_erro: string | null;
+  proxima_execucao_em: string | null;
+  max_upload_bytes: number;
+}
+
+export interface RestauracaoPrevia {
+  token: string;
+  expira_em: string;
+  criado_em: string | null;
+  versao_app: string | null;
+  schema_versao: number;
+  schema_atual: number;
+  tamanho_bytes: number;
+  sha256: string;
+  pessoas: number;
+  usuarios: number;
+  anexos: number;
+  criptografado: boolean;
+  avisos: string[];
+}
 
 export interface GrafoResponse {
   nodes: GrafoNode[];

@@ -22,27 +22,28 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
-import type { AuditoriaItem, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira } from "../types/api";
+import type { AuditoriaItem, BackupConfiguracao, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira, RestauracaoPrevia } from "../types/api";
 import { formatBytes, formatDate } from "../utils/format";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
 import { NOTIFICACOES_TAREFAS_KEY } from "./TaskReminderWatcher";
 import { Button } from "./ui";
 
-function saveBlob(blob: Blob, filename: string) {
-  const url = URL.createObjectURL(blob);
-  const link = document.createElement("a");
-  link.href = url; link.download = filename; link.click();
-  window.setTimeout(() => URL.revokeObjectURL(url), 1_000);
-}
-
 export function BackupManager() {
   const [backups, setBackups] = useState<BackupInfo[]>([]);
+  const [config, setConfig] = useState<BackupConfiguracao | null>(null);
   const [senha, setSenha] = useState("");
+  const [confirmarSenha, setConfirmarSenha] = useState("");
   const [busy, setBusy] = useState(false);
+  const [progresso, setProgresso] = useState<number | null>(null);
+  const [previa, setPrevia] = useState<RestauracaoPrevia | null>(null);
+  const [confirmacao, setConfirmacao] = useState("");
   const inputRef = useRef<HTMLInputElement>(null);
   const { notify } = useToast();
-  const load = () => api.get<BackupInfo[]>("/api/configuracoes/backups").then(setBackups).catch((e) => notify(errorMessage(e), "erro"));
+  const load = () => Promise.all([
+    api.get<BackupInfo[]>("/api/configuracoes/backups"),
+    api.get<BackupConfiguracao>("/api/configuracoes/backups/configuracao"),
+  ]).then(([items, settings]) => { setBackups(items); setConfig(settings); }).catch((e) => notify(errorMessage(e), "erro"));
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
 
   const create = async () => {
@@ -52,23 +53,82 @@ export function BackupManager() {
   };
   const exportSecure = async () => {
     if (senha.length < 10) return notify("Use uma senha com pelo menos 10 caracteres", "erro");
+    if (senha !== confirmarSenha) return notify("A confirmação da senha não coincide", "erro");
     setBusy(true);
-    try { const file = await api.download("/api/configuracoes/exportacao-segura", { senha }); saveBlob(file.blob, file.filename); notify("Exportação criptografada criada"); }
+    try {
+      const file = await api.post<{ token: string; nome_arquivo: string }>("/api/configuracoes/exportacao-segura", { senha });
+      const link = document.createElement("a");
+      link.href = apiUrl(`/api/configuracoes/exportacoes/${file.token}/download`);
+      link.download = file.nome_arquivo;
+      document.body.appendChild(link); link.click(); link.remove();
+      await load();
+      setSenha(""); setConfirmarSenha("");
+      notify("Backup completo pronto para download");
+    }
     catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
   };
   const restore = async (event: ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0]; event.target.value = "";
-    if (!file || !window.confirm("Restaurar este backup? O estado atual será salvo automaticamente e os dados da agenda serão substituídos.")) return;
-    const form = new FormData(); form.append("arquivo", file); form.append("senha", senha);
-    setBusy(true);
-    try { const result = await api.upload<{ mensagem: string; backup_seguranca: string }>("/api/configuracoes/restaurar", form); notify(`${result.mensagem}. Backup de segurança: ${result.backup_seguranca}`); window.location.reload(); }
-    catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
+    if (!file) return;
+    if (previa) {
+      try { await api.delete(`/api/configuracoes/restauracoes/${previa.token}`); } catch { /* expira automaticamente */ }
+    }
+    const form = new FormData(); form.append("senha", senha); form.append("arquivo", file);
+    setBusy(true); setProgresso(0); setPrevia(null); setConfirmacao("");
+    try {
+      const result = await api.upload<RestauracaoPrevia>("/api/configuracoes/restaurar", form, setProgresso);
+      setPrevia(result);
+      notify("Backup validado. Confira os dados antes de restaurar.");
+    } catch (e) { notify(errorMessage(e), "erro"); }
+    finally { setBusy(false); setProgresso(null); }
   };
+  const saveConfig = async () => {
+    if (!config) return;
+    setBusy(true);
+    try {
+      const updated = await api.put<BackupConfiguracao>("/api/configuracoes/backups/configuracao", config);
+      setConfig(updated); notify("Política de backup salva");
+    } catch (e) { notify(errorMessage(e), "erro"); } finally { setBusy(false); }
+  };
+  const cancelRestore = async () => {
+    if (!previa) return;
+    try { await api.delete(`/api/configuracoes/restauracoes/${previa.token}`); }
+    catch { /* o arquivo temporário também expira automaticamente */ }
+    setPrevia(null); setConfirmacao("");
+  };
+  const confirmRestore = async () => {
+    if (!previa || confirmacao !== "RESTAURAR") return;
+    setBusy(true);
+    try {
+      const result = await api.post<{ mensagem: string; backup_seguranca: string }>(`/api/configuracoes/restauracoes/${previa.token}/confirmar`, { confirmacao });
+      notify(`${result.mensagem}. Cópia de segurança: ${result.backup_seguranca}`);
+      window.setTimeout(() => window.location.assign("/login"), 800);
+    } catch (e) { notify(errorMessage(e), "erro"); setBusy(false); }
+  };
+  const typeLabel = (item: BackupInfo) => item.tipo === "automatico" ? "Automático" : item.tipo === "seguranca" ? "Segurança" : "Manual";
   return <section className="panel overflow-hidden xl:col-span-2">
-    <header className="flex items-center gap-3 border-b p-5"><DatabaseBackup className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Backup e restauração</h2><p className="text-sm text-slate-500">Um backup automático diário é mantido por sete dias.</p></div></header>
-    <div className="space-y-4 p-5">
-      <div className="flex flex-wrap gap-2"><Button type="button" loading={busy} onClick={() => void create()}>Criar backup agora</Button><input className="field max-w-xs" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha da exportação segura" /><Button type="button" variant="secondary" disabled={busy} onClick={() => void exportSecure()}><LockKeyhole className="size-4" /> Exportar ZIP AES-256</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => inputRef.current?.click()}><Upload className="size-4" /> Restaurar</Button><input ref={inputRef} className="sr-only" type="file" accept=".db,.zip,application/zip" onChange={restore} /></div>
-      <div className="overflow-x-auto"><table className="w-full text-sm"><thead><tr className="text-left text-slate-400"><th className="py-2">Data</th><th>Tipo</th><th>Tamanho</th><th /></tr></thead><tbody>{backups.slice(0, 10).map((item) => <tr key={item.id} className="border-t"><td className="py-2">{formatDate(item.data_criacao, true)}</td><td>{item.automatico ? "Automático" : "Manual"}</td><td>{formatBytes(item.tamanho_bytes)}</td><td className="flex justify-end gap-1 py-1"><button type="button" className="btn btn-ghost" onClick={async () => { try { const f = await api.download(`/api/configuracoes/backups/${item.id}/download`); saveBlob(f.blob, f.filename); } catch (e) { notify(errorMessage(e), "erro"); } }}><Download className="size-4" /> Baixar</button><button type="button" className="icon-button text-rose-600" title="Excluir backup" onClick={async () => { if (!window.confirm(`Excluir o backup ${item.nome_arquivo}?`)) return; await api.delete(`/api/configuracoes/backups/${item.id}`); await load(); }}><Trash2 className="size-4" /></button></td></tr>)}</tbody></table></div>
+    <header className="flex items-center gap-3 border-b p-5"><DatabaseBackup className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Backup e restauração</h2><p className="text-sm text-slate-500">Cópias completas e verificadas do banco, incluindo usuários, agenda, configurações e anexos.</p></div></header>
+    <div className="space-y-6 p-5">
+      {config && <div className="rounded-2xl border bg-slate-50 p-4">
+        <div className="mb-4 flex flex-wrap items-center justify-between gap-3"><div><h3 className="font-semibold text-slate-800">Política automática</h3><p className="text-xs text-slate-500">O horário usa o fuso local do servidor. Uma mesma cópia pode atender às retenções diária, semanal e mensal.</p></div><label className="flex items-center gap-2 text-sm font-medium"><input type="checkbox" checked={config.ativo} onChange={(e) => setConfig({ ...config, ativo: e.target.checked })} /> Ativada</label></div>
+        <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
+          <label className="text-sm text-slate-600">Horário<input className="field mt-1" type="time" value={config.horario} onChange={(e) => setConfig({ ...config, horario: e.target.value })} /></label>
+          <label className="text-sm text-slate-600">Cópias diárias<input className="field mt-1" type="number" min="0" max="365" value={config.manter_diarios} onChange={(e) => setConfig({ ...config, manter_diarios: Number(e.target.value) })} /></label>
+          <label className="text-sm text-slate-600">Cópias semanais<input className="field mt-1" type="number" min="0" max="104" value={config.manter_semanais} onChange={(e) => setConfig({ ...config, manter_semanais: Number(e.target.value) })} /></label>
+          <label className="text-sm text-slate-600">Cópias mensais<input className="field mt-1" type="number" min="0" max="60" value={config.manter_mensais} onChange={(e) => setConfig({ ...config, manter_mensais: Number(e.target.value) })} /></label>
+        </div>
+        <div className="mt-4 flex flex-wrap items-center gap-3"><Button type="button" variant="secondary" disabled={busy} onClick={() => void saveConfig()}><Save className="size-4" /> Salvar política</Button><span className="text-xs text-slate-500">Último sucesso: {config.ultima_execucao_em ? formatDate(config.ultima_execucao_em, true) : "ainda não executado"} · Próxima execução: {config.proxima_execucao_em ? formatDate(config.proxima_execucao_em, true) : "desativada"} · limite de restore: {formatBytes(config.max_upload_bytes)}</span></div>
+        {config.ultimo_erro && <p className="mt-3 rounded-xl bg-rose-50 px-3 py-2 text-sm text-rose-700">Última falha automática: {config.ultimo_erro}</p>}
+      </div>}
+
+      <div className="grid gap-4 lg:grid-cols-2">
+        <div className="rounded-2xl border p-4"><h3 className="font-semibold text-slate-800">Criar e baixar</h3><p className="mt-1 text-sm text-slate-500">O ZIP protegido contém o banco, um manifesto de versão e o hash SHA-256.</p><div className="mt-4 space-y-2"><input className="field" type="password" value={senha} onChange={(e) => setSenha(e.target.value)} placeholder="Senha do arquivo (mínimo de 10 caracteres)" /><input className="field" type="password" value={confirmarSenha} onChange={(e) => setConfirmarSenha(e.target.value)} placeholder="Confirme a senha do arquivo" /></div><div className="mt-3 flex flex-wrap gap-2"><Button type="button" loading={busy} onClick={() => void exportSecure()}><LockKeyhole className="size-4" /> Baixar backup completo</Button><Button type="button" variant="secondary" disabled={busy} onClick={() => void create()}>Criar cópia local</Button></div></div>
+        <div className="rounded-2xl border p-4"><h3 className="font-semibold text-slate-800">Restaurar</h3><p className="mt-1 text-sm text-slate-500">Selecione um ZIP protegido ou um snapshot `.db`. A senha acima será usada para abrir o ZIP.</p><Button className="mt-4" type="button" variant="secondary" disabled={busy} onClick={() => inputRef.current?.click()}><Upload className="size-4" /> Selecionar backup</Button><input ref={inputRef} className="sr-only" type="file" accept=".db,.zip,application/zip,application/vnd.sqlite3" onChange={restore} />{progresso !== null && <div className="mt-4"><div className="mb-1 flex justify-between text-xs text-slate-500"><span>Enviando e validando</span><span>{progresso}%</span></div><div className="h-2 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full bg-teal-600 transition-all" style={{ width: `${progresso}%` }} /></div></div>}</div>
+      </div>
+
+      {previa && <div className="rounded-2xl border border-amber-200 bg-amber-50 p-4"><div className="flex items-start gap-3"><ShieldCheck className="mt-0.5 size-5 text-amber-700" /><div className="flex-1"><h3 className="font-semibold text-amber-950">Backup válido — confira antes de substituir o banco</h3><div className="mt-3 grid gap-2 text-sm text-amber-900 sm:grid-cols-2 lg:grid-cols-4"><span><strong>Data:</strong> {previa.criado_em ? formatDate(previa.criado_em, true) : "não informada"}</span><span><strong>Versão:</strong> {previa.versao_app || "sem manifesto"}</span><span><strong>Tamanho:</strong> {formatBytes(previa.tamanho_bytes)}</span><span><strong>Schema:</strong> {previa.schema_versao} → {previa.schema_atual}</span><span><strong>Pessoas:</strong> {previa.pessoas}</span><span><strong>Usuários:</strong> {previa.usuarios}</span><span><strong>Anexos:</strong> {previa.anexos}</span><span><strong>Proteção:</strong> {previa.criptografado ? "ZIP criptografado" : "SQLite sem criptografia"}</span></div><p className="mt-3 break-all text-xs text-amber-800">SHA-256: {previa.sha256}</p>{previa.avisos.map((aviso) => <p key={aviso} className="mt-2 text-sm text-amber-800">{aviso}</p>)}<p className="mt-4 text-sm font-medium text-amber-950">Uma cópia de segurança será criada. Todas as sessões serão encerradas e o próximo login usará as credenciais deste backup.</p><div className="mt-3 flex flex-wrap gap-2"><input className="field max-w-xs bg-white" value={confirmacao} onChange={(e) => setConfirmacao(e.target.value)} placeholder="Digite RESTAURAR" /><Button type="button" variant="danger" loading={busy} disabled={confirmacao !== "RESTAURAR"} onClick={() => void confirmRestore()}>Substituir banco completo</Button><Button type="button" variant="ghost" disabled={busy} onClick={() => void cancelRestore()}>Cancelar</Button></div></div></div></div>}
+
+      <div className="overflow-x-auto"><table className="w-full min-w-[48rem] text-sm"><thead><tr className="text-left text-slate-400"><th className="py-2">Data</th><th>Tipo</th><th>Tamanho</th><th>Validação</th><th>Versão</th><th /></tr></thead><tbody>{backups.slice(0, 20).map((item) => <tr key={item.id} className="border-t"><td className="py-2">{formatDate(item.data_criacao, true)}</td><td>{typeLabel(item)}</td><td>{formatBytes(item.tamanho_bytes)}</td><td>{item.integridade_ok ? <span className="text-emerald-700">Íntegro</span> : <span className="text-amber-700">Legado</span>}</td><td>{item.versao_app || "—"}</td><td className="flex justify-end gap-1 py-1"><a className="btn btn-ghost" href={apiUrl(`/api/configuracoes/backups/${item.id}/download`)} download><Download className="size-4" /> Baixar .db</a><button type="button" className="icon-button text-rose-600" title="Excluir backup" onClick={async () => { if (!window.confirm(`Excluir o backup ${item.nome_arquivo}?`)) return; try { await api.delete(`/api/configuracoes/backups/${item.id}`); await load(); } catch (e) { notify(errorMessage(e), "erro"); } }}><Trash2 className="size-4" /></button></td></tr>)}</tbody></table></div>
     </div>
   </section>;
 }

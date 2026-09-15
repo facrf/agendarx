@@ -93,10 +93,14 @@ e persistência de mídia privada no cache do navegador.
 | Auditoria | `GET /api/produtividade/auditoria` | Últimas 500 operações (administrador) |
 | Grafo | `GET, PUT /api/produtividade/grafo/posicoes/{layout}` | Posições por usuário e layout |
 | Backup | `GET, POST /api/configuracoes/backups` | Listar/criar backups (administrador) |
+| Backup | `GET, PUT /api/configuracoes/backups/configuracao` | Consultar/alterar horário e retenções automática, diária, semanal e mensal |
 | Backup | `DELETE /api/configuracoes/backups/{id}` | Excluir uma cópia armazenada |
-| Backup | `GET /api/configuracoes/backups/{id}/download` | Baixar snapshot SQLite |
-| Backup | `POST /api/configuracoes/exportacao-segura` | Exportar banco em ZIP AES-256 |
-| Backup | `POST /api/configuracoes/restaurar` | Restaurar `.db` ou `.zip` multipart |
+| Backup | `GET /api/configuracoes/backups/{id}/download` | Transmitir snapshot SQLite completo |
+| Backup | `POST /api/configuracoes/exportacao-segura` | Preparar ZIP AES-256 e retornar token de download válido por 10 minutos |
+| Backup | `GET /api/configuracoes/exportacoes/{token}/download` | Transmitir a exportação preparada diretamente para o navegador |
+| Backup | `POST /api/configuracoes/restaurar` | Enviar e validar `.db` ou `.zip`; retorna token e prévia |
+| Backup | `POST /api/configuracoes/restauracoes/{token}/confirmar` | Confirmar restore físico com `{"confirmacao":"RESTAURAR"}` |
+| Backup | `DELETE /api/configuracoes/restauracoes/{token}` | Cancelar uma restauração preparada |
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |

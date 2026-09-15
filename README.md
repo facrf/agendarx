@@ -42,8 +42,8 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
-- Backup automático diário, restauração administrativa, auditoria e exportação
-  completa em ZIP protegido com AES-256.
+- Backup completo com horário e retenções diária, semanal e mensal configuráveis,
+  prévia de restauração, verificação SHA-256 e exportação ZIP protegida com AES-256.
 
 ## Início rápido
 

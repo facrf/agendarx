@@ -15,6 +15,7 @@
 | `MAX_UPLOAD_BYTES` | `26214400` | Limite geral de upload, em bytes |
 | `TASK_STORAGE_PER_TASK_BYTES` | `104857600` | Cota total de anexos por tarefa, em bytes; não pode ser menor que o limite de upload |
 | `TASK_STORAGE_QUOTA_BYTES` | `1073741824` | Cota total dos anexos de tarefas por usuário, em bytes; não pode ser menor que a cota por tarefa |
+| `BACKUP_MAX_UPLOAD_BYTES` | `5368709120` | Tamanho máximo independente para o upload de um backup completo |
 | `SEARXNG_URL` | não definido | URL-base do SearXNG; a Stack usa o serviço interno por padrão |
 | `SEARXNG_IMAGE` | `docker.io/searxng/searxng:latest` | Imagem do SearXNG incluído na Stack |
 | `SEARXNG_SECRET` | não definido | Segredo obrigatório do SearXNG incluído na Stack |
@@ -175,9 +176,38 @@ controle de acesso e uma política de backups adequada ao conteúdo do dossiê.
 
 ## Backup e restauração
 
-Para uma cópia consistente e simples, interrompa temporariamente a Stack e copie o
-volume `agendarx_data`. Em uma instalação sem Docker, copie `data/agendarx.db` e os
-arquivos `-wal`/`-shm` juntos, ou use uma ferramenta de backup online do SQLite.
+Em **Configurações > Backup e restauração**, o administrador pode definir o horário
+local do backup automático e quantas referências diárias, semanais e mensais devem
+ser mantidas. Uma mesma cópia pode representar mais de um período. Backups manuais e
+as cópias de segurança geradas antes de um restore permanecem até serem excluídos
+explicitamente.
+
+**Baixar backup completo** cria um snapshot consistente, executa verificações do
+SQLite, calcula SHA-256 e entrega em fluxo um ZIP AES-256. O ZIP contém `agendarx.db` e
+`manifest.json`. Guarde a senha fora do servidor; ela não é persistida e não pode ser
+recuperada pela aplicação.
+
+O restore ocorre em duas etapas. Primeiro, o servidor recebe o arquivo em fluxo,
+confere o limite, o manifesto, o hash, a versão do schema, `quick_check` e as chaves
+estrangeiras. A tela apresenta os totais antes da confirmação. Depois, a aplicação
+bloqueia brevemente as demais requisições, cria uma cópia de segurança validada e usa
+a API de backup do SQLite para substituir o banco inteiro. Backups antigos recebem
+as migrações pendentes. Uma falha na cópia ou na validação final recupera o estado
+anterior automaticamente.
+
+Usuários, credenciais, agenda, anexos, identidade visual, auditoria e configurações
+fazem parte do banco restaurado. As sessões são revogadas ao final; o próximo login
+usa uma conta e uma senha presentes no backup. O catálogo local de cópias é
+reconciliado com os arquivos que existem no volume.
+
+As cópias locais ficam sob `data/backups` ou `/app/data/backups`. Elas sobrevivem à
+recriação do contêiner, mas continuam no mesmo volume. Mantenha também um ZIP
+criptografado em outro dispositivo ou armazenamento para cobrir perda do volume.
+
+Para uma cópia operacional adicional, interrompa temporariamente a Stack e copie o
+volume `agendarx_data`. Em uma instalação sem Docker, use a tela administrativa ou
+uma ferramenta de backup online do SQLite; não copie apenas o arquivo principal com
+o serviço em escrita.
 
 Antes de atualizar:
 
