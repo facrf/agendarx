@@ -1,3 +1,6 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { LinkedEventFields } from "./LinkedEventFields";
+import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import { useCallback, useEffect, useState } from "react";
 import type { ImgHTMLAttributes } from "react";
 import { Camera, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileAudio, FileText, FileVideo, ImageIcon, LoaderCircle, MapPin } from "lucide-react";
@@ -111,6 +114,10 @@ function AttachmentNotes({ attachment, draft, onDraft, saving, onSaving }: {
   saving: boolean;
   onSaving: (value: boolean) => void;
 }) {
+  const agenda = useLinkedEvent();
+  const [people, setPeople] = useState<number[]>([]);
+  const [scheduling, setScheduling] = useState(false);
+  const [savedEventId, setSavedEventId] = useState<number | null>(null);
   const [saved, setSaved] = useState("");
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState("");
@@ -121,7 +128,7 @@ function AttachmentNotes({ attachment, draft, onDraft, saving, onSaving }: {
   useEffect(() => {
     if (!supported) return;
     let active = true;
-    api.get<{ notas: string }>(endpoint).then((data) => { if (active) setSaved(data.notas); })
+    api.get<{ notas: string; pessoas_ids?: number[] }>(endpoint).then((data) => { if (active) { setSaved(data.notas); setPeople(data.pessoas_ids || []); } })
       .catch((err) => { if (active) setError(errorMessage(err)); })
       .finally(() => { if (active) setLoading(false); });
     return () => { active = false; };
@@ -139,6 +146,22 @@ function AttachmentNotes({ attachment, draft, onDraft, saving, onSaving }: {
     } catch (err) { notify(errorMessage(err), "erro"); }
     finally { onSaving(false); }
   };
+  const schedule = async () => {
+    try {
+      agenda.validate();
+      setScheduling(true);
+      onSaving(true);
+      if (draft !== undefined) {
+        const data = await api.put<{ notas: string }>(endpoint, { notas: value });
+        setSaved(data.notas);
+        onDraft(undefined);
+        setEditing(false);
+      }
+      const event = await agenda.save({ people, title: attachment.nome_arquivo, references: [`[Arquivo: ${attachment.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${attachment.url_stream})`] });
+      if (event) { setSavedEventId(event.id); notify("Evento vinculado ao arquivo criado"); }
+    } catch (err) { notify(errorMessage(err), "erro"); }
+    finally { setScheduling(false); onSaving(false); }
+  };
   return <details className="max-h-[35dvh] shrink-0 overflow-y-auto border-t border-slate-200 bg-slate-50 px-4 py-2">
     <summary className="cursor-pointer text-sm font-semibold">Notas do arquivo{draft !== undefined ? " · alterações não salvas" : saved ? " · com anotações" : " · adicionar"}</summary>
     {loading ? <p className="py-2 text-sm">Carregando notas…</p> : error ? <p role="alert" className="py-2 text-sm text-rose-700">Não foi possível carregar as notas: {error}. Feche e abra o arquivo para tentar novamente.</p> : <div className="space-y-2 py-2">
@@ -146,6 +169,9 @@ function AttachmentNotes({ attachment, draft, onDraft, saving, onSaving }: {
       <div className="flex gap-2">
         {editing || draft !== undefined ? <><Button type="button" loading={saving} onClick={() => void save()}>Salvar notas</Button><Button type="button" variant="ghost" disabled={saving} onClick={() => { onDraft(undefined); setEditing(false); }}>Cancelar</Button></> : <Button type="button" variant="secondary" onClick={() => setEditing(true)}>Editar notas</Button>}
       </div>
+      <LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={saving || scheduling} />
+      {agenda.draft.enabled && <Button type="button" loading={scheduling} disabled={saving && !scheduling} onClick={() => void schedule()}>Salvar notas e criar evento</Button>}
+      {savedEventId && <a className="btn btn-secondary" href={`/calendario?tarefa=${savedEventId}`}>Abrir evento criado</a>}
     </div>}
   </details>;
 }

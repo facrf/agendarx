@@ -47,7 +47,7 @@ pub fn rotas() -> Router<AppState> {
 async fn obter_notas(
     State(state): State<AppState>,
     Path(id): Path<i64>,
-) -> Result<Json<super::notas::NotasInput>, AppError> {
+) -> Result<Json<super::notas::NotasResponse>, AppError> {
     super::notas::obter(&state, super::notas::AnexoTipo::Vinculo, id).await
 }
 

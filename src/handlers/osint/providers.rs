@@ -28,6 +28,7 @@ pub enum SearchProvider {
     QueridoDiario,
     Inlabs,
     OpenAlex,
+    Datajud,
 }
 
 impl SearchProvider {
@@ -37,7 +38,11 @@ impl SearchProvider {
             "QUERIDO_DIARIO" => Ok(Self::QueridoDiario),
             "INLABS" => Ok(Self::Inlabs),
             "OPENALEX" => Ok(Self::OpenAlex),
-            _ => Err("fonte inválida; use SEARXNG, QUERIDO_DIARIO, INLABS ou OPENALEX".to_owned()),
+            "DATAJUD" => Ok(Self::Datajud),
+            _ => Err(
+                "fonte inválida; use SEARXNG, QUERIDO_DIARIO, INLABS, OPENALEX ou DATAJUD"
+                    .to_owned(),
+            ),
         }
     }
 
@@ -47,6 +52,7 @@ impl SearchProvider {
             Self::QueridoDiario => "QUERIDO_DIARIO",
             Self::Inlabs => "INLABS",
             Self::OpenAlex => "OPENALEX",
+            Self::Datajud => "DATAJUD",
         }
     }
 
@@ -56,6 +62,7 @@ impl SearchProvider {
             Self::QueridoDiario => "Querido Diário",
             Self::Inlabs => "INLABS / DOU",
             Self::OpenAlex => "OpenAlex",
+            Self::Datajud => "DataJud / CNJ",
         }
     }
 }
@@ -104,6 +111,7 @@ pub struct PublicSearchProviders {
     searxng_endpoint: Option<Url>,
     searxng_configuration_error: Option<String>,
     openalex_api_key: Option<String>,
+    datajud_api_key: Option<String>,
     inlabs_username: Option<String>,
     inlabs_password: Option<String>,
     inlabs_lookback_days: u64,
@@ -135,6 +143,7 @@ impl PublicSearchProviders {
             searxng_endpoint,
             searxng_configuration_error,
             openalex_api_key: config.openalex_api_key.clone(),
+            datajud_api_key: config.datajud_api_key.clone(),
             inlabs_username: config.inlabs_username.clone(),
             inlabs_password: config.inlabs_password.clone(),
             inlabs_lookback_days: config.inlabs_lookback_days,
@@ -153,6 +162,7 @@ impl PublicSearchProviders {
             SearchProvider::QueridoDiario => self.search_querido_diario(parameter).await,
             SearchProvider::Inlabs => self.search_inlabs(parameter).await,
             SearchProvider::OpenAlex => self.search_openalex(parameter).await,
+            SearchProvider::Datajud => self.search_datajud(parameter).await,
         };
 
         match outcome {
@@ -176,6 +186,33 @@ impl PublicSearchProviders {
                 }
             }
         }
+    }
+
+    async fn search_datajud(
+        &self,
+        parameter: &ParametroBusca,
+    ) -> Result<SearchExecution, ProviderFailure> {
+        let (number, tribunal) = datajud_query(&parameter.valor).map_err(ProviderFailure::new)?;
+        // Public key published by CNJ; deployment override supports key rotation.
+        let key = self
+            .datajud_api_key
+            .as_deref()
+            .unwrap_or("cDZHYzlZa0JadVREZDJCendQbXY6SkJlTzNjLV9TRENyQk1RdnFKZGRQdw==");
+        let response = self.client
+            .post(format!("https://api-publica.datajud.cnj.jus.br/api_publica_{tribunal}/_search"))
+            .header(header::AUTHORIZATION, format!("APIKey {key}"))
+            .json(&serde_json::json!({"size": self.max_results, "query": {"match": {"numeroProcesso": number}}}))
+            .send().await.map_err(|error| provider_request_error("DataJud", error))?;
+        ensure_success("DataJud", response.status())?;
+        let data: DatajudResponse = response
+            .json()
+            .await
+            .map_err(|_| ProviderFailure::new("a API retornou uma resposta inválida"))?;
+        Ok(SearchExecution {
+            results: normalize_datajud(data, self.max_results),
+            requests_executed: 1,
+            ..SearchExecution::default()
+        })
     }
 
     async fn search_searxng(
@@ -1116,6 +1153,93 @@ fn truncate(value: &str, max: usize) -> String {
     value.chars().take(max).collect()
 }
 
+// CNJ numbering: NNNNNNN-DD.AAAA.J.TR.OOOO. Only public tribunal aliases are accepted.
+pub(super) fn datajud_query(value: &str) -> Result<(String, String), String> {
+    let number: String = value.chars().filter(char::is_ascii_digit).collect();
+    if number.len() != 20
+        || value
+            .chars()
+            .any(|c| !c.is_ascii_digit() && c != '.' && c != '-')
+    {
+        return Err(
+            "Informe o número CNJ do processo, com 20 dígitos (com ou sem pontuação)".into(),
+        );
+    }
+    let region: usize = number[14..16].parse().unwrap_or(0);
+    let states = [
+        "ac", "al", "ap", "am", "ba", "ce", "dft", "es", "go", "ma", "mt", "ms", "mg", "pa", "pb",
+        "pr", "pe", "pi", "rj", "rn", "rs", "ro", "rr", "sc", "se", "sp", "to",
+    ];
+    let tribunal = match (&number[13..14], region) {
+        ("3", 0) => "stj".to_owned(),
+        ("4", 1..=6) => format!("trf{region}"),
+        ("5", 0) => "tst".to_owned(),
+        ("5", 1..=24) => format!("trt{region}"),
+        ("6", 0) => "tse".to_owned(),
+        ("6", 1..=27) => format!("tre-{}", states[region - 1]),
+        ("7", 0..=12) => "stm".to_owned(),
+        ("8", 1..=27) => format!("tj{}", states[region - 1]),
+        ("9", 13 | 21 | 26) => format!("tjm{}", states[region - 1]),
+        _ => {
+            return Err(
+                "Tribunal do número informado não disponível na API Pública do DataJud".into(),
+            );
+        }
+    };
+    Ok((number, tribunal))
+}
+
+#[derive(Deserialize)]
+struct DatajudResponse {
+    hits: DatajudHits,
+}
+#[derive(Deserialize)]
+struct DatajudHits {
+    hits: Vec<DatajudHit>,
+}
+#[derive(Deserialize)]
+struct DatajudHit {
+    #[serde(rename = "_source")]
+    source: serde_json::Value,
+}
+
+fn normalize_datajud(data: DatajudResponse, max: usize) -> Vec<PublicSearchResult> {
+    data.hits.hits.into_iter().filter_map(|hit| {
+        let value = hit.source;
+        let number = value.get("numeroProcesso")?.as_str()?;
+        let tribunal = value.get("tribunal").and_then(|v| v.as_str()).unwrap_or("CNJ");
+        let class = value.pointer("/classe/nome").and_then(|v| v.as_str()).unwrap_or("Processo judicial");
+        let court = value.pointer("/orgaoJulgador/nome").and_then(|v| v.as_str()).unwrap_or("");
+        let grade = value.get("grau").and_then(|v| v.as_str()).unwrap_or("");
+        let mut details = Vec::new();
+        if let Some(date) = value.get("dataAjuizamento").and_then(|v| v.as_str()) {
+            details.push(format!("Ajuizamento: {date}"));
+        }
+        if let Some(subjects) = value.get("assuntos").and_then(|v| v.as_array()) {
+            let names = subjects.iter().filter_map(|v| v.get("nome").and_then(|v| v.as_str())).collect::<Vec<_>>();
+            if !names.is_empty() { details.push(format!("Assuntos: {}", names.join(", "))); }
+        }
+        if let Some(movements) = value.get("movimentos").and_then(|v| v.as_array()) {
+            let mut movements = movements.iter().collect::<Vec<_>>();
+            movements.sort_by_key(|v| std::cmp::Reverse(v.get("dataHora").and_then(|v| v.as_str()).unwrap_or("")));
+            for movement in movements.into_iter().take(10) {
+                let date = movement.get("dataHora").and_then(|v| v.as_str()).unwrap_or("");
+                let name = movement.get("nome").and_then(|v| v.as_str()).unwrap_or("");
+                details.push(format!("{date}: {name}"));
+            }
+        }
+        Some(PublicSearchResult {
+            title: format!("{number} — {class} ({tribunal})"),
+            // CNJ provides metadata, not a public browser URL for individual API records.
+            url: format!("https://www.cnj.jus.br/sistemas/datajud/api-publica/#processo-{number}-{tribunal}-{grade}"),
+            description: Some(format!("Classe: {class}\nÓrgão julgador: {court}\nGrau: {grade}")),
+            published_at: None,
+            source: format!("DataJud / {tribunal}"),
+            details: (!details.is_empty()).then(|| details.join("\n")),
+        })
+    }).take(max).collect()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1129,6 +1253,57 @@ mod tests {
             provider: provider.to_owned(),
             ativo: true,
         }
+    }
+
+    #[test]
+    fn datajud_routes_only_valid_process_numbers() {
+        for (value, expected) in [
+            ("0000832-35.2018.4.01.3202", "trf1"),
+            ("0000000-00.2024.8.26.0000", "tjsp"),
+            ("0000000-00.2024.5.03.0000", "trt3"),
+            ("0000000-00.2024.6.07.0000", "tre-dft"),
+            ("0000000-00.2024.7.01.0000", "stm"),
+        ] {
+            let (number, tribunal) = datajud_query(value).unwrap();
+            assert_eq!(number.len(), 20);
+            assert_eq!(tribunal, expected);
+        }
+        for invalid in [
+            "Maria Silva",
+            "12345678901",
+            "0000000-00.2024.8.99.0000",
+            "0000000-00.2024.8.26.0000/injection",
+        ] {
+            assert!(datajud_query(invalid).is_err());
+        }
+        assert_eq!(
+            SearchProvider::parse("datajud"),
+            Ok(SearchProvider::Datajud)
+        );
+    }
+
+    #[test]
+    fn datajud_normalizes_metadata_and_distinguishes_instances() {
+        let data = serde_json::from_value(serde_json::json!({"hits":{"hits":[
+            {"_source":{"numeroProcesso":"00000000020248260000","tribunal":"TJSP","grau":"G1","classe":{"nome":"Procedimento comum"},"orgaoJulgador":{"nome":"Vara cível"}}},
+            {"_source":{"numeroProcesso":"00000000020248260000","tribunal":"TJSP","grau":"G2"}}
+        ]}})).unwrap();
+        let results = normalize_datajud(data, 10);
+        assert_eq!(results.len(), 2);
+        assert!(results[0].title.contains("Procedimento comum"));
+        assert!(
+            results[0]
+                .description
+                .as_ref()
+                .unwrap()
+                .contains("Vara cível")
+        );
+        assert_ne!(results[0].url, results[1].url);
+        assert!(serde_json::from_str::<DatajudResponse>("{}").is_err());
+        assert!(
+            normalize_datajud(serde_json::from_str(r#"{"hits":{"hits":[]}}"#).unwrap(), 10)
+                .is_empty()
+        );
     }
 
     #[test]

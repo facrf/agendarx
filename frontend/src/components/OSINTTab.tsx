@@ -1,3 +1,4 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import {
   AlertTriangle,
   ChevronLeft,
@@ -38,6 +39,7 @@ const TIPOS: Array<{ valor: TipoParametroBusca; rotulo: string }> = [
   { valor: "CNPJ", rotulo: "CNPJ" },
   { valor: "EMAIL", rotulo: "E-mail" },
   { valor: "TELEFONE", rotulo: "Telefone" },
+  { valor: "PROCESSO", rotulo: "Número do processo (CNJ)" },
   { valor: "TERMO", rotulo: "Termo livre" },
 ];
 
@@ -49,6 +51,7 @@ const PROVIDERS: Array<{
   { valor: "SEARXNG", rotulo: "SearXNG", descricao: "Busca geral na web." },
   { valor: "QUERIDO_DIARIO", rotulo: "Querido Diário", descricao: "Diários oficiais municipais brasileiros." },
   { valor: "INLABS", rotulo: "INLABS / DOU", descricao: "Publicações recentes do Diário Oficial da União." },
+  { valor: "DATAJUD", rotulo: "DataJud / CNJ", descricao: "Metadados processuais por número CNJ (20 dígitos). A API pública não disponibiliza nomes ou CPF das partes." },
   { valor: "OPENALEX", rotulo: "OpenAlex", descricao: "Literatura e citações acadêmicas." },
 ];
 
@@ -308,7 +311,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
               id="provider-parametro-osint"
               className="field"
               value={provider}
-              onChange={(event) => setProvider(event.target.value as FontePesquisaPublica)}
+              onChange={(event) => { const fonte = event.target.value as FontePesquisaPublica; setProvider(fonte); if (fonte === "DATAJUD") { setTipo("PROCESSO"); setValor(""); } }}
             >
               {PROVIDERS.map((item) => <option key={item.valor} value={item.valor}>{item.rotulo}</option>)}
             </select>
@@ -322,7 +325,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
               value={tipo}
               onChange={(event) => setTipo(event.target.value as TipoParametroBusca)}
             >
-              {TIPOS.map((item) => <option key={item.valor} value={item.valor}>{item.rotulo}</option>)}
+              {TIPOS.filter((item) => provider !== "DATAJUD" || item.valor === "PROCESSO").map((item) => <option key={item.valor} value={item.valor}>{item.rotulo}</option>)}
             </select>
             <label className="field-label mt-3" htmlFor="valor-parametro-osint">Valor pesquisado</label>
             <input
@@ -498,7 +501,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
                           target="_blank"
                           rel="noopener noreferrer"
                         >
-                          <ExternalLink className="size-4" /> Abrir fonte original
+                          <ExternalLink className="size-4" /> {item.provider === "DATAJUD" ? "Portal DataJud / CNJ" : "Abrir fonte original"}
                         </a>
                         {item.url_pdf && (
                           <Button type="button" variant="secondary" onClick={() => setPdfAberto(item)}>
@@ -628,6 +631,7 @@ function Metrica({ rotulo, valor, destaque = false }: { rotulo: string; valor: n
 
 function placeholderPara(tipo: TipoParametroBusca): string {
   switch (tipo) {
+    case "PROCESSO": return "0000000-00.2024.8.26.0000";
     case "CPF": return "000.000.000-00";
     case "CNPJ": return "00.000.000/0000-00";
     case "EMAIL": return "nome@exemplo.com";

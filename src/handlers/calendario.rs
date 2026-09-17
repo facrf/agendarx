@@ -661,7 +661,7 @@ async fn obter_notas(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
-) -> Result<Json<super::notas::NotasInput>, AppError> {
+) -> Result<Json<super::notas::NotasResponse>, AppError> {
     buscar_linha_anexo(&state, sessao.usuario.id, id).await?;
     super::notas::obter(&state, super::notas::AnexoTipo::Tarefa, id).await
 }

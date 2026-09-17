@@ -1,5 +1,7 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { LinkedEventFields } from "../components/LinkedEventFields";
 import { ImpactDetails, PsychosocialLegend, PsychosocialStatus } from "../components/PsychosocialStatus";
+import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import {
   Edit3,
   FileDown,
@@ -47,6 +49,7 @@ const emptyRelationship: VinculoPayload = {
 };
 
 export function GraphPage() {
+  const agenda = useLinkedEvent();
   const [searchParams] = useSearchParams();
   const { usuario } = useAuth();
   const filterKey = `agendarx:graph-filters:${usuario?.id}`;
@@ -193,6 +196,7 @@ export function GraphPage() {
       return notify("Escolha pessoas diferentes", "erro");
     }
 
+    try { agenda.validate(); } catch (error) { return notify(errorMessage(error), "erro"); }
     setSaving(true);
     try {
       const payload = {
@@ -214,16 +218,18 @@ export function GraphPage() {
           return api.post<AnexoVinculo>(`/api/vinculos/${saved.id}/anexos`, data);
         }),
       );
+      setEditingId(saved.id);
+      const uploaded = uploads.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
+      setPendingRelationshipFiles(pendingRelationshipFiles.filter((_, index) => uploads[index].status === "rejected"));
+      setRelationshipAttachments((items) => [...items, ...uploaded]);
       const failedUploads = uploads.filter((result) => result.status === "rejected");
       if (failedUploads.length > 0) {
-        setEditingId(saved.id);
-        setPendingRelationshipFiles(pendingRelationshipFiles.filter((_, index) => uploads[index].status === "rejected"));
-        setRelationshipAttachments((items) => [...items, ...uploads.flatMap((result) => result.status === "fulfilled" ? [result.value] : [])]);
         const details = uploads.flatMap((result, index) => result.status === "rejected" ? [`${pendingRelationshipFiles[index].name}: ${errorMessage(result.reason)}`] : []);
         notify(`Vínculo salvo, mas ${failedUploads.length} anexo(s) falharam. ${details.join("; ")}. Tente salvar novamente.`, "erro");
         await loadGraphData();
         return;
       } else {
+        await agenda.save({ people: [saved.pessoa_origem_id, saved.pessoa_destino_id], title: saved.tipo_vinculo, references: [`Vínculo #${saved.id}: ${saved.tipo_vinculo}`, ...[...relationshipAttachments, ...uploaded].map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
         notify(editingId ? "Vínculo atualizado" : "Vínculo criado");
       }
       setForm(emptyRelationship);
@@ -240,6 +246,7 @@ export function GraphPage() {
   };
 
   const editRelationship = async (relationship: PessoaVinculo) => {
+    agenda.reset();
     setEditingId(relationship.id);
     setForm({
       pessoa_origem_id: relationship.pessoa_origem_id,
@@ -328,6 +335,7 @@ export function GraphPage() {
             <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link>
           </section>}
           <RelationshipForm
+            eventFields={<LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={saving} />}
             people={people}
             form={form}
             editing={editingId !== null}
@@ -342,6 +350,7 @@ export function GraphPage() {
             onInvalidFiles={(message) => notify(message, "erro")}
             onSubmit={submitRelationship}
             onCancel={() => {
+              agenda.reset();
               setEditingId(null);
               setForm(emptyRelationship);
               setRelationshipAttachments([]);
@@ -441,6 +450,7 @@ export function GraphPage() {
       </div>
 
       <RelationshipDrawer
+        key={selectedEdge?.id ?? "closed"}
         edge={selectedEdge}
         nodes={graph.nodes}
         onClose={() => setSelectedEdge(null)}
@@ -472,6 +482,7 @@ export function GraphPage() {
 }
 
 interface RelationshipFormProps {
+  eventFields: React.ReactNode;
   people: PessoaResumo[];
   form: VinculoPayload;
   editing: boolean;
@@ -488,7 +499,7 @@ interface RelationshipFormProps {
   onCancel: () => void;
 }
 
-function RelationshipForm({ people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onInvalidFiles, onSubmit, onCancel }: RelationshipFormProps) {
+function RelationshipForm({ eventFields, people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onInvalidFiles, onSubmit, onCancel }: RelationshipFormProps) {
   return (
     <section className="panel p-5">
       <div className="mb-4 flex items-center gap-2"><Plus className="size-5 text-coral" /><h2 className="font-display text-lg font-semibold">{editing ? "Editar vínculo" : "Novo vínculo"}</h2></div>
@@ -514,6 +525,7 @@ function RelationshipForm({ people, form, editing, saving, loadingAttachments, a
               />
             )}
           </div>
+          {eventFields}
           <div className="flex gap-2">
             <Button className="flex-1" type="submit" loading={saving}>{editing ? <Save className="size-4" /> : <GitFork className="size-4" />}{editing ? "Salvar" : "Conectar"}</Button>
             {editing && <button className="icon-button" type="button" onClick={onCancel} aria-label="Cancelar edição"><X className="size-4" /></button>}

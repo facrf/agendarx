@@ -147,8 +147,8 @@ curl -i http://localhost:12000/api/auth/login \
 }
 ```
 
-Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE` e `TERMO`.
-Os providers são `SEARXNG`, `QUERIDO_DIARIO`, `INLABS` e `OPENALEX`. A omissão de
+Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE`, `TERMO` e `PROCESSO`.
+Os providers são `SEARXNG`, `QUERIDO_DIARIO`, `INLABS`, `OPENALEX` e `DATAJUD`. A omissão de
 `provider` usa `SEARXNG`, preservando clientes e registros anteriores. O mesmo
 campo é aceito no `PUT` e devolvido na listagem; assim a edição conserva a fonte.
 
@@ -310,3 +310,11 @@ As respostas de metadados dos anexos incluem `url_thumbnail` para imagens raster
 suportadas e `null` para os demais formatos. A miniatura tem no máximo 512 px em
 cada lado; anexos anteriores à implantação geram e armazenam esse cache no
 primeiro acesso à URL.
+
+### DataJud
+
+Use `{"tipo":"PROCESSO","valor":"0000832-35.2018.4.01.3202","provider":"DATAJUD"}` em parâmetros OSINT. A consulta identifica o tribunal a partir da numeração CNJ, envia `POST /api_publica_<tribunal>/_search` e autentica com a chave pública do CNJ. `DATAJUD_API_KEY` substitui a chave incluída. Nomes/CPF não são parâmetros aceitos nesta fonte. Resultados guardam classe, órgão, grau, assuntos e até dez movimentos recentes; o link aponta ao portal da fonte, pois a API não fornece uma página pública individual do processo.
+
+### Contexto para agendar a partir de anexos
+
+`GET /api/{dossie|vinculos|calendario}/anexos/{id}/notas` retorna `notas` e `pessoas_ids`, derivados do registro ao qual o arquivo pertence. O `PUT` mantém o corpo `{ "notas": "..." }`. Anexos de tarefas mantêm a verificação do proprietário. O agendamento opcional usa `POST /api/calendario/tarefas` com `pessoas_ids` e referências Markdown na descrição, depois da persistência do registro/arquivo.

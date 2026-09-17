@@ -19,6 +19,7 @@
 | `SEARXNG_URL` | não definido | URL-base do SearXNG; a Stack usa o serviço interno por padrão |
 | `SEARXNG_IMAGE` | `docker.io/searxng/searxng:latest` | Imagem do SearXNG incluído na Stack |
 | `SEARXNG_SECRET` | não definido | Segredo obrigatório do SearXNG incluído na Stack |
+| `DATAJUD_API_KEY` | chave pública do CNJ incluída | Substituição opcional em caso de rotação; valor sem o prefixo `APIKey` |
 | `OPENALEX_API_KEY` | não definido | Chave opcional do OpenAlex, enviada somente no cabeçalho de autenticação |
 | `INLABS_USERNAME` | não definido | Usuário do INLABS; obrigatório junto da senha para usar a fonte DOU |
 | `INLABS_PASSWORD` | não definido | Senha do INLABS; obrigatório junto do usuário e nunca incluída em logs |

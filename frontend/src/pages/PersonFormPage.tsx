@@ -1,4 +1,6 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { LinkedEventFields } from "../components/LinkedEventFields";
+import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import {
   ArrowLeft,
   Camera,
@@ -29,6 +31,7 @@ import { MarkdownText } from "../components/MarkdownText";
 import { prepareProfilePhoto } from "../utils/profilePhoto";
 
 export function PersonFormPage() {
+  const agenda = useLinkedEvent();
   const { id } = useParams();
   const pessoaId = id ? Number(id) : null;
   const editando = pessoaId !== null;
@@ -146,6 +149,7 @@ export function PersonFormPage() {
       return notify("Preencha ou remova os meios de contato incompletos", "erro");
     }
 
+    try { agenda.validate(); } catch (error) { return notify(errorMessage(error), "erro"); }
     setSalvando(true);
     try {
       // Prepare the selected file before persisting the form, including on retries.
@@ -197,6 +201,9 @@ export function PersonFormPage() {
         return;
       }
 
+      if (fotoPreparada) { setFoto(null); setTemFoto(true); }
+      if (removerFoto) { setRemoverFoto(false); setTemFoto(false); }
+      await agenda.save({ people: [destinoId], title: nome, references: [`[Pessoa: ${nome.replaceAll("[", "").replaceAll("]", "")}](/pessoas/${destinoId})`] });
       notify(editando ? "Pessoa atualizada" : "Pessoa cadastrada");
       navigate(`/pessoas/${destinoId}`, { replace: true });
     } catch (error) {
@@ -312,6 +319,7 @@ export function PersonFormPage() {
           <p className="mt-2 text-right text-xs text-slate-400">{descricao.length}/50000</p>
         </section>
 
+        <LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={salvando} />
         <div className="flex justify-end gap-3">
           {progressoFoto !== null && <span role="status" className="self-center text-sm text-slate-500">Enviando foto: {progressoFoto}%</span>}
           <Link className="btn btn-ghost" to={pessoaId ? `/pessoas/${pessoaId}` : "/pessoas"}>Cancelar</Link>

@@ -7,6 +7,12 @@ pub struct NotasInput {
     pub notas: String,
 }
 
+#[derive(Serialize)]
+pub struct NotasResponse {
+    pub notas: String,
+    pub pessoas_ids: Vec<i64>,
+}
+
 pub enum AnexoTipo {
     Dossie,
     Vinculo,
@@ -27,7 +33,7 @@ pub async fn obter(
     state: &AppState,
     tipo: AnexoTipo,
     id: i64,
-) -> Result<Json<NotasInput>, AppError> {
+) -> Result<Json<NotasResponse>, AppError> {
     let notas = sqlx::query_scalar::<_, String>(&format!(
         "SELECT notas FROM {} WHERE id = ?",
         tipo.tabela()
@@ -36,7 +42,20 @@ pub async fn obter(
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("anexo"))?;
-    Ok(Json(NotasInput { notas }))
+    let query = match tipo {
+        AnexoTipo::Dossie => "SELECT pessoa_id FROM anexo_dossie WHERE id = ?",
+        AnexoTipo::Vinculo => {
+            "SELECT v.pessoa_origem_id FROM pessoa_vinculo v JOIN anexo_vinculo a ON a.vinculo_id = v.id WHERE a.id = ?1 UNION SELECT v.pessoa_destino_id FROM pessoa_vinculo v JOIN anexo_vinculo a ON a.vinculo_id = v.id WHERE a.id = ?1"
+        }
+        AnexoTipo::Tarefa => {
+            "SELECT p.pessoa_id FROM tarefa_calendario_pessoa p JOIN anexo_tarefa_calendario a ON a.tarefa_id = p.tarefa_id WHERE a.id = ?"
+        }
+    };
+    let pessoas_ids = sqlx::query_scalar(query)
+        .bind(id)
+        .fetch_all(&state.pool)
+        .await?;
+    Ok(Json(NotasResponse { notas, pessoas_ids }))
 }
 
 pub async fn salvar(

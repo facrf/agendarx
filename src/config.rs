@@ -17,6 +17,7 @@ pub struct Config {
     pub admin_login: Option<String>,
     pub admin_password: Option<String>,
     pub searxng_url: Option<String>,
+    pub datajud_api_key: Option<String>,
     pub openalex_api_key: Option<String>,
     pub inlabs_username: Option<String>,
     pub inlabs_password: Option<String>,
@@ -138,6 +139,7 @@ impl Config {
                 .ok()
                 .map(|valor| valor.trim().trim_end_matches('/').to_owned())
                 .filter(|valor| !valor.is_empty()),
+            datajud_api_key: env_secreto("DATAJUD_API_KEY"),
             openalex_api_key: env_secreto("OPENALEX_API_KEY"),
             inlabs_username,
             inlabs_password,

@@ -224,6 +224,10 @@ com `-D warnings`, build TypeScript/Vite, ESLint e regressão completa de navega
 aprovados. A regressão também verifica as cores e os traços das arestas e o
 fechamento da explicação por Escape.
 
+O conjunto completo, incluindo DataJud e eventos relacionados à agenda, também
+foi validado nesta data: 56 testes Rust aprovados, além dos mesmos checks de
+formatação, Clippy, build, ESLint e navegador.
+
 Referências das APIs utilizadas: [SQLx Pool::begin_with](https://docs.rs/sqlx/0.8.6/sqlx/struct.Pool.html#method.begin_with),
 [Cytoscape: atualizações em lote](https://js.cytoscape.org/#cy.batch) e
 [Cytoscape: underlay](https://js.cytoscape.org/#style/underlay).

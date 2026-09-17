@@ -1,3 +1,6 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { LinkedEventFields } from "./LinkedEventFields";
+import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import {
   Archive,
   Download,
@@ -37,6 +40,8 @@ interface EnvioArquivo {
 }
 
 function DossierContent({ pessoaId }: { pessoaId: number }) {
+  const agenda = useLinkedEvent();
+  const [eventFiles, setEventFiles] = useState<AnexoDossie[]>([]);
   const [anexos, setAnexos] = useState<AnexoDossie[]>([]);
   const [carregando, setCarregando] = useState(true);
   const [enviando, setEnviando] = useState(false);
@@ -73,8 +78,21 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
     arquivos: anexos.filter((anexo) => !["image", "audio", "video"].includes(previewKind(anexo))),
   }), [anexos]);
 
+  const scheduleFiles = async (files: AnexoDossie[]) => {
+    try {
+      const event = await agenda.save({ people: [pessoaId], title: `Arquivos: ${files.map((a) => a.nome_arquivo).join(", ")}`, references: [`[Pessoa](/pessoas/${pessoaId})`, ...files.map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
+      if (event) { setEventFiles([]); notify("Evento vinculado aos arquivos criado"); }
+    } catch (error) { notify(errorMessage(error), "erro"); }
+  };
+
   const executarEnvios = async (lote: EnvioArquivo[]) => {
     if (envioEmCurso.current || lote.length === 0 || !ativo.current) return;
+    try { agenda.validate(); } catch (error) {
+      const ids = new Set(lote.map((item) => item.id));
+      setEnvios((items) => items.map((item) => ids.has(item.id) ? { ...item, status: "falhou", erro: errorMessage(error) } : item));
+      notify(errorMessage(error), "erro");
+      return;
+    }
     envioEmCurso.current = true;
     setEnviando(true);
     const ids = new Set(lote.map((item) => item.id));
@@ -83,6 +101,7 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
     const atualizar = (id: number, patch: Partial<EnvioArquivo>) => {
       if (ativo.current) setEnvios((atuais) => atuais.map((item) => item.id === id ? { ...item, ...patch } : item));
     };
+    const savedFiles: AnexoDossie[] = [];
     let enviados = 0;
     let falhas = 0;
     try {
@@ -97,6 +116,7 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
           if (!ativo.current) return;
           setAnexos((atuais) => [anexo, ...atuais.filter((atual) => atual.id !== anexo.id)]);
           atualizar(item.id, { status: "salvo", progresso: 100 });
+          savedFiles.push(anexo);
           enviados++;
         } catch (error) {
           atualizar(item.id, { status: "falhou", erro: errorMessage(error) });
@@ -106,6 +126,11 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
       if (!ativo.current) return;
       if (falhas > 0) notify(`${enviados} arquivo(s) salvo(s); ${falhas} falharam. Confira os detalhes e use “Reenviar falhas”.`, "erro");
       else notify(`${enviados} arquivo(s) adicionado(s) ao dossiê`);
+      if (savedFiles.length && agenda.draft.enabled) {
+        const references = [...eventFiles, ...savedFiles];
+        setEventFiles(references);
+        await scheduleFiles(references);
+      }
     } finally {
       envioEmCurso.current = false;
       if (ativo.current) setEnviando(false);
@@ -189,6 +214,8 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
         <Button type="button" loading={enviando} onClick={() => inputRef.current?.click()}><Plus className="size-4" /> Selecionar arquivo</Button>
       </section>
 
+      <LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={enviando} />
+      {eventFiles.length > 0 && agenda.draft.enabled && <Button type="button" disabled={enviando} onClick={() => void scheduleFiles(eventFiles)}>Tentar criar evento dos arquivos salvos</Button>}
       {envios.length > 0 && (
         <section className="rounded-2xl border border-slate-200 bg-white p-4" aria-label="Progresso dos uploads">
           <div className="flex flex-wrap items-center justify-between gap-3">

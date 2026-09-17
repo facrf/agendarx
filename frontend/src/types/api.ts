@@ -361,13 +361,15 @@ export type TipoParametroBusca =
   | "CNPJ"
   | "EMAIL"
   | "TELEFONE"
-  | "TERMO";
+  | "TERMO"
+  | "PROCESSO";
 
 export type FontePesquisaPublica =
   | "SEARXNG"
   | "QUERIDO_DIARIO"
   | "INLABS"
-  | "OPENALEX";
+  | "OPENALEX"
+  | "DATAJUD";
 
 export interface ParametroBusca {
   id: number;

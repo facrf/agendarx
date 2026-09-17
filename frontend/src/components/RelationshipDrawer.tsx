@@ -1,3 +1,6 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { LinkedEventFields } from "./LinkedEventFields";
+import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import { ArrowRight, Edit3, GitFork, Paperclip, Save, Tag, X } from "lucide-react";
 import { MarkdownText } from "./MarkdownText";
 import { useEffect, useState } from "react";
@@ -22,6 +25,7 @@ interface RelationshipDrawerProps {
 }
 
 export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: RelationshipDrawerProps) {
+  const agenda = useLinkedEvent();
   const [attachments, setAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
@@ -83,6 +87,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
     if (form.pessoa_origem_id === form.pessoa_destino_id) {
       return notify("Escolha pessoas diferentes", "erro");
     }
+    try { agenda.validate(); } catch (error) { return notify(errorMessage(error), "erro"); }
     setSaving(true);
     try {
       const updated = await api.put<PessoaVinculo>(`/api/vinculos/${edge.id}`, {
@@ -101,10 +106,11 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
       const failed = pendingFiles.filter((_, index) => uploads[index]?.status === "rejected");
       setAttachments((items) => [...uploaded, ...items]);
       setPendingFiles(failed);
-      await onUpdated(updated);
       if (failed.length > 0) {
         notify(`Relação salva, mas ${failed.length} anexo(s) falharam`, "erro");
       } else {
+        await agenda.save({ people: [updated.pessoa_origem_id, updated.pessoa_destino_id], title: updated.tipo_vinculo, references: [`Vínculo #${updated.id}: ${updated.tipo_vinculo}`, ...[...attachments, ...uploaded].map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
+        await onUpdated(updated);
         setEditing(false);
         notify("Relação e arquivos atualizados");
       }
@@ -139,6 +145,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
   };
 
   const cancelEditing = () => {
+    agenda.reset();
     setForm({
       pessoa_origem_id: edge.source,
       pessoa_destino_id: edge.target,
@@ -187,6 +194,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
                   />
                 )}
               </div>
+              <LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={saving} />
               <div className="sticky bottom-0 flex gap-2 border-t border-slate-100 bg-white py-4">
                 <Button className="flex-1" type="submit" loading={saving}><Save className="size-4" /> Salvar relação</Button>
                 <Button type="button" variant="ghost" disabled={saving} onClick={cancelEditing}>Cancelar</Button>

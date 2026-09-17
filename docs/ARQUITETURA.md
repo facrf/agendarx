@@ -108,7 +108,7 @@ configurações. Não há push em segundo plano com a aplicação fechada.
 ## Pesquisa pública
 
 Cada linha de `parametro_busca` armazena um provider fechado (`SEARXNG`,
-`QUERIDO_DIARIO`, `INLABS` ou `OPENALEX`). A migração usa `SEARXNG` como padrão,
+`QUERIDO_DIARIO`, `INLABS`, `OPENALEX` ou `DATAJUD`). A migração usa `SEARXNG` como padrão,
 portanto bancos anteriores permanecem compatíveis. O módulo
 `src/handlers/osint/providers.rs` isola autenticação, transporte, parsing e
 normalização de cada fonte em `PublicSearchResult`.

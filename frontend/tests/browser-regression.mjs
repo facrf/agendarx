@@ -29,6 +29,10 @@ const base = { classificacao_risco: 'MANIPULATIVO', toxicidade: 0.4, psicossocia
 const people = [{ ...base, id: 1, nome: 'Ana' }, { ...base, id: 2, nome: 'Zeca' }, { ...base, id: 3, nome: 'Empresa', pessoa_juridica: true }];
 const attachments = [1, 2].map(id => ({ id, pessoa_id: 1, nome_arquivo: `foto${id}.png`, mime_type: 'image/png', tamanho_bytes: 100, data_upload: '2026-09-14', url_stream: `/api/dossie/anexos/${id}/stream`, url_download: `/api/dossie/anexos/${id}/download` }));
 const notes = {};
+const events = [];
+const parameters = [];
+let failEvent = false;
+let attachmentPosts = 0;
 let photoPosts = 0, personPosts = 0, failPhoto = false;
 await page.route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
@@ -44,10 +48,23 @@ await page.route('**/api/**', async route => {
     if (req.method() === 'POST') { personPosts++; data = { ...base, ...req.postDataJSON(), id: 4 }; }
     else data = people;
   } else if (/^\/api\/pessoas\/\d+$/.test(path)) data = { ...people[0], psicossocial: metrics(), ...(req.method() === 'PUT' ? req.postDataJSON() : {}) };
-  else if (path.endsWith('/anexos')) data = attachments;
+  else if (path === '/api/calendario/tarefas' && req.method() === 'POST') {
+    if (failEvent) return route.fulfill({ status: 503, json: { erro: 'Agenda indisponível' } });
+    const event = { ...req.postDataJSON(), id: events.length + 1, pessoas: [], anexos: [] }; events.push(event); data = event;
+  }
+  else if (/^\/api\/vinculos\/\d+$/.test(path) && req.method() === 'PUT') data = { ...req.postDataJSON(), id: 1 };
+  else if (path.includes('/osint/parametros/')) {
+    if (req.method() === 'POST') parameters.push({ ...req.postDataJSON(), id: parameters.length + 1, pessoa_id: 1 });
+    data = req.method() === 'POST' ? parameters.at(-1) : parameters;
+  }
+  else if (path.includes('/osint/historico/')) data = { itens: [], total: 0, pagina: 1, por_pagina: 10, total_paginas: 0 };
+  else if (path.endsWith('/anexos')) {
+    if (req.method() === 'POST') { attachmentPosts++; const id = 10 + attachmentPosts; data = { ...attachments[0], id, nome_arquivo: 'novo.txt', url_stream: `/api/dossie/anexos/${id}/stream`, url_download: `/api/dossie/anexos/${id}/download` }; }
+    else data = attachments;
+  }
   else if (path.endsWith('/notas')) {
     if (req.method() === 'PUT') notes[path] = req.postDataJSON().notas;
-    data = { notas: notes[path] || '' };
+    data = { notas: notes[path] || '', pessoas_ids: [1] };
   } else if (path.endsWith('/foto') && req.method() === 'POST') {
     photoPosts++;
     assert.ok(req.headers()['content-type'].startsWith('multipart/form-data;'));
@@ -84,6 +101,16 @@ try {
   await page.getByRole('button', { name: 'Salvar notas' }).click();
   await page.getByText('Notas do arquivo salvas', { exact: true }).waitFor();
   assert.equal(notes['/api/dossie/anexos/1/notas'], '**Nota de teste**');
+  const noteDialog = page.getByRole('dialog', { name: 'foto1.png', exact: true });
+  assert.equal(events.length, 0);
+  await noteDialog.getByLabel('Criar evento na agenda (opcional)').check();
+  await noteDialog.getByLabel('Dia inteiro', { exact: true }).check();
+  await noteDialog.getByLabel('Início', { exact: true }).fill('2026-10-20');
+  await noteDialog.getByRole('button', { name: 'Salvar notas e criar evento' }).click();
+  await noteDialog.getByRole('link', { name: 'Abrir evento criado' }).waitFor();
+  assert.deepEqual(events[0].pessoas_ids, [1]);
+  assert.ok(events[0].descricao.includes('/api/dossie/anexos/1/stream'));
+  assert.equal(events[0].inicio_em, '2026-10-20T00:00:00.000Z');
   await page.keyboard.press('Escape');
   await page.goto('http://127.0.0.1:4179/pessoas/nova');
   await page.getByLabel('Nome completo').fill('Nova pessoa');
@@ -95,6 +122,8 @@ try {
   assert.equal(await page.locator('.markdown-text table').count(), 1);
   const image = await page.evaluate(() => { const c = document.createElement('canvas'); c.width = 2400; c.height = 1800; c.getContext('2d').fillRect(0, 0, 2400, 1800); return c.toDataURL('image/png').split(',')[1]; });
   await page.locator('input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from(image, 'base64') });
+  await page.getByLabel('Criar evento na agenda (opcional)').check();
+  await page.getByLabel('Início', { exact: true }).fill('2026-10-21T09:30');
   failPhoto = true;
   await page.getByRole('button', { name: 'Cadastrar pessoa', exact: true }).click();
   await page.getByText(/Dados da pessoa salvos, mas a foto/).waitFor();
@@ -103,6 +132,9 @@ try {
   await page.waitForURL('**/pessoas/4');
   assert.equal(personPosts, 1);
   assert.equal(photoPosts, 2);
+  assert.equal(events.length, 2);
+  assert.deepEqual(events[1].pessoas_ids, [4]);
+  assert.ok(events[1].descricao.includes('/pessoas/4'));
   await page.goto('http://127.0.0.1:4179/grafo?busca=Ana');
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.nodes(':selected').length === 1);
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').style('border-color')), 'rgb(17,34,51)');
@@ -134,10 +166,51 @@ try {
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Detalhes do vínculo' }).waitFor();
   assert.equal(await page.getByRole('dialog', { name: 'foto1.png', exact: true }).count(), 0);
+  const drawer = page.getByRole('dialog', { name: 'Detalhes do vínculo' });
+  await drawer.getByRole('button', { name: 'Editar', exact: true }).click();
+  await drawer.getByLabel('Criar evento na agenda (opcional)').check();
+  await drawer.getByLabel('Início', { exact: true }).fill('2026-10-22T10:00');
+  failEvent = true;
+  await drawer.getByRole('button', { name: 'Salvar relação' }).click();
+  await page.getByText(/Dados salvos, mas o evento não foi criado/).waitFor();
+  assert.equal(events.length, 2);
+  failEvent = false;
+  await drawer.getByRole('button', { name: 'Salvar relação' }).click();
+  await drawer.getByRole('button', { name: 'Editar', exact: true }).waitFor();
+  assert.equal(events.length, 3);
+  assert.deepEqual(events[2].pessoas_ids, [1, 2]);
   await page.keyboard.press('Escape');
   await page.getByRole('dialog', { name: 'Detalhes do vínculo' }).waitFor({ state: 'hidden' });
   await page.goto('http://127.0.0.1:4179/calendario');
   await page.getByRole('heading', { name: 'Calendário', exact: true }).waitFor();
+  await page.goto('http://127.0.0.1:4179/pessoas/1?aba=osint');
+  await page.getByLabel('Fonte de pesquisa').selectOption('DATAJUD');
+  assert.equal(await page.getByLabel('Tipo', { exact: true }).inputValue(), 'PROCESSO');
+  assert.equal(await page.getByLabel('Tipo', { exact: true }).locator('option').count(), 1);
+  await page.getByLabel('Valor pesquisado').fill('0000832-35.2018.4.01.3202');
+  await page.getByRole('button', { name: 'Adicionar parâmetro' }).click();
+  await page.getByText('0000832-35.2018.4.01.3202', { exact: true }).waitFor();
+  assert.equal(parameters[0].provider, 'DATAJUD');
+  assert.equal(parameters[0].tipo, 'PROCESSO');
+  await page.goto('http://127.0.0.1:4179/pessoas/1?aba=dossie');
+  await page.getByRole('heading', { name: 'Adicionar ao dossiê' }).waitFor();
+  await page.getByLabel('Criar evento na agenda (opcional)').check();
+  await page.locator('input[type=file]').setInputFiles({ name: 'novo.txt', mimeType: 'text/plain', buffer: Buffer.from('Arquivo de teste') });
+  await page.getByRole('button', { name: 'Reenviar falhas (1)' }).waitFor();
+  assert.equal(attachmentPosts, 0);
+  await page.getByLabel('Início', { exact: true }).fill('2026-10-23T10:00');
+  failEvent = true;
+  await page.getByRole('button', { name: 'Reenviar falhas (1)' }).click();
+  await page.getByRole('button', { name: 'Tentar criar evento dos arquivos salvos' }).waitFor();
+  assert.equal(attachmentPosts, 1);
+  assert.equal(events.length, 3);
+  failEvent = false;
+  await page.getByRole('button', { name: 'Tentar criar evento dos arquivos salvos' }).click();
+  await page.getByText('Evento vinculado aos arquivos criado', { exact: true }).waitFor();
+  assert.equal(attachmentPosts, 1);
+  assert.equal(events.length, 4);
+  assert.deepEqual(events[3].pessoas_ids, [1]);
+  assert.ok(events[3].descricao.includes('/api/dossie/anexos/11/stream'));
   await page.goto('http://127.0.0.1:4179/configuracoes');
   try {
     await page.getByRole('heading', { name: 'Configurações', exact: true }).waitFor({ timeout: 10_000 });
@@ -161,5 +234,5 @@ try {
   await page.getByText('Parâmetros psicossociais atualizados', { exact: true }).waitFor();
   assert.equal(hpConfig.fator_segundo_grau, 0.4);
   assert.deepEqual(errors, []);
-  console.log('PASS: rotas sob demanda, agrupamento, filtros após recarregar, galeria teclado/mouse, notas, Markdown, foto multipart, repetição sem duplicar pessoa, grafo, HP de 10% em 2/20 segmentos, preservação do mapa, redução de movimento, resumo psicossocial e configuração administrativa.');
+  console.log('PASS: rotas sob demanda, agrupamento, filtros após recarregar, galeria teclado/mouse, notas, Markdown, foto multipart, repetição sem duplicar pessoa, grafo, eventos opcionais em pessoas/vínculos/arquivos, repetição da agenda sem reenviar arquivos, DataJud, HP de 10% em 2/20 segmentos, preservação do mapa, redução de movimento, resumo psicossocial e configuração administrativa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

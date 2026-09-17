@@ -181,6 +181,7 @@ funcionalidade continuam usando SearXNG automaticamente.
 - **INLABS / DOU** — publicações recentes do Diário Oficial da União. Exige
   `INLABS_USERNAME` e `INLABS_PASSWORD`; `INLABS_LOOKBACK_DAYS` controla de 1 a 7
   dias consultados por varredura.
+- **DataJud / CNJ** — metadados de processos pela [API Pública do CNJ](https://datajud-wiki.cnj.jus.br/api-publica/). Selecione o tipo **Número do processo (CNJ)** e informe os 20 dígitos, com ou sem pontuação. O tribunal é identificado automaticamente. A API pública resguarda dados das partes; não há busca por nome ou CPF nesta fonte. A chave pública está incluída; `DATAJUD_API_KEY` permite substituí-la quando o CNJ fizer rotação.
 - **OpenAlex** — literatura e citações acadêmicas pela
   [API oficial](https://help.openalex.org/api/). `OPENALEX_API_KEY` é opcional e
   amplia os limites oferecidos pela plataforma.
@@ -254,3 +255,9 @@ cd frontend && npm run lint && npm run build
 ```
 
 Detalhes do processo de contribuição estão em [CONTRIBUTING.md](CONTRIBUTING.md).
+
+## Eventos relacionados a registros e arquivos
+
+Em cadastrar/editar pessoa, criar/editar vínculo e enviar arquivos ao dossiê, marque **Criar evento na agenda (opcional)** e informe o início. O título pode ser preenchido automaticamente; término e dia inteiro são opcionais. O evento é criado após salvar os dados e vincula as pessoas envolvidas, incluindo referências aos arquivos na descrição.
+
+Também é possível criar um evento em **Notas do arquivo**, na pré-visualização de anexos do dossiê, dos vínculos e das tarefas. Notas em edição são salvas antes do agendamento. As referências podem ser abertas no calendário em **Descrição e referências do evento**. Se a agenda falhar, os dados já salvos são mantidos e o formulário permite tentar novamente.

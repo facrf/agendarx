@@ -27,7 +27,9 @@ use crate::{
     },
 };
 
-const TIPOS_VALIDOS: [&str; 6] = ["NOME", "CPF", "CNPJ", "EMAIL", "TELEFONE", "TERMO"];
+const TIPOS_VALIDOS: [&str; 7] = [
+    "NOME", "CPF", "CNPJ", "EMAIL", "TELEFONE", "TERMO", "PROCESSO",
+];
 const MAX_PARAMETROS_ATIVOS: usize = 50;
 const ITENS_POR_PAGINA_VALIDOS: [i64; 4] = [0, 10, 50, 100];
 const USER_AGENT: &str = concat!(
@@ -699,6 +701,15 @@ fn normalizar_parametro(
         ));
     }
     let provider = SearchProvider::parse(&input.provider).map_err(AppError::BadRequest)?;
+    if provider == SearchProvider::Datajud {
+        if tipo != "PROCESSO" {
+            return Err(AppError::BadRequest(
+                "DataJud público exige o número do processo; não pesquisa nomes ou CPF das partes"
+                    .into(),
+            ));
+        }
+        providers::datajud_query(&valor).map_err(AppError::BadRequest)?;
+    }
     Ok((
         tipo,
         valor,
@@ -806,11 +817,67 @@ mod tests {
     }
 
     #[test]
+    fn datajud_requires_process_number() {
+        for (tipo, valor, valid) in [
+            ("PROCESSO", "0000832-35.2018.4.01.3202", true),
+            ("NOME", "Maria Silva", false),
+            ("PROCESSO", "123", false),
+        ] {
+            let input = serde_json::from_value(
+                serde_json::json!({"tipo":tipo,"valor":valor,"provider":"DATAJUD"}),
+            )
+            .unwrap();
+            assert_eq!(normalizar_parametro(input).is_ok(), valid);
+        }
+    }
+
+    #[test]
     fn provider_invalido_retorna_erro_sem_panic() {
         let input: ParametroBuscaInput =
             serde_json::from_str(r#"{"tipo":"TERMO","valor":"teste","provider":"URL_ARBITRARIA"}"#)
                 .unwrap();
         assert!(normalizar_parametro(input).is_err());
+    }
+
+    #[tokio::test]
+    async fn datajud_migration_preserves_existing_searches_and_history() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        for migration in [
+            include_str!("../../migrations/0001_schema_inicial.sql"),
+            include_str!("../../migrations/0003_busca_publica.sql"),
+            include_str!("../../migrations/0009_fontes_pesquisa_publica.sql"),
+        ] {
+            sqlx::raw_sql(migration).execute(&pool).await.unwrap();
+        }
+        sqlx::raw_sql("INSERT INTO pessoa (id, nome) VALUES (1, 'Teste'); INSERT INTO parametro_busca (id, pessoa_id, tipo, valor, provider) VALUES (7, 1, 'TERMO', 'legado', 'OPENALEX'); INSERT INTO historico_busca_publica (id, pessoa_id, fonte, parametro_utilizado, titulo_resultado, url_origem, provider, detalhes) VALUES (9, 1, 'OpenAlex', 'legado', 'Resultado', 'https://example.org', 'OPENALEX', 'Preservado');").execute(&pool).await.unwrap();
+        sqlx::raw_sql(include_str!("../../migrations/0016_datajud.sql"))
+            .execute(&pool)
+            .await
+            .unwrap();
+        let old: String = sqlx::query_scalar(
+            "SELECT detalhes FROM historico_busca_publica WHERE id = 9 AND provider = 'OPENALEX'",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(old, "Preservado");
+        let parameter: String =
+            sqlx::query_scalar("SELECT valor FROM parametro_busca WHERE id = 7")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(parameter, "legado");
+        sqlx::query("INSERT INTO parametro_busca (pessoa_id, tipo, valor, provider) VALUES (1, 'PROCESSO', '00008323520184013202', 'DATAJUD')").execute(&pool).await.unwrap();
+        sqlx::query("INSERT INTO historico_busca_publica (pessoa_id, fonte, parametro_utilizado, titulo_resultado, url_origem, provider) VALUES (1, 'CNJ', 'processo', 'Processo', 'https://example.org/datajud', 'DATAJUD')").execute(&pool).await.unwrap();
+        let violations = sqlx::query("PRAGMA foreign_key_check")
+            .fetch_all(&pool)
+            .await
+            .unwrap();
+        assert!(violations.is_empty());
     }
 
     #[tokio::test]
@@ -841,7 +908,7 @@ mod tests {
                 .unwrap();
         assert_eq!(default_provider, "SEARXNG");
 
-        for provider in ["SEARXNG", "QUERIDO_DIARIO", "INLABS", "OPENALEX"] {
+        for provider in ["SEARXNG", "QUERIDO_DIARIO", "INLABS", "OPENALEX", "DATAJUD"] {
             sqlx::query(
                 "INSERT INTO parametro_busca (pessoa_id, tipo, valor, provider) VALUES (?, 'TERMO', 'mesma consulta', ?)",
             )
@@ -857,7 +924,7 @@ mod tests {
         .fetch_one(&pool)
         .await
         .unwrap();
-        assert_eq!(saved, 4);
+        assert_eq!(saved, 5);
 
         sqlx::query(
             "UPDATE parametro_busca SET valor = 'consulta editada' WHERE provider = 'OPENALEX'",

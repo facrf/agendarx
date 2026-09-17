@@ -1,3 +1,5 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { MarkdownText } from "../components/MarkdownText";
 import {
   CalendarCheck,
   CalendarDays,
@@ -682,6 +684,7 @@ export function CalendarPage() {
           </div>
 
           <div>
+            {tarefaEditando?.descricao && <details className="mb-3 rounded-xl bg-slate-50 p-3"><summary className="cursor-pointer text-sm font-semibold">Descrição e referências do evento</summary><MarkdownText>{tarefaEditando.descricao}</MarkdownText></details>}
             <label className="field-label" htmlFor="tarefa-descricao">Descrição <span className="font-normal text-slate-400">(opcional)</span></label>
             <textarea id="tarefa-descricao" className="field min-h-24 resize-y" maxLength={5000} placeholder="Anotações, pauta ou contexto importante..." value={form.descricao} onChange={(event) => setForm({ ...form, descricao: event.target.value })} />
           </div>

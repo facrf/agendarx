@@ -500,7 +500,8 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
     let saved_notes = api
         .json(Method::GET, &notes_path, user, Value::Null, StatusCode::OK)
         .await;
-    assert_eq!(saved_notes, notes);
+    assert_eq!(saved_notes["notas"], notes["notas"]);
+    assert_eq!(saved_notes["pessoas_ids"], json!([id]));
     let searchable = api
         .json(
             Method::GET,
@@ -588,8 +589,8 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
             Value::Null,
             StatusCode::OK
         )
-        .await,
-        notes
+        .await["notas"],
+        notes["notas"]
     );
 
     let second_person: i64 =
@@ -626,8 +627,8 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
             Value::Null,
             StatusCode::OK
         )
-        .await,
-        notes
+        .await["notas"],
+        notes["notas"]
     );
     let download = api
         .client
