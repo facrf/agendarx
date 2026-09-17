@@ -284,6 +284,23 @@ button:not(:disabled),
     transition-duration: 0.01ms !important;
   }
 }
+
+/* The aura describes registered risk; vitality describes received exposure. */
+.risk-aura { position: relative; display: inline-flex; flex-shrink: 0; isolation: isolate; margin: 8px; }
+.risk-aura::before, .aura-sample::before { content: ""; position: absolute; inset: -7px; border: 3px solid var(--aura-color); border-radius: 50%; opacity: .5; pointer-events: none; box-shadow: 0 0 14px color-mix(in srgb, var(--aura-color) 25%, transparent); z-index: -1; }
+.risk-aura-square::before { border-radius: 1.5rem; }
+.risk-aura-pulse::before { animation: risk-aura-breathe 3.6s ease-in-out infinite; }
+.aura-sample { position: relative; display: inline-block; width: 12px; height: 12px; margin: 5px; isolation: isolate; }
+.aura-sample::before { inset: -4px; border-width: 2px; }
+@keyframes risk-aura-breathe { 0%, 100% { opacity: .35; transform: scale(1); } 50% { opacity: .6; transform: scale(1.035); } }
+.vitality-bar { width: 100%; }
+.vitality-segments { display: grid; grid-template-columns: repeat(20, minmax(0, 1fr)); gap: 3px; width: 100%; min-width: 0; }
+.vitality-segment { position: relative; display: block; height: 18px; overflow: hidden; border: 1px solid #f2c2c2; background: #f1f3f3; border-radius: 3px; }
+.vitality-segment > span { display: block; height: 100%; }
+.vitality-bar-compact .vitality-segments { gap: 1px; }
+.vitality-bar-compact .vitality-segment { height: 7px; border-radius: 1px; }
+.vitality-bar-compact strong { font-size: 10px; }
+@media (prefers-reduced-motion: reduce) { .risk-aura-pulse::before { animation: none; opacity: .5; } }
 /* Markdown descriptions and attachment notes. */
 .markdown-text { overflow-wrap: anywhere; }
 .markdown-text > * + * { margin-top: 1rem; }

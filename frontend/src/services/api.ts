@@ -35,8 +35,13 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, message);
   }
 
-  if (response.status === 204) return undefined as T;
-  return (await response.json()) as T;
+  const data = response.status === 204 ? undefined : await response.json();
+  if (options.method && !["GET", "HEAD"].includes(options.method)
+    && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
+    window.dispatchEvent(new Event("agendarx:psychosocial-updated"));
+    try { localStorage.setItem("agendarx:psychosocial-update", `${Date.now()}:${Math.random()}`); } catch { /* A atualização da aba atual permanece disponível. */ }
+  }
+  return data as T;
 }
 
 export function apiUrl(path: string): string {

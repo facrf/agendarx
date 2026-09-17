@@ -1,4 +1,6 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import { MarkdownText } from "../components/MarkdownText";
+import { PsychosocialStatus, PsychosocialSummary, RiskAura } from "../components/PsychosocialStatus";
 import {
   ArrowLeft,
   AlignLeft,
@@ -27,7 +29,6 @@ import { Avatar, Button, EmptyState, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type { PessoaDetalhe, TarefaCalendario, TipoMeioContato } from "../types/api";
-import { formatDate } from "../utils/format";
 
 export function PersonProfilePage() {
   const id = Number(useParams().id);
@@ -43,18 +44,26 @@ export function PersonProfilePage() {
   const { notify } = useToast();
 
   useEffect(() => {
+    let active = true;
+    let sequence = 0;
+    const refresh = () => { const current = ++sequence; void api.get<PessoaDetalhe>(`/api/pessoas/${id}`).then((value) => { if (active && current === sequence) setPessoa(value); }).catch((error) => { if (active) notify(errorMessage(error), "erro"); }); };
+    const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") refresh(); };
+    const visible = () => { if (!document.hidden) refresh(); };
+    window.addEventListener("agendarx:psychosocial-updated", refresh);
+    window.addEventListener("storage", storage);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", visible);
     Promise.all([
       api.get<PessoaDetalhe>(`/api/pessoas/${id}`),
       api.get<TipoMeioContato[]>("/api/configuracoes/tipos-contato"),
       api.get<TarefaCalendario[]>(`/api/calendario/pessoas/${id}/tarefas`),
     ])
       .then(([pessoaData, tiposData, tarefasData]) => {
-        setPessoa(pessoaData);
-        setTipos(tiposData);
-        setTarefas(tarefasData);
+        if (active) { if (sequence === 0) setPessoa(pessoaData); setTipos(tiposData); setTarefas(tarefasData); }
       })
       .catch((error) => notify(errorMessage(error), "erro"))
       .finally(() => setCarregando(false));
+    return () => { active = false; window.removeEventListener("agendarx:psychosocial-updated", refresh); window.removeEventListener("storage", storage); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible); };
   }, [id, notify]);
 
   const excluir = async () => {
@@ -77,16 +86,17 @@ export function PersonProfilePage() {
   return (
     <div style={{ "--person-color": cor } as CSSProperties}>
       <Link className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-teal-800" to="/pessoas"><ArrowLeft className="size-4" /> Voltar para pessoas</Link>
-      <section className="panel relative mb-6 overflow-hidden p-5 sm:p-7">
-        <div className="absolute inset-x-0 top-0 h-1.5 bg-[var(--person-color)]" />
+      <section className="panel relative mb-6 p-5 sm:p-7">
+        <div className="absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-[var(--person-color)]" />
         <div className="flex flex-col gap-5 sm:flex-row sm:items-center">
-          <Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} pessoaJuridica={pessoa.pessoa_juridica} cor={cor} size="xl" />
+          <RiskAura indicadores={pessoa.psicossocial} square={pessoa.pessoa_juridica}><Avatar pessoaId={pessoa.id} nome={pessoa.nome} temFoto={pessoa.tem_foto} pessoaJuridica={pessoa.pessoa_juridica} cor={cor} size="xl" /></RiskAura>
           <div className="min-w-0 flex-1">
             <div className="flex flex-wrap gap-2"><span className="chip"><span className="size-2 rounded-full bg-[var(--person-color)]" />{pessoa.nome_categoria || "Sem categoria"}</span>{pessoa.pessoa_juridica && <span className="chip bg-slate-50 font-semibold">Pessoa jurídica</span>}</div>
             <h1 className="mt-3 font-display text-3xl font-semibold tracking-tight sm:text-4xl" style={{ color: cor }}>{pessoa.nome}</h1>
-            <p className="mt-2 flex items-center gap-2 text-sm text-slate-400"><CalendarDays className="size-4" /> Cadastrado em {formatDate(pessoa.data_cadastro)}</p>
+            <PsychosocialStatus indicadores={pessoa.psicossocial} />
           </div>
           <div className="flex flex-wrap gap-2">
+            <Link className="btn btn-secondary" to={`/grafo?busca=${encodeURIComponent(pessoa.nome)}`}><GitFork className="size-4" /> Abrir no mapa</Link>
             <Link className="btn btn-secondary" to={`/pessoas/${id}/editar`}><Edit3 className="size-4" /> Editar</Link>
             <Button variant="danger" loading={excluindo} onClick={() => void excluir()}><Trash2 className="size-4" /> Excluir</Button>
           </div>
@@ -100,7 +110,7 @@ export function PersonProfilePage() {
         <button className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition sm:flex-none", aba === "osint" ? "bg-ink text-white" : "text-slate-500 hover:bg-slate-50")} onClick={() => setParams({ aba: "osint" })}><Radar className="size-4" /> Pesquisa pública</button>
       </div>
 
-      {aba === "tarefas" ? <TasksPanel tarefas={tarefas} /> : aba === "dossie" ? <section className="panel p-5 sm:p-7"><DossierPanel pessoaId={id} /></section> : aba === "osint" ? <section className="panel p-5 sm:p-7"><OSINTTab pessoaId={id} /></section> : (
+      {aba === "tarefas" ? <TasksPanel tarefas={tarefas} /> : aba === "dossie" ? <section className="panel p-5 sm:p-7"><PsychosocialSummary indicadores={pessoa.psicossocial} /><DossierPanel pessoaId={id} /></section> : aba === "osint" ? <section className="panel p-5 sm:p-7"><OSINTTab pessoaId={id} /></section> : (
         <div className="grid gap-5 xl:grid-cols-[1fr_20rem]">
           <section className="panel p-5 sm:p-7">
             <h2 className="font-display text-xl font-semibold">Meios de contato</h2>

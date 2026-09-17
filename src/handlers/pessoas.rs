@@ -53,7 +53,7 @@ async fn listar_pessoas(
         "''"
     };
     let sql = format!(
-        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
+        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
                 COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
                 {conteudo} AS conteudo_busca, \
@@ -100,14 +100,24 @@ async fn criar_pessoa(
         validar_contato(contato)?;
     }
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let risco = super::hp_psicossocial::validar_cadastro(
+        &mut tx,
+        0,
+        input.classificacao_risco.as_deref(),
+        input.toxicidade,
+    )
+    .await?
+    .unwrap_or_else(|| ("NAO_CLASSIFICADO".into(), 0.0));
     let pessoa_id: i64 = sqlx::query_scalar(
-        "INSERT INTO pessoa (nome, categoria_id, descricao, pessoa_juridica) VALUES (?, ?, ?, ?) RETURNING id",
+        "INSERT INTO pessoa (nome, categoria_id, descricao, pessoa_juridica, classificacao_risco, toxicidade) VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
     )
     .bind(input.nome.trim())
     .bind(input.categoria_id)
     .bind(normalizar_descricao(input.descricao))
     .bind(input.pessoa_juridica)
+    .bind(&risco.0)
+    .bind(risco.1)
     .fetch_one(&mut *tx)
     .await?;
 
@@ -144,13 +154,22 @@ async fn atualizar_pessoa(
             }
         }
     }
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let risco = super::hp_psicossocial::validar_cadastro(
+        &mut tx,
+        id,
+        input.classificacao_risco.as_deref(),
+        input.toxicidade,
+    )
+    .await?;
     let resultado =
-        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ? WHERE id = ?")
+        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ?, classificacao_risco = COALESCE(?, classificacao_risco), toxicidade = COALESCE(?, toxicidade) WHERE id = ? AND excluida_em IS NULL")
             .bind(input.nome.trim())
             .bind(input.categoria_id)
             .bind(normalizar_descricao(input.descricao))
             .bind(input.pessoa_juridica)
+            .bind(risco.as_ref().map(|r| &r.0))
+            .bind(risco.as_ref().map(|r| r.1))
             .bind(id)
             .execute(&mut *tx)
             .await?;
@@ -300,8 +319,9 @@ async fn buscar_pessoa_detalhe(
     id: i64,
     usuario_id: i64,
 ) -> Result<PessoaDetalhe, AppError> {
+    let mut tx = state.pool.begin().await?;
     let pessoa = sqlx::query_as::<_, PessoaResumo>(
-        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, \
+        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
                 COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
                 '' AS conteudo_busca, \
@@ -312,7 +332,7 @@ async fn buscar_pessoa_detalhe(
     )
     .bind(usuario_id)
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("pessoa"))?;
     let contatos = sqlx::query_as::<_, Contato>(
@@ -320,9 +340,18 @@ async fn buscar_pessoa_detalhe(
          WHERE pessoa_id = ? ORDER BY id",
     )
     .bind(id)
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
-    Ok(PessoaDetalhe { pessoa, contatos })
+    let (_, mut indicadores) = super::hp_psicossocial::calcular_snapshot(&mut tx).await?;
+    let psicossocial = indicadores
+        .remove(&id)
+        .ok_or_else(|| AppError::interno("perfil ausente do snapshot de HP"))?;
+    tx.commit().await?;
+    Ok(PessoaDetalhe {
+        pessoa,
+        contatos,
+        psicossocial,
+    })
 }
 
 async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {

@@ -354,19 +354,20 @@ async fn excluir_vinculo(
 }
 
 async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse>, AppError> {
+    let mut tx = state.pool.begin().await?;
     let node_rows = sqlx::query_as::<_, GrafoNodeLinha>(
         "SELECT p.id, p.nome AS label, COALESCE(c.cor_hex, '#86A6A3') AS color, \
                 CASE WHEN p.foto_principal IS NOT NULL \
                     THEN '/api/dossie/pessoas/' || p.id || '/foto' \
                     ELSE NULL \
                 END AS foto_url, \
-                c.nome_categoria AS categoria, p.pessoa_juridica, p.descricao \
+                c.nome_categoria AS categoria, p.pessoa_juridica, p.descricao, p.classificacao_risco, p.toxicidade \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
          WHERE p.excluida_em IS NULL \
          ORDER BY p.nome COLLATE NOCASE",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
     let contact_rows = sqlx::query_as::<_, GrafoContatoLinha>(
         "SELECT co.pessoa_id, t.nome_tipo AS tipo, co.valor \
@@ -374,7 +375,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
          JOIN tipo_meio_contato t ON t.id = co.tipo_contato_id \
          ORDER BY co.pessoa_id, co.id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
     let mut contacts_by_person = HashMap::<i64, Vec<GrafoContato>>::new();
     for contact in contact_rows {
@@ -386,27 +387,41 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
                 valor: contact.valor,
             });
     }
+    let (hp_configuracao, mut indicadores) =
+        super::hp_psicossocial::calcular_snapshot(&mut tx).await?;
     let nodes = node_rows
         .into_iter()
-        .map(|node| GrafoNode {
-            id: node.id,
-            label: node.label,
-            color: node.color,
-            foto_url: node.foto_url,
-            categoria: node.categoria,
-            pessoa_juridica: node.pessoa_juridica,
-            descricao: node.descricao,
-            contatos: contacts_by_person.remove(&node.id).unwrap_or_default(),
+        .map(|node| {
+            Ok(GrafoNode {
+                id: node.id,
+                label: node.label,
+                color: node.color,
+                foto_url: node.foto_url,
+                categoria: node.categoria,
+                pessoa_juridica: node.pessoa_juridica,
+                descricao: node.descricao,
+                contatos: contacts_by_person.remove(&node.id).unwrap_or_default(),
+                classificacao_risco: node.classificacao_risco,
+                toxicidade: node.toxicidade,
+                psicossocial: indicadores
+                    .remove(&node.id)
+                    .ok_or_else(|| AppError::interno("nó ausente do snapshot de HP"))?,
+            })
         })
-        .collect();
+        .collect::<Result<Vec<_>, AppError>>()?;
     let edges = sqlx::query_as::<_, GrafoEdge>(
         "SELECT id, pessoa_origem_id AS source, pessoa_destino_id AS target, \
                 tipo_vinculo AS label, descricao, data_criacao \
          FROM pessoa_vinculo WHERE pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
     )
-    .fetch_all(&state.pool)
+    .fetch_all(&mut *tx)
     .await?;
-    Ok(Json(GrafoResponse { nodes, edges }))
+    tx.commit().await?;
+    Ok(Json(GrafoResponse {
+        nodes,
+        edges,
+        hp_configuracao,
+    }))
 }
 
 #[derive(sqlx::FromRow)]
@@ -418,6 +433,8 @@ struct GrafoNodeLinha {
     categoria: Option<String>,
     pessoa_juridica: bool,
     descricao: Option<String>,
+    classificacao_risco: String,
+    toxicidade: f64,
 }
 
 #[derive(sqlx::FromRow)]

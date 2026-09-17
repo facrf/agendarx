@@ -3,6 +3,7 @@ pub mod backup;
 pub mod calendario;
 pub mod configuracoes;
 pub mod dossie;
+pub mod hp_psicossocial;
 pub mod identidade;
 pub mod intercambio;
 pub mod miniaturas;

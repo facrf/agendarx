@@ -1,3 +1,5 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { PsychosocialSettings } from "../components/PsychosocialSettings";
 import {
   Check,
   Edit3,
@@ -47,6 +49,7 @@ export function SettingsPage() {
     <div>
       <PageHeader eyebrow="Personalização" title="Configurações" description="Defina a identidade visual, organize categorias e transfira sua agenda." />
       <div className="grid gap-6 xl:grid-cols-2">
+        {admin && <PsychosocialSettings />}
         {admin && <BrandingManager />}
         <AdminCredentialsManager />
         <TaskNotificationManager />

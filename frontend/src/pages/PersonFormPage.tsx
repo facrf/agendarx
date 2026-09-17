@@ -1,3 +1,4 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import {
   ArrowLeft,
   Camera,
@@ -20,6 +21,8 @@ import type {
   PessoaDetalhe,
   TipoMeioContato,
   Etiqueta,
+  ClassificacaoRisco,
+  ConfigHpPsicossocial,
 } from "../types/api";
 import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { MarkdownText } from "../components/MarkdownText";
@@ -35,6 +38,10 @@ export function PersonFormPage() {
   const [descricao, setDescricao] = useState("");
   const [previewDescricao, setPreviewDescricao] = useState(false);
   const [pessoaJuridica, setPessoaJuridica] = useState(false);
+  const [classificacaoRisco, setClassificacaoRisco] = useState<ClassificacaoRisco>("NAO_CLASSIFICADO");
+  const [toxicidade, setToxicidade] = useState("");
+  const [hpConfig, setHpConfig] = useState<ConfigHpPsicossocial | null>(null);
+  const riscoAtivo = !["NAO_CLASSIFICADO", "SEM_RISCO"].includes(classificacaoRisco);
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
   const [contatos, setContatos] = useState<ContatoPayload[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
@@ -56,14 +63,17 @@ export function PersonFormPage() {
       api.get("/api/configuracoes/tipos-contato"),
       pessoaId ? api.get(`/api/pessoas/${pessoaId}`) : null,
     ];
-    Promise.all([requests[0], requests[1], requests[2]])
-      .then(([categoriasData, tiposData, pessoa]) => {
+    Promise.all([requests[0], requests[1], requests[2], api.get<ConfigHpPsicossocial>("/api/configuracoes/hp-psicossocial")])
+      .then(([categoriasData, tiposData, pessoa, configuracao]) => {
+        setHpConfig(configuracao);
         setCategorias(categoriasData);
         setTipos(tiposData);
         if (pessoa) {
           setNome(pessoa.nome);
           setDescricao(pessoa.descricao || "");
           setPessoaJuridica(pessoa.pessoa_juridica);
+          setClassificacaoRisco(pessoa.classificacao_risco);
+          setToxicidade(pessoa.toxicidade ? String(pessoa.toxicidade) : "");
           setCategoriaId(pessoa.categoria_id);
           setContatos(pessoa.contatos.map((contato) => ({ ...contato })));
           setTemFoto(pessoa.tem_foto);
@@ -128,6 +138,10 @@ export function PersonFormPage() {
   const salvar = async (event: FormEvent) => {
     event.preventDefault();
     if (!nome.trim()) return notify("Informe o nome da pessoa", "erro");
+    if (!hpConfig) return notify("Recarregue o formulário para obter os parâmetros de risco", "erro");
+    if (riscoAtivo && (!toxicidade || !Number.isFinite(Number(toxicidade)) || Number(toxicidade) < hpConfig.toxicidade_min || Number(toxicidade) > hpConfig.toxicidade_max)) {
+      return notify(`Informe T entre ${hpConfig.toxicidade_min} e ${hpConfig.toxicidade_max}`, "erro");
+    }
     if (contatos.some((contato) => !contato.tipo_contato_id || !contato.valor.trim())) {
       return notify("Preencha ou remova os meios de contato incompletos", "erro");
     }
@@ -143,6 +157,8 @@ export function PersonFormPage() {
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
           pessoa_juridica: pessoaJuridica,
+          classificacao_risco: classificacaoRisco,
+          toxicidade: riscoAtivo ? Number(toxicidade) : 0,
           contatos: contatos.map(({ tipo_contato_id, valor }) => ({ tipo_contato_id, valor: valor.trim() })),
         });
         destinoId = criada.id;
@@ -154,6 +170,8 @@ export function PersonFormPage() {
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
           pessoa_juridica: pessoaJuridica,
+          classificacao_risco: classificacaoRisco,
+          toxicidade: riscoAtivo ? Number(toxicidade) : 0,
           contatos: contatos.map(({ id, tipo_contato_id, valor }) => ({ id, tipo_contato_id, valor: valor.trim() })),
         });
         setContatos(atualizada.contatos.map((contato) => ({ ...contato })));
@@ -240,6 +258,14 @@ export function PersonFormPage() {
               </label>
               {temFoto && !foto && <button type="button" className="mt-2 w-full text-xs font-medium text-rose-600 hover:underline" onClick={() => setRemoverFoto((value) => !value)}>{removerFoto ? "Manter foto atual" : "Remover foto atual"}</button>}
             </div>
+          </div>
+        </section>
+
+        <section className="panel space-y-4 p-5 sm:p-7">
+          <div><h2 className="font-display text-xl font-semibold">Risco psicossocial</h2><p className="mt-1 text-sm text-slate-500">O peso cadastrado determina a aura e o impacto nas conexões. O HP recebido é calculado separadamente.</p></div>
+          <div className="grid gap-4 sm:grid-cols-2">
+            <div><label className="field-label" htmlFor="classificacao-risco">Classificação de risco</label><select id="classificacao-risco" className="field" value={classificacaoRisco} onChange={(event) => { setClassificacaoRisco(event.target.value as ClassificacaoRisco); if (["NAO_CLASSIFICADO", "SEM_RISCO"].includes(event.target.value)) setToxicidade(""); }}><option value="NAO_CLASSIFICADO">Não classificado</option><option value="SEM_RISCO">Sem risco cadastrado</option><option value="MANIPULATIVO">Traços manipulativos</option><option value="PATOLOGICO">Traços patológicos</option><option value="MISTO">Traços mistos</option></select></div>
+            <div><label className="field-label" htmlFor="toxicidade">Peso de toxicidade T</label><input id="toxicidade" className="field" type="number" step="0.01" min={hpConfig?.toxicidade_min} max={hpConfig?.toxicidade_max} required={riscoAtivo} disabled={!riscoAtivo || !hpConfig} value={riscoAtivo ? toxicidade : "0"} onChange={(event) => setToxicidade(event.target.value)} /><p className="mt-1 text-xs text-slate-500">{riscoAtivo ? `Limites: ${hpConfig?.toxicidade_min ?? "…"} a ${hpConfig?.toxicidade_max ?? "…"}. Equivale a ${((Number(toxicidade) || 0) * 100).toLocaleString("pt-BR")}% antes do peso do vínculo.` : "Sem classificação de risco ativo: T = 0."}</p></div>
           </div>
         </section>
 

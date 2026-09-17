@@ -41,6 +41,9 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
   arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
+- HP psicossocial cumulativo com impacto de 2º grau, aura independente de risco,
+  barras segmentadas, composição dos descontos e parâmetros administráveis.
+  Regras e uso em [HP psicossocial](docs/HP_PSICOSSOCIAL.md).
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
 - Backup completo com horário e retenções diária, semanal e mensal configuráveis,
   prévia de restauração, verificação SHA-256 e exportação ZIP protegida com AES-256.

@@ -1,3 +1,5 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { ImpactDetails, PsychosocialLegend, PsychosocialStatus } from "../components/PsychosocialStatus";
 import {
   Edit3,
   FileDown,
@@ -16,7 +18,7 @@ import {
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import type { FormEvent } from "react";
-import { useNavigate, useSearchParams } from "react-router-dom";
+import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { GraphViewer } from "../components/GraphViewer";
 import type { GraphLayout, GraphViewerHandle } from "../components/GraphViewer";
 import { RelationshipDrawer } from "../components/RelationshipDrawer";
@@ -71,6 +73,8 @@ export function GraphPage() {
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [refreshFailed, setRefreshFailed] = useState(false);
+  const loadSequence = useRef(0);
   const [selectedEdge, setSelectedEdge] = useState<GrafoEdge | null>(null);
   const [relationshipAttachments, setRelationshipAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingRelationshipFiles, setPendingRelationshipFiles] = useState<File[]>([]);
@@ -95,22 +99,43 @@ export function GraphPage() {
   }, [layout, notify]);
 
   const loadGraphData = useCallback(async () => {
+    const sequence = ++loadSequence.current;
     const [graphData, peopleData, categoryData, relationshipData] = await Promise.all([
       api.get<GrafoResponse>("/api/vinculos/grafo"),
       api.get<PessoaResumo[]>("/api/pessoas"),
       api.get<Categoria[]>("/api/configuracoes/categorias"),
       api.get<PessoaVinculo[]>("/api/vinculos"),
     ]);
+    if (sequence !== loadSequence.current) return;
     setGraph(graphData);
     setPeople(peopleData);
     setCategories(categoryData);
     setRelationships(relationshipData);
+    setRefreshFailed(false);
   }, []);
 
   useEffect(() => {
     loadGraphData()
       .catch((error) => notify(errorMessage(error), "erro"))
       .finally(() => setLoading(false));
+  }, [loadGraphData, notify]);
+
+  useEffect(() => {
+    const refresh = () => { void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); }); };
+    const invalidate = () => { loadSequence.current += 1; };
+    const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") refresh(); };
+    const visibility = () => { if (!document.hidden) refresh(); };
+    window.addEventListener("agendarx:psychosocial-updated", refresh);
+    window.addEventListener("storage", storage);
+    window.addEventListener("focus", refresh);
+    document.addEventListener("visibilitychange", visibility);
+    return () => {
+      invalidate();
+      window.removeEventListener("agendarx:psychosocial-updated", refresh);
+      window.removeEventListener("storage", storage);
+      window.removeEventListener("focus", refresh);
+      document.removeEventListener("visibilitychange", visibility);
+    };
   }, [loadGraphData, notify]);
 
   useEffect(() => {
@@ -181,6 +206,7 @@ export function GraphPage() {
       } else {
         saved = await api.post<PessoaVinculo>("/api/vinculos", payload);
       }
+      await loadGraphData();
       const uploads = await Promise.allSettled(
         pendingRelationshipFiles.map((file) => {
           const data = new FormData();
@@ -276,6 +302,10 @@ export function GraphPage() {
     (nodeId: number) => navigate(`/pessoas/${nodeId}`),
     [navigate],
   );
+  const selectPerson = useCallback((nodeId: number) => {
+    const node = graph.nodes.find((item) => item.id === nodeId);
+    if (node) { setSearch(node.label); setDepth(2); }
+  }, [graph.nodes]);
 
   if (loading) return <Spinner label="Desenhando sua rede" />;
 
@@ -287,8 +317,16 @@ export function GraphPage() {
         description="Alterne entre uma rede orgânica e um diagrama hierárquico, investigue conexões e reposicione pessoas livremente."
       />
 
-      <div className="grid gap-5 2xl:grid-cols-[23rem_1fr]">
+      {refreshFailed && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status"><span>Não foi possível atualizar HP e auras. Os últimos valores continuam visíveis.</span><Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => notify(errorMessage(error), "erro"))}>Tentar atualizar grafo</Button></div>}
+
+      <div className="grid gap-5 xl:grid-cols-[20rem_minmax(0,1fr)]">
         <aside className="space-y-5">
+          {focusedNode && <section className="panel space-y-3 p-5" aria-label="Perfil selecionado">
+            <div><p className="eyebrow">Perfil selecionado</p><h2 className="font-display text-xl font-semibold">{focusedNode.label}</h2></div>
+            <PsychosocialStatus indicadores={focusedNode} />
+            <details><summary className="cursor-pointer text-sm font-semibold text-teal-800">Fontes e composição do impacto</summary><div className="mt-3"><ImpactDetails indicadores={focusedNode} /></div></details>
+            <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link>
+          </section>}
           <RelationshipForm
             people={people}
             form={form}
@@ -338,6 +376,8 @@ export function GraphPage() {
         <section className="panel overflow-hidden">
           <GraphToolbar
             graph={graph}
+            nodeCount={visibleGraph.nodes.length}
+            edgeCount={visibleGraph.edges.length}
             categories={categories}
             search={search}
             category={category}
@@ -364,6 +404,7 @@ export function GraphPage() {
             <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); }}>Limpar filtros</button>
           </div>
           <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 pb-3 text-xs"><strong>Legenda:</strong>{categories.map((item) => <span key={item.id} className="inline-flex items-center gap-1"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} />{item.nome_categoria}</span>)}<span className="inline-flex items-center gap-1"><span className="size-3 rounded-full bg-[#86A6A3]" />Sem categoria</span></div>
+          {graph.hp_configuracao && <PsychosocialLegend config={graph.hp_configuracao} />}
 
           <div className="relative min-h-[42rem] bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]">
             {visibleGraph.nodes.length === 0 ? (
@@ -386,6 +427,7 @@ export function GraphPage() {
                 focusedNodeId={focusedNode?.id ?? null}
                 onEdgeClick={openEdge}
                 onNodeDoubleClick={openPerson}
+                onNodeSelect={selectPerson}
                 positions={positions}
                 onPositionsChange={savePositions}
               />
@@ -484,6 +526,8 @@ function RelationshipForm({ people, form, editing, saving, loadingAttachments, a
 
 interface GraphToolbarProps {
   graph: GrafoResponse;
+  nodeCount: number;
+  edgeCount: number;
   categories: Categoria[];
   search: string;
   category: string;
@@ -506,11 +550,11 @@ interface GraphToolbarProps {
   canGeneratePdf: boolean;
 }
 
-function GraphToolbar({ graph, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
+function GraphToolbar({ graph, nodeCount, edgeCount, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
   return (
     <div className="space-y-3 border-b border-slate-100 p-4">
-      <div className="grid gap-3 lg:grid-cols-[minmax(15rem,1fr)_13rem_11rem_auto_auto]">
-        <label className="relative">
+      <div className="grid gap-3 sm:grid-cols-2">
+        <label className="relative sm:col-span-2">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input className="field pl-9" list="graph-people" placeholder="Buscar e focar uma pessoa..." value={search} onChange={(event) => onSearch(event.target.value)} />
           <datalist id="graph-people">{graph.nodes.map((node) => <option key={node.id} value={node.label} />)}</datalist>
@@ -531,7 +575,7 @@ function GraphToolbar({ graph, categories, search, category, depth, layout, rela
         <label className="flex items-center gap-2 text-xs text-slate-500">Até <input className="field" type="date" value={dateTo} onChange={(event) => onDateTo(event.target.value)} /></label>
       </div>
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
-        <span>{graph.nodes.length} pessoas · {graph.edges.length} vínculos</span>
+        <span>{nodeCount} pessoas · {edgeCount} vínculos visíveis</span>
         {focusedNode && <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 font-medium text-teal-800"><span className="size-2 rounded-full" style={{ backgroundColor: focusedNode.color }} /> Foco: {focusedNode.label} · até {depth}º grau <button type="button" onClick={() => onSearch("")} aria-label="Limpar foco"><X className="size-3" /></button></span>}
       </div>
     </div>
@@ -580,6 +624,7 @@ function GraphPrintReport({ graph, image, category, focusedNode, depth, layout }
               <small>{node.categoria || "Sem categoria"}</small>
             </div>
             <p><strong>Descrição:</strong> {node.descricao || "Não informada."}</p>
+            <p><strong>Vitalidade psicossocial:</strong> {node.hp_percentual.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}% · <strong>Aura de risco cadastrado:</strong> {node.aura_nome} · impacto direto {(node.penalidade_direta * 100).toLocaleString("pt-BR")}% · residual {(node.penalidade_residual * 100).toLocaleString("pt-BR")}%.</p>
             <p><strong>Meios de contato:</strong> {node.contatos.length > 0 ? node.contatos.map((contact) => `${contact.tipo}: ${contact.valor}`).join(" · ") : "Nenhum cadastrado."}</p>
           </article>
         ))}

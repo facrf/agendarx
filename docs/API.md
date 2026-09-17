@@ -61,6 +61,7 @@ e persistência de mídia privada no cache do navegador.
 | Configurações | `GET, PUT, DELETE /api/configuracoes/categorias/{id}` | CRUD de categoria |
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/tipos-contato/{id}` | CRUD de tipo |
+| Configurações | `GET, PUT /api/configuracoes/hp-psicossocial` | Consultar parâmetros de HP/auras; edição completa com versão esperada, somente admin |
 | Identidade | `GET /api/identidade/icone` | Ícone público usado pela interface e favicon |
 | Identidade | `GET /api/configuracoes/identidade` | Estado da identidade visual |
 | Identidade | `PUT, DELETE /api/configuracoes/icone` | Trocar/restaurar ícone em bytes brutos |
@@ -109,6 +110,23 @@ e persistência de mídia privada no cache do navegador.
 | OSINT | `DELETE /api/osint/historico/item/{id}` | Remover um achado da linha do tempo; o PDF do dossiê é preservado |
 
 ## Exemplos
+
+### HP psicossocial e auras
+
+Criação/edição de pessoa aceita `classificacao_risco` e `toxicidade`, enviados juntos.
+As classificações `NAO_CLASSIFICADO`/`SEM_RISCO` exigem T = 0; classes de risco
+`MANIPULATIVO`/`PATOLOGICO`/`MISTO` usam limites administráveis (default 0.10–0.50).
+Omitir os campos na edição preserva o risco atual.
+
+`GET /api/pessoas/{id}` inclui `psicossocial`; `GET /api/vinculos/grafo` inclui os
+mesmos indicadores em cada nó e `hp_configuracao` no envelope. A aura usa T próprio;
+HP e cor de vitalidade usam exposições recebidas. `contribuicoes` explica cada
+desconto com fonte, vínculo, intermediário, T, peso, grau e penalidade.
+
+`PUT /api/configuracoes/hp-psicossocial` recebe todos os parâmetros e
+`versao_esperada`. Usuário comum recebe 403; versão divergente ou limites de T
+incompatíveis com perfis existentes recebem 409 sem mudança parcial.
+Detalhes, campos e defaults: [HP psicossocial](HP_PSICOSSOCIAL.md).
 
 ### Login
 

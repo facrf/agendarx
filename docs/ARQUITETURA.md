@@ -140,8 +140,17 @@ no arquivo carregado antes de considerar o serviço pronto.
 
 ## Grafo de vínculos
 
+O domínio `src/domain/hp_psicossocial.rs` calcula HP cumulativo e residual de 2º
+grau desde o HP base. A aura representa toxicidade própria, independentemente da
+vitalidade recebida. Perfil e grafo usam a mesma função em snapshots SQLite
+consistentes. Configuração administrativa e risco são validados em transações
+`BEGIN IMMEDIATE`; a migração 17 persiste os parâmetros e os campos do cadastro.
+O Cytoscape atualiza os dados em lote e preserva posições, zoom e seleção quando
+a topologia permanece igual. Consulte [HP psicossocial](HP_PSICOSSOCIAL.md).
+
 `PessoaVinculo` representa arestas direcionadas entre pessoas. O endpoint de grafo
 combina pessoas, categorias e vínculos em nós e arestas. O Cytoscape.js executa os
-layouts e filtros no navegador; nenhuma posição visual é persistida. O clique em
+layouts e filtros no navegador; posições reorganizadas pelo usuário são salvas
+por layout. O clique em
 uma aresta abre um drawer que atualiza a própria relação e gerencia anexos por meio
 dos mesmos endpoints REST usados pelo formulário de criação.

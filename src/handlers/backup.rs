@@ -33,7 +33,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOp
 
 use crate::{AppState, error::AppError, middleware::auth::SessaoAutenticada};
 
-const SCHEMA_ATUAL: i64 = 15;
+const SCHEMA_ATUAL: i64 = 17;
 const FORMATO_BACKUP: u32 = 1;
 const EXPIRACAO_RESTORE_MINUTOS: i64 = 30;
 
@@ -1413,10 +1413,21 @@ mod tests {
             config,
             backup_runtime: BackupRuntime::default(),
         };
-        sqlx::query("INSERT INTO pessoa (nome) VALUES ('Antes')")
+        sqlx::query("INSERT INTO pessoa (nome, classificacao_risco, toxicidade) VALUES ('Antes', 'MANIPULATIVO', 0.3)")
             .execute(&pool)
             .await
             .unwrap();
+        let parametros_hp = crate::domain::hp_psicossocial::ParametrosHp {
+            fator_segundo_grau: 0.4,
+            ..Default::default()
+        };
+        sqlx::query(
+            "UPDATE hp_psicossocial_configuracao SET versao = 2, parametros_json = ? WHERE id = 1",
+        )
+        .bind(serde_json::to_string(&parametros_hp).unwrap())
+        .execute(&pool)
+        .await
+        .unwrap();
         let backup = super::criar_snapshot(&state, false).await.unwrap();
         let path = super::diretorio_backup(&state)
             .unwrap()
@@ -1452,7 +1463,11 @@ mod tests {
         assert_eq!(extraido_validacao.pessoas, 1);
         assert_eq!(extraido_manifesto.unwrap().formato, FORMATO_BACKUP);
         assert_eq!(extraido_hash, backup.sha256);
-        sqlx::query("UPDATE pessoa SET nome = 'Depois'")
+        sqlx::query("UPDATE pessoa SET nome = 'Depois', toxicidade = 0.1")
+            .execute(&pool)
+            .await
+            .unwrap();
+        sqlx::query("UPDATE hp_psicossocial_configuracao SET versao = 99 WHERE id = 1")
             .execute(&pool)
             .await
             .unwrap();
@@ -1462,6 +1477,23 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(nome, "Antes");
+        let risco: (String, f64) =
+            sqlx::query_as("SELECT classificacao_risco, toxicidade FROM pessoa")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(risco, ("MANIPULATIVO".into(), 0.3));
+        let hp: (i64, String) = sqlx::query_as(
+            "SELECT versao, parametros_json FROM hp_psicossocial_configuracao WHERE id = 1",
+        )
+        .fetch_one(&pool)
+        .await
+        .unwrap();
+        assert_eq!(hp.0, 2);
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&hp.1).unwrap()["fator_segundo_grau"],
+            0.4
+        );
         pool.close().await;
         let _ = std::fs::remove_file(format!(".cache/backup-test-{id}.db"));
         let _ = std::fs::remove_file(path);

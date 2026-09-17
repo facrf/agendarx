@@ -177,6 +177,8 @@ pub struct PessoaInput {
     pub pessoa_juridica: bool,
     #[serde(default)]
     pub contatos: Vec<ContatoInput>,
+    pub classificacao_risco: Option<String>,
+    pub toxicidade: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -187,6 +189,8 @@ pub struct PessoaUpdateInput {
     #[serde(default)]
     pub pessoa_juridica: bool,
     pub contatos: Option<Vec<ContatoEdicaoInput>>,
+    pub classificacao_risco: Option<String>,
+    pub toxicidade: Option<f64>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -217,6 +221,8 @@ pub struct PessoaResumo {
     #[serde(skip_serializing)]
     pub conteudo_busca: String,
     pub favorito: bool,
+    pub classificacao_risco: String,
+    pub toxicidade: f64,
 }
 
 #[derive(Debug, Serialize)]
@@ -224,6 +230,7 @@ pub struct PessoaDetalhe {
     #[serde(flatten)]
     pub pessoa: PessoaResumo,
     pub contatos: Vec<Contato>,
+    pub psicossocial: crate::domain::hp_psicossocial::IndicadoresPsicossociais,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]
@@ -283,6 +290,7 @@ pub struct ImportacaoContatosResponse {
 pub struct GrafoResponse {
     pub nodes: Vec<GrafoNode>,
     pub edges: Vec<GrafoEdge>,
+    pub hp_configuracao: crate::domain::hp_psicossocial::ConfigHpPsicossocial,
 }
 
 #[derive(Debug, Serialize)]
@@ -295,6 +303,10 @@ pub struct GrafoNode {
     pub pessoa_juridica: bool,
     pub descricao: Option<String>,
     pub contatos: Vec<GrafoContato>,
+    pub classificacao_risco: String,
+    pub toxicidade: f64,
+    #[serde(flatten)]
+    pub psicossocial: crate::domain::hp_psicossocial::IndicadoresPsicossociais,
 }
 
 #[derive(Debug, Clone, Serialize)]

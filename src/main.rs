@@ -1,7 +1,10 @@
 mod config;
 mod db;
+mod domain;
 mod error;
 mod handlers;
+#[cfg(test)]
+mod hp_integration_tests;
 #[cfg(test)]
 mod integration_tests;
 mod middleware;

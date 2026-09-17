@@ -18,6 +18,11 @@ use crate::{
 
 pub fn rotas() -> Router<AppState> {
     Router::new()
+        .route(
+            "/hp-psicossocial",
+            get(super::hp_psicossocial::obter_configuracao)
+                .put(super::hp_psicossocial::atualizar_configuracao),
+        )
         .route("/categorias", get(listar_categorias).post(criar_categoria))
         .route(
             "/categorias/{id}",

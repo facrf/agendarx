@@ -3,10 +3,10 @@ use serde_json::{Value, json};
 
 use crate::{AppState, config::Config, construir_app, db, handlers::backup::BackupRuntime};
 
-struct TestApi {
-    client: Client,
-    base: String,
-    task: tokio::task::JoinHandle<()>,
+pub(crate) struct TestApi {
+    pub(crate) client: Client,
+    pub(crate) base: String,
+    pub(crate) task: tokio::task::JoinHandle<()>,
 }
 
 impl Drop for TestApi {
@@ -16,7 +16,7 @@ impl Drop for TestApi {
 }
 
 impl TestApi {
-    async fn json(
+    pub(crate) async fn json(
         &self,
         method: Method,
         path: &str,

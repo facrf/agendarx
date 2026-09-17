@@ -55,10 +55,13 @@ export interface PessoaResumo {
   data_cadastro: string;
   etiquetas: string;
   favorito: boolean;
+  classificacao_risco: ClassificacaoRisco;
+  toxicidade: number;
 }
 
 export interface PessoaDetalhe extends PessoaResumo {
   contatos: Contato[];
+  psicossocial: IndicadoresPsicossociais;
 }
 
 export interface PessoaPayload {
@@ -67,6 +70,8 @@ export interface PessoaPayload {
   descricao: string | null;
   pessoa_juridica: boolean;
   contatos?: ContatoPayload[];
+  classificacao_risco?: ClassificacaoRisco;
+  toxicidade?: number;
 }
 
 export interface AnexoDossie {
@@ -109,7 +114,7 @@ export interface VinculoPayload {
   descricao: string | null;
 }
 
-export interface GrafoNode {
+export interface GrafoNode extends IndicadoresPsicossociais {
   id: number;
   label: string;
   color: string;
@@ -118,6 +123,8 @@ export interface GrafoNode {
   pessoa_juridica: boolean;
   descricao: string | null;
   contatos: GrafoContato[];
+  classificacao_risco: ClassificacaoRisco;
+  toxicidade: number;
 }
 
 export interface GrafoContato {
@@ -183,6 +190,60 @@ export interface RestauracaoPrevia {
 export interface GrafoResponse {
   nodes: GrafoNode[];
   edges: GrafoEdge[];
+  hp_configuracao?: ConfigHpPsicossocial;
+}
+
+export type ClassificacaoRisco = "NAO_CLASSIFICADO" | "SEM_RISCO" | "MANIPULATIVO" | "PATOLOGICO" | "MISTO";
+
+export interface FaixaIndicador {
+  min: number;
+  nome: string;
+  cor_hex: string;
+  pulsante: boolean;
+}
+
+export interface ConfigHpPsicossocial {
+  versao: number;
+  ativo: boolean;
+  toxicidade_min: number;
+  toxicidade_max: number;
+  hp_base: number;
+  hp_min: number;
+  fator_segundo_grau: number;
+  pesos_vinculo: Record<string, number>;
+  peso_padrao: number;
+  faixas_aura: FaixaIndicador[];
+  faixas_vitalidade: FaixaIndicador[];
+}
+
+export interface ContribuicaoHp {
+  fonte_id: number;
+  fonte_nome: string;
+  alvo_direto_id: number;
+  alvo_direto_nome: string;
+  vinculo_id: number;
+  tipo_vinculo: string;
+  toxicidade_fonte: number;
+  peso: number;
+  grau: 1 | 2;
+  penalidade: number;
+}
+
+export interface IndicadoresPsicossociais {
+  hp: number;
+  hp_percentual: number;
+  hp_base: number;
+  hp_min: number;
+  penalidade_direta: number;
+  penalidade_residual: number;
+  aura_nome: string;
+  aura_cor_hex: string;
+  aura_pulsante: boolean;
+  vitalidade_nome: string;
+  vitalidade_cor_hex: string;
+  calculo_ativo: boolean;
+  configuracao_versao: number;
+  contribuicoes: ContribuicaoHp[];
 }
 
 export interface IdentidadeVisual {
