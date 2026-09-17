@@ -855,14 +855,13 @@ fn preparar_arquivo(
     let lidos = arquivo.read(&mut assinatura)?;
     drop(arquivo);
     let mut manifesto: Option<BackupManifesto> = None;
-    let criptografado;
-    if lidos == assinatura.len() && &assinatura == b"SQLite format 3\0" {
+    let criptografado = if lidos == assinatura.len() && &assinatura == b"SQLite format 3\0" {
         if std::fs::metadata(origem)?.len() > max_bytes as u64 {
             return Err(AppError::PayloadTooLarge);
         }
         std::fs::copy(origem, destino)?;
         restringir_permissoes(destino)?;
-        criptografado = false;
+        false
     } else {
         let arquivo = File::open(origem)?;
         let mut zip = ZipArchive::new(arquivo).map_err(|_| {
@@ -911,8 +910,8 @@ fn preparar_arquivo(
                     .map_err(|_| AppError::BadRequest("manifesto do backup inválido".into()))?,
             );
         }
-        criptografado = zip_criptografado;
-    }
+        zip_criptografado
+    };
 
     let hash = hash_arquivo(destino)?;
     if let Some(item) = &manifesto {

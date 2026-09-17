@@ -38,7 +38,9 @@ frontend compilado, `.env.example`, README e o exemplo do Portainer.
 
 ## Criando uma versão
 
-1. Atualize `version` no `Cargo.toml`.
+1. Atualize a versão em `Cargo.toml`, `Cargo.lock`, `frontend/package.json` e
+   `frontend/package-lock.json`, além das referências de imagem no README, na
+   documentação e nos exemplos de implantação.
 2. Registre as mudanças no `CHANGELOG.md`.
 3. Faça merge e confirme que o workflow `CI` passou.
 4. Confirme que o remoto `github` aponta para `https://github.com/facrf/agendarx.git`.
@@ -48,8 +50,8 @@ frontend compilado, `.env.example`, README e o exemplo do Portainer.
 git remote get-url github
 # https://github.com/facrf/agendarx.git
 git push github main
-git tag -a v0.6.4 -m "AgendarX v0.6.4"
-git push github v0.6.4
+git tag -a v0.6.5 -m "AgendarX v0.6.5"
+git push github v0.6.5
 ```
 
 Não use `git push origin` nesse fluxo: neste projeto `origin` é o espelho Gitea.
@@ -60,7 +62,7 @@ Só considere a imagem pronta quando o job **Imagem Docker multi-arquitetura**
 terminar com sucesso e a tag aparecer em
 [Packages > agendarx](https://github.com/facrf/agendarx/pkgs/container/agendarx).
 O workflow cria a Release com notas automáticas, pacotes e arquivos `.sha256` e
-publica no GHCR as tags `0.6.4`, `0.6`, `0` e `latest`. O envio da tag não espera
+publica no GHCR as tags `0.6.5`, `0.6`, `0` e `latest`. O envio da tag não espera
 o build: o GitHub continua a compilação e você pode fechar o terminal.
 
 Na primeira publicação, o GitHub pode criar o pacote GHCR como privado. Para
@@ -72,8 +74,8 @@ Change visibility**, escolha **Public** e confirme. Essa mudança é permanente.
 Use a imagem publicada pelo projeto no GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.4
-docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.4
+docker pull ghcr.io/facrf/agendarx:0.6.5
+docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.5
 ```
 
 O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
@@ -81,9 +83,9 @@ O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
 ## Usando um pacote binário
 
 ```bash
-sha256sum -c agendarx-0.6.4-linux-riscv64.tar.gz.sha256
-tar -xzf agendarx-0.6.4-linux-riscv64.tar.gz
-cd agendarx-0.6.4-linux-riscv64
+sha256sum -c agendarx-0.6.5-linux-riscv64.tar.gz.sha256
+tar -xzf agendarx-0.6.5-linux-riscv64.tar.gz
+cd agendarx-0.6.5-linux-riscv64
 cp .env.example .env
 ./agendarx
 ```

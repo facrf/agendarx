@@ -3,6 +3,36 @@
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 
+## [0.6.5] - 2026-09-17
+
+### Adicionado
+
+- HP psicossocial calculado em Rust a partir dos vínculos, com penalidades
+  cumulativas, propagação residual de segundo grau e limite mínimo de segurança.
+- Classificação de risco no cadastro e parâmetros de toxicidade, pesos dos
+  vínculos, propagação, HP mínimo e cores configuráveis pelo administrador.
+- Auras de risco, barra segmentada de vitalidade, métricas e contribuições no
+  dossiê, com legenda no grafo e respeito à preferência por movimento reduzido.
+- Especificação do cálculo e dois mockups do perfil e do grafo em
+  `docs/HP_PSICOSSOCIAL.md` e `docs/mockups/`.
+- Pesquisa de processos públicos no DataJud por número CNJ, com configuração
+  opcional de `DATAJUD_API_KEY`.
+- Criação opcional de eventos na agenda ao cadastrar pessoas, vínculos, arquivos
+  e notas, preservando o contexto e permitindo novas tentativas seguras.
+
+### Alterado
+
+- Atualizações dos indicadores preservam o enquadramento do grafo.
+- Backup e restauração incluem os dados e parâmetros psicossociais; as migrações
+  são aplicadas automaticamente até a versão de esquema 17.
+- Publicação no GitHub busca as tags antes de gerar as notas da Release.
+- Exemplos de implantação e Portainer usam `ghcr.io/facrf/agendarx:0.6.5`.
+
+### Corrigido
+
+- Inicialização da identificação de backups criptografados compatível com a
+  verificação do Clippy no Rust estável usado pela CI.
+
 ## [0.6.4] - 2026-09-15
 
 ### Adicionado
@@ -233,6 +263,7 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.5]: https://github.com/facrf/agendarx/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/facrf/agendarx/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/facrf/agendarx/compare/v0.6.2...v0.6.3
 [0.6.2]: https://github.com/facrf/agendarx/compare/v0.6.1...v0.6.2

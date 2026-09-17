@@ -1,6 +1,6 @@
 # HP psicossocial, auras e visualização de impactos
 
-Status: implementado. O HP é uma simulação configurável de exposição na rede;
+Status: implementado na versão 0.6.5. O HP é uma simulação configurável de exposição na rede;
 classificações e pesos são informados no cadastro, sem inferência automática.
 
 ## Indicadores independentes
