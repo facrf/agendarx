@@ -73,7 +73,7 @@ export function AttachmentPreviewModal({ attachment, attachments = [], onClose }
       open={Boolean(attachment)}
       onClose={close}
       title={active?.nome_arquivo || "Pré-visualização"}
-      className="h-[calc(100dvh-1rem)] max-w-6xl sm:h-[calc(100dvh-2rem)]"
+      className="h-[min(85dvh,56rem)] max-w-6xl"
       bodyClassName="flex min-h-0 flex-1 flex-col overflow-hidden"
     >
       {active && (

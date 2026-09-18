@@ -7,7 +7,7 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
-Versão atual: **v0.6.5a**. [Mudanças](CHANGELOG.md) · [Capturas da interface](docs/screenshots/README.md).
+Versão atual: **v0.6.5b**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
 
 ## Funcionalidades
 
@@ -26,10 +26,12 @@ Versão atual: **v0.6.5a**. [Mudanças](CHANGELOG.md) · [Capturas da interface]
 - Upload múltiplo de imagens, vídeos, áudio, PDFs, textos e outros anexos, com
   miniaturas, pré-visualização, renomeação e download no dossiê.
 - Streaming de mídia com suporte a HTTP Range.
-- Grafo interativo de vínculos com layouts de teia e hierárquico; ao selecionar
-  uma aresta, o painel permite editar a relação e gerenciar seus arquivos.
-- Filtros por tipo e período, legenda de categorias e posições do grafo salvas
-  por usuário.
+- Grafo interativo de vínculos com layouts de teia e hierárquico, organização e
+  enquadramento automáticos, agrupamento por categoria, destaque de conexões,
+  tela cheia e controles de enquadramento; ao selecionar uma aresta, o painel
+  permite editar a relação e gerenciar seus arquivos.
+- Filtros por tipo e período, legenda de categorias e foco por pessoa; detalhes
+  de uso em [Grafo de relacionamentos](docs/GRAFO.md).
 - Exportação do mapa interpessoal para PDF, com imagem da rede e relação detalhada
   de pessoas, descrições, categorias, meios de contato e vínculos visíveis.
 - Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
@@ -91,13 +93,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5a
+docker pull ghcr.io/facrf/agendarx:0.6.5b
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.5a
+  ghcr.io/facrf/agendarx:0.6.5b
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -128,7 +130,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.6.5a
+    image: ghcr.io/facrf/agendarx:0.6.5b
     restart: unless-stopped
     ports:
       - "12000:12000"

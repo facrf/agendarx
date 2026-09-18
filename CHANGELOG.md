@@ -4,6 +4,25 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.6.5b] - 2026-09-18
+
+### Adicionado
+
+- Botões Enquadrar tudo e Tela cheia no grafo, com saída por Esc; enquadramento
+  preserva as posições dos nós e se adapta ao tamanho da tela.
+- Agrupamento por categoria com títulos e destaque das conexões ao selecionar
+  uma pessoa, suavizando o restante da rede; opção para isolar as conexões.
+
+### Corrigido
+
+- Grafo organizado e enquadrado automaticamente ao abrir, trocar o layout ou
+  alterar as conexões visíveis, sem restaurar posições antigas; enquadramento
+  adaptado ao tamanho do quadro e botão Organizar grafo para reajuste manual.
+- Visualizador da galeria centralizado na janela, com margens verticais e altura
+  limitada; modais renderizados fora dos contêineres da página.
+- Todo o quadro do administrador abre Configurações; o botão Sair mantém sua
+  ação independente, inclusive no menu móvel.
+
 ## [0.6.5a] - 2026-09-17
 
 ### Adicionado
@@ -295,6 +314,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.5b]: https://github.com/facrf/agendarx/compare/v0.6.5a...v0.6.5b
 [0.6.5a]: https://github.com/facrf/agendarx/compare/v0.6.5...v0.6.5a
 [0.6.5]: https://github.com/facrf/agendarx/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/facrf/agendarx/compare/v0.6.3...v0.6.4

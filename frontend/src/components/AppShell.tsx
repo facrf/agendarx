@@ -109,15 +109,15 @@ function Brand({ compact = false }: { compact?: boolean }) {
 
 function UserPanel({ login, onLogout, onSettings }: { login: string; onLogout: () => void; onSettings?: () => void }) {
   return (
-    <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-      <Link to="/configuracoes" onClick={onSettings} aria-label="Abrir configurações" title="Configurações" className="shrink-0 rounded-full transition hover:ring-2 hover:ring-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300">
+    <div className="relative mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3 transition hover:bg-white/10">
+      <Link to="/configuracoes" onClick={onSettings} aria-label="Abrir configurações" title="Configurações" className="flex min-w-0 flex-1 items-center gap-3 after:absolute after:inset-0 after:rounded-2xl focus-visible:outline-none focus-visible:after:ring-2 focus-visible:after:ring-teal-300">
         <AdminIcon className="size-9 text-sm" />
+        <div className="min-w-0 flex-1">
+          <p className="truncate text-sm font-medium">{login}</p>
+          <p className="text-xs text-slate-400">Sessão protegida</p>
+        </div>
       </Link>
-      <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-medium">{login}</p>
-        <p className="text-xs text-slate-400">Sessão protegida</p>
-      </div>
-      <button className="rounded-xl p-2 text-slate-400 transition hover:bg-white/10 hover:text-white" onClick={onLogout} title="Sair">
+      <button type="button" className="relative z-10 rounded-xl p-2 text-slate-400 transition hover:bg-white/10 hover:text-white" onClick={onLogout} title="Sair" aria-label="Sair">
         <LogOut className="size-4" />
       </button>
     </div>

@@ -8,6 +8,9 @@ import {
   Filter,
   GitFork,
   Info,
+  Maximize,
+  Minimize,
+  Scan,
   Move,
   Network,
   Orbit,
@@ -20,7 +23,7 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent } from "react";
+import type { FormEvent, ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { GraphViewer } from "../components/GraphViewer";
 import type { GraphLayout, GraphViewerHandle } from "../components/GraphViewer";
@@ -38,7 +41,6 @@ import type {
   GrafoResponse,
   PessoaResumo,
   PessoaVinculo,
-  PosicaoGrafo,
   VinculoPayload,
 } from "../types/api";
 
@@ -69,10 +71,14 @@ export function GraphPage() {
   const [category, setCategory] = useState(typeof savedFilters.category === "string" ? savedFilters.category : "");
   const [depth, setDepth] = useState(typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
   const [layout, setLayout] = useState<GraphLayout>(savedFilters.layout === "hierarchical" ? "hierarchical" : "force");
+  const [groupByCategory, setGroupByCategory] = useState(savedFilters.groupByCategory === true);
+  const [isolateFocus, setIsolateFocus] = useState(savedFilters.isolateFocus !== false);
+  const [expanded, setExpanded] = useState(false);
+  const graphPanelRef = useRef<HTMLElement>(null);
+  const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
   const [relationshipType, setRelationshipType] = useState(typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
   const [dateFrom, setDateFrom] = useState(typeof savedFilters.dateFrom === "string" ? savedFilters.dateFrom : "");
   const [dateTo, setDateTo] = useState(typeof savedFilters.dateTo === "string" ? savedFilters.dateTo : "");
-  const [positions, setPositions] = useState<PosicaoGrafo[]>([]);
   const [form, setForm] = useState<VinculoPayload>(emptyRelationship);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -89,18 +95,33 @@ export function GraphPage() {
   const { notify } = useToast();
 
   useEffect(() => {
-    try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout, relationshipType, dateFrom, dateTo })); }
+    try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout, relationshipType, dateFrom, dateTo, groupByCategory, isolateFocus })); }
     catch { /* Armazenamento indisponível não impede a busca. */ }
-  }, [filterKey, search, category, depth, layout, relationshipType, dateFrom, dateTo]);
+  }, [filterKey, search, category, depth, layout, relationshipType, dateFrom, dateTo, groupByCategory, isolateFocus]);
 
   useEffect(() => {
-    api.get<PosicaoGrafo[]>(`/api/produtividade/grafo/posicoes/${layout}`).then(setPositions).catch(() => setPositions([]));
-  }, [layout]);
-
-  const savePositions = useCallback((value: PosicaoGrafo[]) => {
-    setPositions(value);
-    api.put(`/api/produtividade/grafo/posicoes/${layout}`, value).catch((error) => notify(errorMessage(error), "erro"));
-  }, [layout, notify]);
+    if (!expanded) return;
+    const previousOverflow = document.documentElement.style.overflow;
+    const previousFocus = document.activeElement as HTMLElement | null;
+    document.documentElement.style.overflow = "hidden";
+    fullscreenButtonRef.current?.focus();
+    const keyboard = (event: KeyboardEvent) => {
+      if (document.querySelector('[role="dialog"]')) return;
+      if (event.key === "Escape") { event.preventDefault(); setExpanded(false); }
+      if (event.key === "Tab") {
+        const controls = [...(graphPanelRef.current?.querySelectorAll<HTMLElement>('button:not(:disabled), input:not(:disabled), select:not(:disabled), a[href]') ?? [])].filter(item => item.getClientRects().length > 0);
+        const first = controls[0], last = controls.at(-1);
+        if (event.shiftKey && document.activeElement === first) { event.preventDefault(); last?.focus(); }
+        else if (!event.shiftKey && document.activeElement === last) { event.preventDefault(); first?.focus(); }
+      }
+    };
+    window.addEventListener("keydown", keyboard);
+    return () => {
+      document.documentElement.style.overflow = previousOverflow;
+      window.removeEventListener("keydown", keyboard);
+      previousFocus?.focus();
+    };
+  }, [expanded]);
 
   const loadGraphData = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -167,8 +188,8 @@ export function GraphPage() {
     [categoryGraph.nodes, search],
   );
   const visibleGraph = useMemo(
-    () => isolateConnections(categoryGraph, focusedNode?.id ?? null, depth),
-    [categoryGraph, focusedNode?.id, depth],
+    () => isolateConnections(categoryGraph, isolateFocus ? focusedNode?.id ?? null : null, depth),
+    [categoryGraph, focusedNode?.id, depth, isolateFocus],
   );
 
   const generatePdf = async () => {
@@ -312,7 +333,7 @@ export function GraphPage() {
   );
   const selectPerson = useCallback((nodeId: number) => {
     const node = graph.nodes.find((item) => item.id === nodeId);
-    if (node) { setSearch(node.label); setDepth(2); }
+    if (node) { setSearch(node.label); setDepth(2); setIsolateFocus(false); }
   }, [graph.nodes]);
 
   if (loading) return <Spinner label="Desenhando sua rede" />;
@@ -384,7 +405,7 @@ export function GraphPage() {
           )}
         </aside>
 
-        <section className="panel overflow-hidden">
+        <section ref={graphPanelRef} aria-label={expanded ? "Grafo em tela cheia" : "Mapa de relacionamentos"} className={cn("panel overflow-hidden", expanded && "fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto rounded-none bg-white")}>
           <GraphToolbar
             graph={graph}
             nodeCount={visibleGraph.nodes.length}
@@ -407,17 +428,27 @@ export function GraphPage() {
             onDateFrom={setDateFrom}
             onDateTo={setDateTo}
             onGeneratePdf={() => void generatePdf()}
+            onOrganize={() => graphViewerRef.current?.organize()}
             generatingPdf={printImage !== null}
             canGeneratePdf={visibleGraph.nodes.length > 0}
+            expanded={expanded}
+            extraActions={<>
+              <Button type="button" variant="secondary" disabled={!visibleGraph.nodes.length} onClick={() => graphViewerRef.current?.fit()}><Scan className="size-4" /> Enquadrar tudo</Button>
+              <button ref={fullscreenButtonRef} type="button" className="btn btn-secondary" aria-pressed={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize className="size-4" /> : <Maximize className="size-4" />}{expanded ? "Sair da tela cheia" : "Tela cheia"}</button>
+              <div className={cn("flex flex-wrap gap-4 text-xs text-slate-600", expanded ? "col-span-2" : "sm:col-span-2")}>
+                <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={groupByCategory} onChange={event => setGroupByCategory(event.target.checked)} /> Agrupar por categoria</label>
+                <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={isolateFocus} onChange={event => setIsolateFocus(event.target.checked)} /> Mostrar apenas conexões</label>
+              </div>
+            </>}
           />
-          <div className="px-4 pb-3 text-xs text-slate-500">
+          <div className="shrink-0 px-4 pb-3 text-xs text-slate-500">
             Filtros lembrados neste navegador.
-            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); }}>Limpar filtros</button>
+            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); setGroupByCategory(false); setIsolateFocus(true); }}>Limpar filtros</button>
           </div>
           <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 pb-3 text-xs"><strong>Legenda:</strong>{categories.map((item) => <span key={item.id} className="inline-flex items-center gap-1"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} />{item.nome_categoria}</span>)}<span className="inline-flex items-center gap-1"><span className="size-3 rounded-full bg-[#86A6A3]" />Sem categoria</span></div>
           {graph.hp_configuracao && <PsychosocialLegend config={graph.hp_configuracao} />}
 
-          <div className="relative min-h-[42rem] bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]">
+          <div className={cn("relative bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]", expanded ? "min-h-80 flex-1" : "min-h-[42rem]")}>
             {visibleGraph.nodes.length === 0 ? (
               <div className="p-5">
                 <EmptyState
@@ -436,11 +467,11 @@ export function GraphPage() {
                 graph={visibleGraph}
                 layout={layout}
                 focusedNodeId={focusedNode?.id ?? null}
+                groupByCategory={groupByCategory}
+                expanded={expanded}
                 onEdgeClick={openEdge}
                 onNodeDoubleClick={openPerson}
                 onNodeSelect={selectPerson}
-                positions={positions}
-                onPositionsChange={savePositions}
               />
             )}
             <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
@@ -560,34 +591,41 @@ interface GraphToolbarProps {
   onDateFrom: (value: string) => void;
   onDateTo: (value: string) => void;
   onGeneratePdf: () => void;
+  onOrganize: () => void;
   generatingPdf: boolean;
   canGeneratePdf: boolean;
+  extraActions: ReactNode;
+  expanded: boolean;
 }
 
-function GraphToolbar({ graph, nodeCount, edgeCount, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, generatingPdf, canGeneratePdf }: GraphToolbarProps) {
+function GraphToolbar({ graph, nodeCount, edgeCount, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, onOrganize, generatingPdf, canGeneratePdf, extraActions, expanded }: GraphToolbarProps) {
   return (
-    <div className="space-y-3 border-b border-slate-100 p-4">
-      <div className="grid gap-3 sm:grid-cols-2">
-        <label className="relative sm:col-span-2">
+    <div className="shrink-0 space-y-3 border-b border-slate-100 p-4">
+      <div className={cn("grid gap-3", expanded ? "grid-cols-2" : "sm:grid-cols-2")}>
+        <label className={cn("relative", expanded ? "col-span-2" : "sm:col-span-2")}>
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input className="field pl-9" list="graph-people" placeholder="Buscar e focar uma pessoa..." value={search} onChange={(event) => onSearch(event.target.value)} />
           <datalist id="graph-people">{graph.nodes.map((node) => <option key={node.id} value={node.label} />)}</datalist>
         </label>
-        <select className="field" value={category} onChange={(event) => onCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((item) => <option key={item.id} value={item.nome_categoria}>{item.nome_categoria}</option>)}</select>
-        <label className="relative"><Filter className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select className="field pl-9" value={depth} onChange={(event) => onDepth(Number(event.target.value))} disabled={!focusedNode} title={focusedNode ? "Nível de conexão" : "Busque uma pessoa para isolar conexões"}><option value={1}>1º grau</option><option value={2}>2º grau</option><option value={3}>3º grau</option></select></label>
+        {!expanded && <><select className="field" value={category} onChange={(event) => onCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((item) => <option key={item.id} value={item.nome_categoria}>{item.nome_categoria}</option>)}</select>
+        <label className="relative"><Filter className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select className="field pl-9" value={depth} onChange={(event) => onDepth(Number(event.target.value))} disabled={!focusedNode} title={focusedNode ? "Nível de conexão" : "Busque uma pessoa para isolar conexões"}><option value={1}>1º grau</option><option value={2}>2º grau</option><option value={3}>3º grau</option></select></label></>}
         <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "force" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("force")} title="Layout em teia"><Orbit className="size-4" /> Teia</button>
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "hierarchical" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("hierarchical")} title="Layout hierárquico"><Workflow className="size-4" /> UML</button>
         </div>
-        <Button type="button" variant="secondary" loading={generatingPdf} disabled={!canGeneratePdf} onClick={onGeneratePdf}>
+        {!expanded && <Button type="button" variant="secondary" loading={generatingPdf} disabled={!canGeneratePdf} onClick={onGeneratePdf}>
           <FileDown className="size-4" /> Gerar PDF
+        </Button>}
+        <Button type="button" variant="secondary" disabled={!canGeneratePdf} onClick={onOrganize}>
+          <Network className="size-4" /> Organizar grafo
         </Button>
+        {extraActions}
       </div>
-      <div className="grid gap-3 sm:grid-cols-3">
+      {!expanded && <div className="grid gap-3 sm:grid-cols-3">
         <select className="field" aria-label="Tipo de vínculo" value={relationshipType} onChange={(event) => onRelationshipType(event.target.value)}><option value="">Todos os vínculos</option>{relationshipTypes.map((type) => <option key={type}>{type}</option>)}</select>
         <label className="flex items-center gap-2 text-xs text-slate-500">Desde <input className="field" type="date" value={dateFrom} onChange={(event) => onDateFrom(event.target.value)} /></label>
         <label className="flex items-center gap-2 text-xs text-slate-500">Até <input className="field" type="date" value={dateTo} onChange={(event) => onDateTo(event.target.value)} /></label>
-      </div>
+      </div>}
       <div className="flex min-h-7 flex-wrap items-center justify-between gap-2 text-xs text-slate-400">
         <span>{nodeCount} pessoas · {edgeCount} vínculos visíveis</span>
         {focusedNode && <span className="inline-flex items-center gap-2 rounded-full bg-teal-50 px-3 py-1 font-medium text-teal-800"><span className="size-2 rounded-full" style={{ backgroundColor: focusedNode.color }} /> Foco: {focusedNode.label} · até {depth}º grau <button type="button" onClick={() => onSearch("")} aria-label="Limpar foco"><X className="size-3" /></button></span>}

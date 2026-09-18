@@ -40,16 +40,20 @@ let nextSavedSnapshot = null;
 const riskHistory = {};
 let failPreview = false;
 let previewPosts = 0;
+let logoutPosts = 0;
+let groupFixture = false;
 const riskRecord = person => ({ classificacao_risco: person.classificacao_risco, toxicidade: person.toxicidade, justificativa: person.risco_justificativa ?? '', revisado_em: person.risco_revisado_em || null });
 await page.context().route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
   let data = [];
-  if (path.endsWith('/sessao')) data = { usuario: { id: 1, login: 'teste', perfil: 'admin' } };
+  if (path === '/api/auth/logout') { logoutPosts++; data = {}; }
+  else if (path.endsWith('/sessao')) data = { usuario: { id: 1, login: 'teste', perfil: 'admin' } };
   else if (path.endsWith('/categorias')) data = [{ id: 1, nome_categoria: 'Amigos', cor_hex: '#112233' }];
   else if (path === '/api/configuracoes/backups/configuracao') data = { ativo: false, horario: '03:00', manter_diarios: 7, manter_semanais: 4, manter_mensais: 12, max_upload_bytes: 1000000 };
   else if (path.endsWith('/admin/diagnostico-armazenamento')) data = { banco_bytes: 0, dossie_bytes: 0, vinculos_bytes: 0, tarefas_bytes: 0, midia_total_bytes: 0, anexos_total: 0, pessoas_total: people.length, limite_usuario_tarefas_bytes: 1, max_arquivo_bytes: 1, usuarios: [] };
   else if (path === '/api/configuracoes/hp-psicossocial') { if (req.method() === 'PUT') { Object.assign(hpConfig, req.postDataJSON(), { versao: hpConfig.versao + 1 }); } data = hpConfig; }
-  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }] };
+  else if (path.startsWith('/api/produtividade/grafo/posicoes/')) data = people.map(p => ({ pessoa_id: p.id, x: p.id * 10000, y: -p.id * 10000 }));
+  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: [...people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: groupFixture && p.id === 3 ? 'Trabalho' : p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), ...(groupFixture ? [{ ...metrics(), id: 99, label: 'Sem vínculos', color: '#86A6A3', categoria: null, pessoa_juridica: false, contatos: [] }] : [])], edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }] };
   else if (path === '/api/vinculos') data = [{ id: 1, pessoa_origem_id: 1, pessoa_destino_id: 2, tipo_vinculo: 'Amizade', descricao: '# Contexto' }];
   else if (path === '/api/pessoas/risco/previa') {
     previewPosts++;
@@ -98,6 +102,20 @@ await page.context().route('**/api/**', async route => {
   } else if (path.endsWith('/stream')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=', 'base64') });
   await route.fulfill({ json: data });
 });
+const expectGraphFramed = async () => {
+  await page.waitForFunction(() => {
+    const container = document.querySelector('[role=application]');
+    const cy = container?._cyreg?.cy;
+    if (!cy || cy.nodes().empty()) return false;
+    const bounds = cy.elements().renderedBoundingBox();
+    const rect = container.getBoundingClientRect();
+    return bounds.x1 >= 0 && bounds.y1 >= 0 && bounds.x2 <= cy.width() && bounds.y2 <= cy.height()
+      && [...document.querySelectorAll('[data-person-id], [data-graph-category]')].every(bar => {
+        const box = bar.getBoundingClientRect();
+        return box.left >= rect.left && box.top >= rect.top && box.right <= rect.right && box.bottom <= rect.bottom;
+      });
+  });
+};
 try {
   await page.goto('http://127.0.0.1:4179/pessoas');
   await page.getByRole('heading', { name: /Pessoas físicas · Amigos/ }).waitFor();
@@ -110,6 +128,16 @@ try {
   await page.goto('http://127.0.0.1:4179/pessoas/1?aba=dossie');
   await page.getByAltText('foto1.png').click();
   await page.getByRole('button', { name: 'Próxima imagem' }).waitFor();
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.waitForFunction(() => {
+      const rect = document.querySelector('[role="dialog"]')?.getBoundingClientRect();
+      return rect && rect.top > 40 && rect.height <= innerHeight * 0.85 + 1
+        && Math.abs(rect.top + rect.height / 2 - innerHeight / 2) < 1
+        && Math.abs(rect.left + rect.width / 2 - innerWidth / 2) < 1;
+    });
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
   await page.keyboard.press('ArrowRight');
   await page.getByRole('heading', { name: 'foto2.png', exact: true }).waitFor();
   await page.getByRole('button', { name: 'Próxima imagem' }).click();
@@ -162,6 +190,22 @@ try {
   assert.ok(events[1].descricao.includes('/pessoas/4'));
   await page.goto('http://127.0.0.1:4179/grafo?busca=Ana');
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.nodes(':selected').length === 1);
+  await expectGraphFramed();
+  await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    cy.nodes().positions(() => ({ x: 10000, y: -10000 }));
+    cy.zoom(3); cy.pan({ x: 10000, y: -10000 });
+  });
+  await page.getByRole('button', { name: 'Organizar grafo', exact: true }).click();
+  await expectGraphFramed();
+  assert.ok(await page.evaluate(() => {
+    const nodes = document.querySelector('[role=application]')._cyreg.cy.nodes();
+    const a = nodes[0].position(), b = nodes[1].position();
+    return Math.hypot(a.x - b.x, a.y - b.y) > 78;
+  }));
+  await page.reload();
+  await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.nodes(':selected').length === 1);
+  await expectGraphFramed();
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').style('border-color')), 'rgb(17,34,51)');
   await page.getByLabel('Legenda psicossocial', { exact: true }).waitFor();
   assert.equal(await page.getByLabel('Perfil selecionado').getByRole('progressbar').getAttribute('aria-valuenow'), '100');
@@ -192,6 +236,81 @@ try {
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').style('line-color') === 'rgb(15,118,110)');
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-2').style('line-style')), 'dashed');
   await page.getByText('3 pessoas · 2 vínculos visíveis', { exact: true }).waitFor();
+  await expectGraphFramed();
+  await page.getByRole('button', { name: 'UML', exact: true }).click();
+  await expectGraphFramed();
+  await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    cy.nodes().positions((node, index) => ({ x: index * 10000, y: index * 10000 }));
+    window.__graphPositions = cy.nodes().map(node => ({ ...node.position() }));
+  });
+  await page.setViewportSize({ width: 390, height: 844 });
+  await expectGraphFramed();
+  assert.ok(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom() < 0.2));
+  assert.deepEqual(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(node => node.position())), await page.evaluate(() => window.__graphPositions));
+  await page.getByRole('button', { name: 'Organizar grafo', exact: true }).click();
+  await expectGraphFramed();
+  await page.getByRole('button', { name: 'Teia', exact: true }).click();
+  await expectGraphFramed();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await expectGraphFramed();
+  await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    cy.$id('node-2').position({ x: 4500, y: -3500 });
+    window.__fitPositions = cy.nodes().map(node => ({ ...node.position() }));
+    cy.zoom(3); cy.pan({ x: 10000, y: 10000 });
+  });
+  await page.getByRole('button', { name: 'Enquadrar tudo', exact: true }).click();
+  await expectGraphFramed();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(node => node.position())), await page.evaluate(() => window.__fitPositions));
+  groupFixture = true;
+  await page.evaluate(() => window.dispatchEvent(new Event('agendarx:psychosocial-updated')));
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 4);
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').style('opacity') === '0.2');
+  await page.waitForFunction(() => document.querySelector('[data-person-id="99"]')?.style.opacity === '0.2');
+  await page.getByRole('button', { name: 'Limpar foco', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').empty()
+    && document.querySelector('[role=application]')._cyreg.cy.elements('.is-dimmed').empty());
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-1').emit('tap'));
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').hasClass('is-dimmed'));
+  await page.getByLabel('Mostrar apenas conexões', { exact: true }).check();
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
+  await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 4);
+  await page.getByLabel('Agrupar por categoria', { exact: true }).check();
+  await page.waitForFunction(() => document.querySelectorAll('[data-graph-category]').length === 3);
+  assert.deepEqual(await page.locator('[data-graph-category]').allTextContents(), ['Amigos', 'Sem categoria', 'Trabalho']);
+  await expectGraphFramed();
+  assert.ok(await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    const groups = [cy.nodes('#node-1, #node-2'), cy.$id('node-3'), cy.$id('node-99')].map(nodes => nodes.boundingBox());
+    return groups.every((a, index) => groups.slice(index + 1).every(b => a.x2 < b.x1 || b.x2 < a.x1 || a.y2 < b.y1 || b.y2 < a.y1));
+  }));
+  for (const viewport of [{ width: 1440, height: 1000 }, { width: 390, height: 844 }]) {
+    await page.setViewportSize(viewport);
+    await page.getByRole('button', { name: 'Tela cheia', exact: true }).click();
+    await page.waitForFunction(() => {
+      const rect = document.querySelector('[aria-label="Grafo em tela cheia"]')?.getBoundingClientRect();
+      return rect && rect.top === 0 && rect.left === 0 && Math.abs(rect.width - innerWidth) < 1 && Math.abs(rect.height - innerHeight) < 1;
+    });
+    await expectGraphFramed();
+    await page.keyboard.press('Escape');
+    await page.getByRole('button', { name: 'Tela cheia', exact: true }).waitFor();
+    assert.equal(await page.evaluate(() => document.documentElement.style.overflow), '');
+    await expectGraphFramed();
+  }
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'UML', exact: true }).click();
+  await expectGraphFramed();
+  await page.getByRole('button', { name: 'Tela cheia', exact: true }).click();
+  await page.getByRole('button', { name: 'Sair da tela cheia', exact: true }).click();
+  await page.getByLabel('Agrupar por categoria', { exact: true }).uncheck();
+  await page.waitForFunction(() => document.querySelectorAll('[data-graph-category]').length === 0);
+  groupFixture = false;
+  await page.evaluate(() => window.dispatchEvent(new Event('agendarx:psychosocial-updated')));
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
+  await page.getByRole('button', { name: 'Teia', exact: true }).click();
+  await expectGraphFramed();
   if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'hp-grafo.png'), fullPage: false, timeout: 10000 });
 
   await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.edges().first().emit('tap'); });
@@ -323,6 +442,22 @@ try {
   await editor.getByRole('alert').filter({ hasText: 'Não foi possível carregar o cadastro completo' }).waitFor();
   assert.equal(await editor.getByRole('button', { name: 'Salvar alterações', exact: true }).isDisabled(), true);
   await editor.close();
+  await page.goto('http://127.0.0.1:4179/pessoas');
+  let panel = page.getByRole('link', { name: 'Abrir configurações' }).locator('..');
+  await panel.click({ position: { x: 3, y: 30 } });
+  await page.waitForURL('**/configuracoes');
+  await page.getByRole('heading', { name: 'Configurações', exact: true }).waitFor();
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('http://127.0.0.1:4179/pessoas');
+  await page.getByRole('button', { name: 'Abrir menu' }).click();
+  panel = page.getByRole('link', { name: 'Abrir configurações' }).filter({ visible: true }).locator('..');
+  await panel.click({ position: { x: 3, y: 30 } });
+  await page.waitForURL('**/configuracoes');
+  assert.equal(await page.getByRole('button', { name: 'Fechar menu' }).count(), 0);
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Sair', exact: true }).click();
+  await page.waitForURL('**/login');
+  assert.equal(logoutPosts, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: regressão de navegador, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
+  console.log('PASS: regressão de navegador, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

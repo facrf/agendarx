@@ -1,4 +1,5 @@
 import { LoaderCircle, UserRound, X } from "lucide-react";
+import { createPortal } from "react-dom";
 import { useEffect, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
@@ -150,7 +151,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
   }, [open, onClose]);
 
   if (!open) return null;
-  return (
+  return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
       <section
         ref={dialogRef}
@@ -168,6 +169,7 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
         </header>
         <div className={bodyClassName ?? "min-h-0 overflow-y-auto p-4 sm:p-6"}>{children}</div>
       </section>
-    </div>
+    </div>,
+    document.body,
   );
 }
