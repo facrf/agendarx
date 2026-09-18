@@ -29,6 +29,9 @@ import type {
 import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { MarkdownText } from "../components/MarkdownText";
 import { prepareProfilePhoto } from "../utils/profilePhoto";
+import { riskLabels, todayReviewDate } from "../utils/risk";
+import { RiskHistory } from "../components/RiskHistory";
+import { RiskPreview } from "../components/RiskPreview";
 
 export function PersonFormPage() {
   const agenda = useLinkedEvent();
@@ -43,6 +46,8 @@ export function PersonFormPage() {
   const [pessoaJuridica, setPessoaJuridica] = useState(false);
   const [classificacaoRisco, setClassificacaoRisco] = useState<ClassificacaoRisco>("NAO_CLASSIFICADO");
   const [toxicidade, setToxicidade] = useState("");
+  const [riscoJustificativa, setRiscoJustificativa] = useState("");
+  const [riscoRevisadoEm, setRiscoRevisadoEm] = useState(editando ? "" : todayReviewDate());
   const [hpConfig, setHpConfig] = useState<ConfigHpPsicossocial | null>(null);
   const riscoAtivo = !["NAO_CLASSIFICADO", "SEM_RISCO"].includes(classificacaoRisco);
   const [categoriaId, setCategoriaId] = useState<number | null>(null);
@@ -56,11 +61,15 @@ export function PersonFormPage() {
   const [foto, setFoto] = useState<File | null>(null);
   const [arrastandoFoto, setArrastandoFoto] = useState(false);
   const [carregando, setCarregando] = useState(true);
+  const [erroCarregamento, setErroCarregamento] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [progressoFoto, setProgressoFoto] = useState<number | null>(null);
   const [pessoaSalvaId, setPessoaSalvaId] = useState<number | null>(null);
 
   useEffect(() => {
+    let active = true;
+    setCarregando(true);
+    setErroCarregamento(false);
     const requests: [Promise<Categoria[]>, Promise<TipoMeioContato[]>, Promise<PessoaDetalhe> | null] = [
       api.get("/api/configuracoes/categorias"),
       api.get("/api/configuracoes/tipos-contato"),
@@ -68,6 +77,7 @@ export function PersonFormPage() {
     ];
     Promise.all([requests[0], requests[1], requests[2], api.get<ConfigHpPsicossocial>("/api/configuracoes/hp-psicossocial")])
       .then(([categoriasData, tiposData, pessoa, configuracao]) => {
+        if (!active) return;
         setHpConfig(configuracao);
         setCategorias(categoriasData);
         setTipos(tiposData);
@@ -77,13 +87,16 @@ export function PersonFormPage() {
           setPessoaJuridica(pessoa.pessoa_juridica);
           setClassificacaoRisco(pessoa.classificacao_risco);
           setToxicidade(pessoa.toxicidade ? String(pessoa.toxicidade) : "");
+          setRiscoJustificativa(pessoa.risco_registro?.justificativa ?? "");
+          setRiscoRevisadoEm(pessoa.risco_registro?.revisado_em ?? "");
           setCategoriaId(pessoa.categoria_id);
           setContatos(pessoa.contatos.map((contato) => ({ ...contato })));
           setTemFoto(pessoa.tem_foto);
         }
       })
-      .catch((error) => notify(errorMessage(error), "erro"))
-      .finally(() => setCarregando(false));
+      .catch((error) => { if (active) { setErroCarregamento(true); notify(errorMessage(error), "erro"); } })
+      .finally(() => { if (active) setCarregando(false); });
+    return () => { active = false; };
   }, [pessoaId, notify]);
 
   useEffect(() => {
@@ -141,9 +154,10 @@ export function PersonFormPage() {
   const salvar = async (event: FormEvent) => {
     event.preventDefault();
     if (!nome.trim()) return notify("Informe o nome da pessoa", "erro");
+    if (erroCarregamento || carregando) return notify("Recarregue o cadastro antes de salvar", "erro");
     if (!hpConfig) return notify("Recarregue o formulário para obter os parâmetros de risco", "erro");
     if (riscoAtivo && (!toxicidade || !Number.isFinite(Number(toxicidade)) || Number(toxicidade) < hpConfig.toxicidade_min || Number(toxicidade) > hpConfig.toxicidade_max)) {
-      return notify(`Informe T entre ${hpConfig.toxicidade_min} e ${hpConfig.toxicidade_max}`, "erro");
+      return notify(`Informe uma intensidade entre ${hpConfig.toxicidade_min} e ${hpConfig.toxicidade_max}`, "erro");
     }
     if (contatos.some((contato) => !contato.tipo_contato_id || !contato.valor.trim())) {
       return notify("Preencha ou remova os meios de contato incompletos", "erro");
@@ -163,6 +177,8 @@ export function PersonFormPage() {
           pessoa_juridica: pessoaJuridica,
           classificacao_risco: classificacaoRisco,
           toxicidade: riscoAtivo ? Number(toxicidade) : 0,
+          risco_justificativa: riscoJustificativa,
+          risco_revisado_em: riscoRevisadoEm,
           contatos: contatos.map(({ tipo_contato_id, valor }) => ({ tipo_contato_id, valor: valor.trim() })),
         });
         destinoId = criada.id;
@@ -176,6 +192,8 @@ export function PersonFormPage() {
           pessoa_juridica: pessoaJuridica,
           classificacao_risco: classificacaoRisco,
           toxicidade: riscoAtivo ? Number(toxicidade) : 0,
+          risco_justificativa: riscoJustificativa,
+          risco_revisado_em: riscoRevisadoEm,
           contatos: contatos.map(({ id, tipo_contato_id, valor }) => ({ id, tipo_contato_id, valor: valor.trim() })),
         });
         setContatos(atualizada.contatos.map((contato) => ({ ...contato })));
@@ -226,6 +244,7 @@ export function PersonFormPage() {
       />
 
       <form onSubmit={salvar} className="space-y-5">
+        {erroCarregamento && <div role="alert" className="rounded-xl bg-amber-50 p-4 text-sm text-amber-900">Não foi possível carregar o cadastro completo. Recarregue a página antes de editar para preservar os dados atuais.</div>}
         <section className="panel p-5 sm:p-7">
           <div className="mb-6 flex items-center gap-3">
             <div className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700"><UserRoundPlus className="size-5" /></div>
@@ -269,11 +288,15 @@ export function PersonFormPage() {
         </section>
 
         <section className="panel space-y-4 p-5 sm:p-7">
-          <div><h2 className="font-display text-xl font-semibold">Risco psicossocial</h2><p className="mt-1 text-sm text-slate-500">O peso cadastrado determina a aura e o impacto nas conexões. O HP recebido é calculado separadamente.</p></div>
+          <div><h2 className="font-display text-xl font-semibold">Risco psicossocial</h2><p className="mt-1 text-sm text-slate-500">A intensidade cadastrada reduz o próprio HP e determina a aura e o impacto nos vínculos de saída. Com o cálculo ativo, 0,30 equivale a 30 pontos percentuais. Os indicadores são uma simulação dos registros, não um diagnóstico psicológico.</p></div>
           <div className="grid gap-4 sm:grid-cols-2">
-            <div><label className="field-label" htmlFor="classificacao-risco">Classificação de risco</label><select id="classificacao-risco" className="field" value={classificacaoRisco} onChange={(event) => { setClassificacaoRisco(event.target.value as ClassificacaoRisco); if (["NAO_CLASSIFICADO", "SEM_RISCO"].includes(event.target.value)) setToxicidade(""); }}><option value="NAO_CLASSIFICADO">Não classificado</option><option value="SEM_RISCO">Sem risco cadastrado</option><option value="MANIPULATIVO">Traços manipulativos</option><option value="PATOLOGICO">Traços patológicos</option><option value="MISTO">Traços mistos</option></select></div>
-            <div><label className="field-label" htmlFor="toxicidade">Peso de toxicidade T</label><input id="toxicidade" className="field" type="number" step="0.01" min={hpConfig?.toxicidade_min} max={hpConfig?.toxicidade_max} required={riscoAtivo} disabled={!riscoAtivo || !hpConfig} value={riscoAtivo ? toxicidade : "0"} onChange={(event) => setToxicidade(event.target.value)} /><p className="mt-1 text-xs text-slate-500">{riscoAtivo ? `Limites: ${hpConfig?.toxicidade_min ?? "…"} a ${hpConfig?.toxicidade_max ?? "…"}. Equivale a ${((Number(toxicidade) || 0) * 100).toLocaleString("pt-BR")}% antes do peso do vínculo.` : "Sem classificação de risco ativo: T = 0."}</p></div>
+            <div><label className="field-label" htmlFor="classificacao-risco">Classificação de risco</label><select id="classificacao-risco" className="field" value={classificacaoRisco} onChange={(event) => { setClassificacaoRisco(event.target.value as ClassificacaoRisco); setRiscoRevisadoEm(todayReviewDate()); if (["NAO_CLASSIFICADO", "SEM_RISCO"].includes(event.target.value)) setToxicidade(""); }}>{Object.entries(riskLabels).map(([value, label]) => <option key={value} value={value}>{label}</option>)}</select></div>
+            <div><label className="field-label" htmlFor="toxicidade">Intensidade do risco cadastrado</label><input id="toxicidade" className="field" type="number" step="any" min={hpConfig?.toxicidade_min} max={hpConfig?.toxicidade_max} required={riscoAtivo} disabled={!riscoAtivo || !hpConfig} value={riscoAtivo ? toxicidade : "0"} onChange={(event) => { setToxicidade(event.target.value); setRiscoRevisadoEm(todayReviewDate()); }} /><p className="mt-1 text-xs text-slate-500">{riscoAtivo ? `Limites: ${hpConfig?.toxicidade_min ?? "…"} a ${hpConfig?.toxicidade_max ?? "…"}. Equivale a ${((Number(toxicidade) || 0) * 100).toLocaleString("pt-BR")}% antes do peso do vínculo.` : "Sem risco ativo: intensidade = 0."}</p></div>
           </div>
+          <div><label className="field-label" htmlFor="risco-justificativa">Justificativa da classificação</label><textarea id="risco-justificativa" className="field min-h-24" maxLength={5000} value={riscoJustificativa} onChange={event => setRiscoJustificativa(event.target.value)} placeholder="Registre o contexto e as observações que sustentam este valor." /><p className="mt-1 text-xs text-slate-500">Opcional · até 5000 caracteres.</p></div>
+          <div className="max-w-sm"><label className="field-label" htmlFor="risco-revisado-em">Data da revisão</label><input id="risco-revisado-em" className="field" type="date" value={riscoRevisadoEm} onChange={event => setRiscoRevisadoEm(event.target.value)} /><Button type="button" variant="ghost" className="mt-1" onClick={() => setRiscoRevisadoEm(todayReviewDate())}>Marcar revisão hoje</Button></div>
+          <RiskPreview pessoaId={pessoaId ?? pessoaSalvaId} nome={nome} classificacao={classificacaoRisco} intensidade={riscoAtivo ? Number(toxicidade) : 0} valid={Boolean(hpConfig && !erroCarregamento && (!riscoAtivo || (toxicidade && Number.isFinite(Number(toxicidade)) && Number(toxicidade) >= hpConfig.toxicidade_min && Number(toxicidade) <= hpConfig.toxicidade_max)))} />
+          {pessoaId && <RiskHistory key={pessoaId} pessoaId={pessoaId} />}
         </section>
 
         {etiquetas.length > 0 && <section className="panel p-5 sm:p-7">
@@ -323,7 +346,7 @@ export function PersonFormPage() {
         <div className="flex justify-end gap-3">
           {progressoFoto !== null && <span role="status" className="self-center text-sm text-slate-500">Enviando foto: {progressoFoto}%</span>}
           <Link className="btn btn-ghost" to={pessoaId ? `/pessoas/${pessoaId}` : "/pessoas"}>Cancelar</Link>
-          <Button type="submit" loading={salvando}><Save className="size-4" /> {editando ? "Salvar alterações" : "Cadastrar pessoa"}</Button>
+          <Button type="submit" loading={salvando} disabled={erroCarregamento}><Save className="size-4" /> {editando ? "Salvar alterações" : "Cadastrar pessoa"}</Button>
         </div>
       </form>
     </div>

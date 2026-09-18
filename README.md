@@ -7,6 +7,8 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
+Versão atual: **v0.6.5a**. [Mudanças](CHANGELOG.md) · [Capturas da interface](docs/screenshots/README.md).
+
 ## Funcionalidades
 
 - Cadastro de pessoas com descrição livre, categorias coloridas e meios de
@@ -41,8 +43,9 @@ Automação de publicação: [workflow Publicar versão](https://github.com/facr
   arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
-- HP psicossocial cumulativo com impacto de 2º grau, aura independente de risco,
-  barras segmentadas, composição dos descontos e parâmetros administráveis.
+- HP psicossocial com desconto do risco próprio e impactos de 1º/2º grau,
+  auras, barras compactas no grafo, composição dos descontos, justificativa,
+  revisão, histórico e prévia antes de salvar; parâmetros administráveis.
   Regras e uso em [HP psicossocial](docs/HP_PSICOSSOCIAL.md).
 - Migrações automáticas e imagem Docker executada como usuário sem privilégios.
 - Backup completo com horário e retenções diária, semanal e mensal configuráveis,
@@ -88,13 +91,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5
+docker pull ghcr.io/facrf/agendarx:0.6.5a
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.5
+  ghcr.io/facrf/agendarx:0.6.5a
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -125,7 +128,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.6.5
+    image: ghcr.io/facrf/agendarx:0.6.5a
     restart: unless-stopped
     ports:
       - "12000:12000"

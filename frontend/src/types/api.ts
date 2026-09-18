@@ -62,6 +62,7 @@ export interface PessoaResumo {
 export interface PessoaDetalhe extends PessoaResumo {
   contatos: Contato[];
   psicossocial: IndicadoresPsicossociais;
+  risco_registro: RegistroRisco;
 }
 
 export interface PessoaPayload {
@@ -72,6 +73,29 @@ export interface PessoaPayload {
   contatos?: ContatoPayload[];
   classificacao_risco?: ClassificacaoRisco;
   toxicidade?: number;
+  risco_justificativa?: string;
+  risco_revisado_em?: string;
+}
+
+export interface RegistroRisco {
+  classificacao_risco: ClassificacaoRisco;
+  toxicidade: number;
+  justificativa: string;
+  revisado_em: string | null;
+}
+
+export interface HistoricoRisco {
+  id: number;
+  autor_login: string;
+  registrado_em: string;
+  anterior: RegistroRisco | null;
+  novo: RegistroRisco;
+}
+
+export interface PreviaRisco {
+  pessoa: IndicadoresPsicossociais;
+  versao_configuracao: number;
+  alteracoes: { pessoa_id: number; nome: string; hp_antes: number | null; hp_depois: number; aura_antes: string | null; aura_depois: string }[];
 }
 
 export interface AnexoDossie {
@@ -235,6 +259,7 @@ export interface IndicadoresPsicossociais {
   hp_base: number;
   hp_min: number;
   penalidade_direta: number;
+  penalidade_propria: number;
   penalidade_residual: number;
   aura_nome: string;
   aura_cor_hex: string;

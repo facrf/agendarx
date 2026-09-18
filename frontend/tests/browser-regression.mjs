@@ -17,12 +17,13 @@ const server = createServer(async (req, res) => {
 });
 await new Promise(resolve => server.listen(4179, '127.0.0.1', resolve));
 const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
-const page = await browser.newPage({ viewport: { width: 1440, height: 1000 } });
+const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
+const page = await context.newPage();
 page.setDefaultTimeout(30_000);
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const hpConfig = { versao: 1, ativo: true, toxicidade_min: 0.1, toxicidade_max: 0.5, hp_base: 1, hp_min: 0.05, fator_segundo_grau: 0.2, peso_padrao: 0.5, pesos_vinculo: { família: 1, profissional: 0.5 }, faixas_aura: [{ min: 0, nome: 'Estável', cor_hex: '#22C55E', pulsante: false }, { min: 0.1, nome: 'Elevado', cor_hex: '#EAB308', pulsante: false }, { min: 0.25, nome: 'Observação', cor_hex: '#F97316', pulsante: false }, { min: 0.4, nome: 'Crítico', cor_hex: '#EF4444', pulsante: true }], faixas_vitalidade: [{ min: 0, nome: 'Impactada', cor_hex: '#EF4444', pulsante: false }, { min: 0.75, nome: 'Preservada', cor_hex: '#22C55E', pulsante: false }] };
-const indicators = { hp: 1, hp_percentual: 100, hp_base: 1, hp_min: 0.05, penalidade_direta: 0, penalidade_residual: 0, aura_nome: 'Crítico', aura_cor_hex: '#EF4444', aura_pulsante: true, vitalidade_nome: 'Preservada', vitalidade_cor_hex: '#22C55E', calculo_ativo: true, configuracao_versao: 1, contribuicoes: [] };
+const indicators = { hp: 1, hp_percentual: 100, hp_base: 1, hp_min: 0.05, penalidade_propria: 0, penalidade_direta: 0, penalidade_residual: 0, aura_nome: 'Crítico', aura_cor_hex: '#EF4444', aura_pulsante: true, vitalidade_nome: 'Preservada', vitalidade_cor_hex: '#22C55E', calculo_ativo: true, configuracao_versao: 1, contribuicoes: [] };
 let currentHp = 1;
 const metrics = () => ({ ...indicators, hp: currentHp, hp_percentual: currentHp * 100, penalidade_direta: 1 - currentHp, vitalidade_nome: currentHp < 0.25 ? 'Impactada' : 'Preservada', vitalidade_cor_hex: currentHp < 0.25 ? '#EF4444' : '#22C55E' });
 const base = { classificacao_risco: 'MANIPULATIVO', toxicidade: 0.4, psicossocial: indicators, categoria_id: 1, nome_categoria: 'Amigos', cor_hex: '#112233', tem_foto: false, pessoa_juridica: false, data_cadastro: '2026-09-14', descricao: '# Perfil\n\n**Importante**', contatos: [], etiquetas: '', favorito: false };
@@ -34,7 +35,13 @@ const parameters = [];
 let failEvent = false;
 let attachmentPosts = 0;
 let photoPosts = 0, personPosts = 0, failPhoto = false;
-await page.route('**/api/**', async route => {
+let savedSnapshot = null;
+let nextSavedSnapshot = null;
+const riskHistory = {};
+let failPreview = false;
+let previewPosts = 0;
+const riskRecord = person => ({ classificacao_risco: person.classificacao_risco, toxicidade: person.toxicidade, justificativa: person.risco_justificativa ?? '', revisado_em: person.risco_revisado_em || null });
+await page.context().route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
   let data = [];
   if (path.endsWith('/sessao')) data = { usuario: { id: 1, login: 'teste', perfil: 'admin' } };
@@ -42,12 +49,30 @@ await page.route('**/api/**', async route => {
   else if (path === '/api/configuracoes/backups/configuracao') data = { ativo: false, horario: '03:00', manter_diarios: 7, manter_semanais: 4, manter_mensais: 12, max_upload_bytes: 1000000 };
   else if (path.endsWith('/admin/diagnostico-armazenamento')) data = { banco_bytes: 0, dossie_bytes: 0, vinculos_bytes: 0, tarefas_bytes: 0, midia_total_bytes: 0, anexos_total: 0, pessoas_total: people.length, limite_usuario_tarefas_bytes: 1, max_arquivo_bytes: 1, usuarios: [] };
   else if (path === '/api/configuracoes/hp-psicossocial') { if (req.method() === 'PUT') { Object.assign(hpConfig, req.postDataJSON(), { versao: hpConfig.versao + 1 }); } data = hpConfig; }
-  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: people.map(p => ({ ...metrics(), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }] };
+  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }] };
   else if (path === '/api/vinculos') data = [{ id: 1, pessoa_origem_id: 1, pessoa_destino_id: 2, tipo_vinculo: 'Amizade', descricao: '# Contexto' }];
+  else if (path === '/api/pessoas/risco/previa') {
+    previewPosts++;
+    if (failPreview) return route.fulfill({ status: 503, json: { erro: 'Prévia indisponível' } });
+    const proposed = req.postDataJSON();
+    const hp = 1 - proposed.toxicidade;
+    data = { pessoa: { ...indicators, hp, hp_percentual: hp * 100, penalidade_propria: proposed.toxicidade }, versao_configuracao: 1, alteracoes: [{ pessoa_id: proposed.pessoa_id ?? 4, nome: proposed.nome || 'Nova pessoa', hp_antes: proposed.pessoa_id ? 1 : null, hp_depois: hp, aura_antes: 'Crítico', aura_depois: 'Observação' }, { pessoa_id: 3, nome: 'Empresa', hp_antes: 1, hp_depois: 0.85, aura_antes: 'Estável', aura_depois: 'Estável' }] };
+  }
+  else if (/^\/api\/pessoas\/\d+\/risco\/historico$/.test(path)) data = riskHistory[Number(path.split('/')[3])] ?? [];
   else if (path === '/api/pessoas') {
     if (req.method() === 'POST') { personPosts++; data = { ...base, ...req.postDataJSON(), id: 4 }; }
     else data = people;
-  } else if (/^\/api\/pessoas\/\d+$/.test(path)) data = { ...people[0], psicossocial: metrics(), ...(req.method() === 'PUT' ? req.postDataJSON() : {}) };
+  } else if (/^\/api\/pessoas\/\d+$/.test(path)) {
+    const person = people.find(p => p.id === Number(path.split('/').at(-1))) ?? { ...people[0] };
+    if (req.method() === 'PUT') {
+      const anterior = riskRecord(person);
+      Object.assign(person, req.postDataJSON());
+      const novo = riskRecord(person);
+      if (JSON.stringify(anterior) !== JSON.stringify(novo)) (riskHistory[person.id] ??= []).unshift({ id: (riskHistory[person.id]?.length ?? 0) + 1, autor_login: 'teste', registrado_em: '2026-09-17 12:00:00', anterior, novo });
+      if (nextSavedSnapshot) savedSnapshot = nextSavedSnapshot;
+    }
+    data = { ...person, risco_registro: riskRecord(person), psicossocial: { ...metrics(), ...(savedSnapshot?.[person.id] ?? {}) } };
+  }
   else if (path === '/api/calendario/tarefas' && req.method() === 'POST') {
     if (failEvent) return route.fulfill({ status: 503, json: { erro: 'Agenda indisponível' } });
     const event = { ...req.postDataJSON(), id: events.length + 1, pessoas: [], anexos: [] }; events.push(event); data = event;
@@ -115,7 +140,7 @@ try {
   await page.goto('http://127.0.0.1:4179/pessoas/nova');
   await page.getByLabel('Nome completo').fill('Nova pessoa');
   await page.getByLabel('Classificação de risco', { exact: true }).selectOption('MANIPULATIVO');
-  await page.getByLabel('Peso de toxicidade T', { exact: true }).fill('0.4');
+  await page.getByLabel('Intensidade do risco cadastrado', { exact: true }).fill('0.4');
   await page.getByLabel('Descrição', { exact: true }).fill('# Título\n\n**Texto**\n\n| A | B |\n| - | - |\n| 1 | 2 |');
   await page.getByRole('button', { name: 'Visualizar formatação' }).click();
   await page.getByRole('heading', { name: 'Título', exact: true }).waitFor();
@@ -146,6 +171,16 @@ try {
   await page.waitForFunction(() => document.querySelector('[aria-label="Perfil selecionado"] [role="progressbar"]')?.getAttribute('aria-valuenow') === '10');
   assert.equal(await page.getByLabel('Perfil selecionado').locator('.vitality-segment > span').evaluateAll(items => items.filter(item => item.style.width === '100%').length), 2);
   assert.equal(await page.getByLabel('Perfil selecionado').locator('.vitality-segment').count(), 20);
+  await page.waitForFunction(() => document.querySelector('[data-person-id="1"] [role="progressbar"]')?.getAttribute('aria-valuenow') === '10');
+  for (const [hp, color] of [[1, 'rgb(34, 197, 94)'], [0.7, 'rgb(34, 197, 94)'], [0.699, 'rgb(234, 179, 8)'], [0.4, 'rgb(234, 179, 8)'], [0.399, 'rgb(239, 68, 68)'], [0.1, 'rgb(239, 68, 68)']]) {
+    currentHp = hp;
+    await page.evaluate(() => window.dispatchEvent(new Event('agendarx:psychosocial-updated')));
+    await page.waitForFunction(value => document.querySelector('[data-person-id="1"] [role="progressbar"]')?.getAttribute('aria-valuenow') === String(value * 100), hp);
+    const bar = page.locator('[data-person-id="1"] [role="progressbar"]');
+    assert.equal(await bar.evaluate(el => getComputedStyle(el).width), '56px');
+    assert.equal(await bar.locator('div').evaluate(el => el.style.backgroundColor), color);
+    assert.ok(Math.abs(await bar.locator('div').evaluate(el => parseFloat(el.style.width)) - hp * 100) < 1e-9);
+  }
   await page.evaluate(() => { const cy = document.querySelector('[role=application]')._cyreg.cy; if (cy !== window.__hpCy || cy.zoom() !== window.__hpViewport.zoom || JSON.stringify(cy.pan()) !== JSON.stringify(window.__hpViewport.pan) || JSON.stringify(cy.nodes(':selected').position()) !== JSON.stringify(window.__hpViewport.position)) throw new Error('Atualização de HP alterou o mapa'); });
   await page.emulateMedia({ reducedMotion: 'reduce' });
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().first().style('underlay-opacity') === '0.16');
@@ -225,6 +260,7 @@ try {
   assert.equal(await page.locator('.risk-aura').evaluate(element => getComputedStyle(element, '::before').animationName), 'none');
   await page.getByRole('button', { name: /Vitalidade psicossocial/ }).click();
   await page.getByRole('region', { name: 'Composição do impacto psicossocial' }).waitFor();
+  await page.getByRole('region', { name: 'Composição do impacto psicossocial' }).getByLabel('Cálculo do HP').waitFor();
   await page.keyboard.press('Escape');
   await page.getByRole('region', { name: 'Composição do impacto psicossocial' }).waitFor({ state: 'hidden' });
   await page.goto('http://127.0.0.1:4179/configuracoes');
@@ -233,6 +269,60 @@ try {
   await page.getByRole('button', { name: 'Salvar parâmetros psicossociais', exact: true }).click();
   await page.getByText('Parâmetros psicossociais atualizados', { exact: true }).waitFor();
   assert.equal(hpConfig.fator_segundo_grau, 0.4);
+  // Saving different profiles in another tab must refresh each graph node independently.
+  await page.goto('http://127.0.0.1:4179/grafo?busca=Ana');
+  await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.nodes().length === 3);
+  const editor = await page.context().newPage();
+  for (const [id, t, values] of [[1, '0.3', [0.7, 0.45, 0.37]], [2, '0.2', [0.7, 0.65, 0.47]]]) {
+    nextSavedSnapshot = Object.fromEntries(values.map((hp, index) => {
+      const propria = index + 1 === id ? Number(t) : people[index].toxicidade;
+      const color = propria >= 0.4 ? '#EF4444' : propria >= 0.25 ? '#F97316' : '#EAB308';
+      const residual = index === 2 ? 0.03 : 0;
+      return [index + 1, { hp, hp_percentual: hp * 100, penalidade_propria: propria, penalidade_direta: Math.max(0, 1 - propria - hp - residual), penalidade_residual: residual, aura_nome: propria >= 0.4 ? 'Crítico' : propria >= 0.25 ? 'Observação' : 'Elevado', aura_cor_hex: color, aura_pulsante: propria >= 0.4 }];
+    }));
+    await editor.goto(`http://127.0.0.1:4179/pessoas/${id}/editar`);
+    await editor.getByLabel('Classificação de risco', { exact: true }).selectOption('MANIPULATIVO');
+    await editor.getByLabel('Intensidade do risco cadastrado', { exact: true }).fill(t);
+    await editor.getByLabel('Justificativa da classificação', { exact: true }).fill(`Observações da pessoa ${id}`);
+    await editor.getByLabel('Data da revisão', { exact: true }).fill('2026-09-17');
+    await editor.getByRole('progressbar', { name: 'HP previsto desta pessoa', exact: true }).waitFor();
+    await editor.waitForFunction(hp => document.querySelector('[aria-label="HP previsto desta pessoa"]')?.getAttribute('aria-valuenow') === String(hp * 100), 1 - Number(t));
+    await editor.getByLabel('Prévia dos impactos').getByRole('cell', { name: 'Empresa', exact: true }).waitFor();
+    if (id === 1 && process.env.BROWSER_SCREENSHOTS === '1') await editor.screenshot({ path: join(cacheRoot, 'risco-previa.png'), fullPage: true, timeout: 10000 });
+    assert.equal(people.find(p => p.id === id).toxicidade, 0.4);
+    await editor.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+    await editor.waitForURL(`**/pessoas/${id}`);
+    assert.equal(people.find(p => p.id === id).toxicidade, Number(t));
+    await editor.locator('summary').filter({ hasText: 'Histórico de risco e revisões' }).click();
+    await editor.getByText(`Observações da pessoa ${id}`, { exact: true }).last().waitFor();
+    assert.equal(riskHistory[id][0].autor_login, 'teste');
+    assert.equal(riskHistory[id][0].anterior.toxicidade, 0.4);
+    assert.equal(riskHistory[id][0].novo.toxicidade, Number(t));
+    await page.waitForFunction(({ id, t, values }) => {
+      const cy = document.querySelector('[role=application]')?._cyreg?.cy;
+      return cy?.$id(`node-${id}`).data('profile').toxicidade === Number(t)
+        && values.every((hp, i) => document.querySelector(`[data-person-id="${i + 1}"] [role="progressbar"]`)?.getAttribute('aria-valuenow') === String(hp * 100));
+    }, { id, t, values });
+    await editor.goto(`http://127.0.0.1:4179/pessoas/${id}/editar`);
+    await editor.getByLabel('Intensidade do risco cadastrado', { exact: true }).waitFor();
+    assert.equal(await editor.getByLabel('Intensidade do risco cadastrado', { exact: true }).inputValue(), t);
+    assert.equal(await editor.getByLabel('Justificativa da classificação', { exact: true }).inputValue(), `Observações da pessoa ${id}`);
+    assert.equal(await editor.getByLabel('Data da revisão', { exact: true }).inputValue(), '2026-09-17');
+  }
+  if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'hp-grafo.png'), fullPage: false, timeout: 10000 });
+  failPreview = true;
+  await editor.getByLabel('Intensidade do risco cadastrado', { exact: true }).fill('0.35');
+  await editor.getByRole('alert').filter({ hasText: 'Não foi possível calcular a prévia' }).waitFor();
+  failPreview = false;
+  await editor.getByRole('button', { name: 'Tentar calcular novamente' }).click();
+  await editor.waitForFunction(() => document.querySelector('[aria-label="HP previsto desta pessoa"]')?.getAttribute('aria-valuenow') === '65');
+  assert.equal(people.find(p => p.id === 2).toxicidade, 0.2);
+  assert.ok(previewPosts > 0);
+  await editor.route('**/api/configuracoes/hp-psicossocial', route => route.fulfill({ status: 503, json: { erro: 'Indisponível' } }));
+  await editor.goto('http://127.0.0.1:4179/pessoas/2/editar');
+  await editor.getByRole('alert').filter({ hasText: 'Não foi possível carregar o cadastro completo' }).waitFor();
+  assert.equal(await editor.getByRole('button', { name: 'Salvar alterações', exact: true }).isDisabled(), true);
+  await editor.close();
   assert.deepEqual(errors, []);
-  console.log('PASS: rotas sob demanda, agrupamento, filtros após recarregar, galeria teclado/mouse, notas, Markdown, foto multipart, repetição sem duplicar pessoa, grafo, eventos opcionais em pessoas/vínculos/arquivos, repetição da agenda sem reenviar arquivos, DataJud, HP de 10% em 2/20 segmentos, preservação do mapa, redução de movimento, resumo psicossocial e configuração administrativa.');
+  console.log('PASS: regressão de navegador, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

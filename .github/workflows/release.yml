@@ -19,6 +19,8 @@ jobs:
     runs-on: ubuntu-latest
     outputs:
       versao: ${{ steps.versao.outputs.versao }}
+      linha: ${{ steps.versao.outputs.linha }}
+      principal: ${{ steps.versao.outputs.principal }}
     steps:
       - name: Obter o código
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
@@ -27,17 +29,25 @@ jobs:
         id: versao
         shell: bash
         run: |
-          if [[ ! "$GITHUB_REF_NAME" =~ ^v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
-            echo "A tag deve seguir o formato vMAJOR.MINOR.PATCH" >&2
+          if [[ ! "$GITHUB_REF_NAME" =~ ^v([0-9]+)\.([0-9]+)\.([0-9]+)([a-z])?$ ]]; then
+            echo "A tag deve seguir vMAJOR.MINOR.PATCH com uma letra opcional, como v0.6.5a" >&2
             exit 1
           fi
+          base="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}.${BASH_REMATCH[3]}"
+          sufixo="${BASH_REMATCH[4]}"
+          linha="${BASH_REMATCH[1]}.${BASH_REMATCH[2]}"
+          principal="${BASH_REMATCH[1]}"
           versao="${GITHUB_REF_NAME#v}"
+          versao_pacote="${base}${sufixo:+-${sufixo}}"
           cargo_versao="$(sed -n 's/^version = "\([^"]*\)"/\1/p' Cargo.toml | head -n 1)"
-          if [[ "$versao" != "$cargo_versao" ]]; then
+          frontend_versao="$(sed -n 's/^  "version": "\([^"]*\)",/\1/p' frontend/package.json | head -n 1)"
+          if [[ "$versao_pacote" != "$cargo_versao" || "$versao_pacote" != "$frontend_versao" ]]; then
             echo "A tag $GITHUB_REF_NAME não corresponde à versão $cargo_versao do Cargo.toml" >&2
             exit 1
           fi
           echo "versao=$versao" >> "$GITHUB_OUTPUT"
+          echo "linha=$linha" >> "$GITHUB_OUTPUT"
+          echo "principal=$principal" >> "$GITHUB_OUTPUT"
 
   frontend:
     name: Compilar frontend
@@ -178,10 +188,12 @@ jobs:
         with:
           images: ${{ steps.imagem.outputs.nome }}
           tags: |
-            type=semver,pattern={{version}}
-            type=semver,pattern={{major}}.{{minor}}
-            type=semver,pattern={{major}}
+            type=raw,value=${{ needs.validar-versao.outputs.versao }}
+            type=raw,value=${{ needs.validar-versao.outputs.linha }}
+            type=raw,value=${{ needs.validar-versao.outputs.principal }}
             type=raw,value=latest
+          labels: |
+            org.opencontainers.image.version=${{ needs.validar-versao.outputs.versao }}
 
       - name: Compilar e publicar imagem
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7

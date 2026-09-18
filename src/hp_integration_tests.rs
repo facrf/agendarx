@@ -4,6 +4,332 @@ use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 
 #[tokio::test]
+async fn hp_previa_revisoes_historico_e_atomicidade() {
+    let mut config = Config::from_env().unwrap();
+    config.database_url = "sqlite::memory:".into();
+    config.admin_login = Some("admin-revisao".into());
+    config.admin_password = Some("senha-admin-revisao".into());
+    let pool = db::conectar(&config).await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let app = construir_app(AppState {
+        pool: pool.clone(),
+        config,
+        backup_runtime: BackupRuntime::default(),
+    });
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let api = TestApi {
+        client: Client::new(),
+        base,
+        task,
+    };
+    let login = api
+        .json(
+            Method::POST,
+            "/api/auth/login",
+            "",
+            json!({"login":"admin-revisao","senha":"senha-admin-revisao"}),
+            StatusCode::OK,
+        )
+        .await;
+    let token = login["token"].as_str().unwrap();
+    api.json(
+        Method::POST,
+        "/api/pessoas/risco/previa",
+        "",
+        json!({"classificacao_risco":"SEM_RISCO","toxicidade":0}),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+    let source = api.json(Method::POST, "/api/pessoas", token, json!({"nome":"Fonte","classificacao_risco":"MANIPULATIVO","toxicidade":0.5,"risco_justificativa":"Observações iniciais","risco_revisado_em":"2026-09-17"}), StatusCode::CREATED).await;
+    let a = source["id"].as_i64().unwrap();
+    assert_eq!(
+        source["risco_registro"]["justificativa"],
+        "Observações iniciais"
+    );
+    let b = api
+        .json(
+            Method::POST,
+            "/api/pessoas",
+            token,
+            json!({"nome":"Alvo"}),
+            StatusCode::CREATED,
+        )
+        .await["id"]
+        .as_i64()
+        .unwrap();
+    let c = api
+        .json(
+            Method::POST,
+            "/api/pessoas",
+            token,
+            json!({"nome":"Segundo grau"}),
+            StatusCode::CREATED,
+        )
+        .await["id"]
+        .as_i64()
+        .unwrap();
+    for (origem, destino) in [(a, b), (b, c)] {
+        api.json(
+            Method::POST,
+            "/api/vinculos",
+            token,
+            json!({"pessoa_origem_id":origem,"pessoa_destino_id":destino,"tipo_vinculo":"Família"}),
+            StatusCode::CREATED,
+        )
+        .await;
+    }
+    let history_path = format!("/api/pessoas/{a}/risco/historico");
+    let history = api
+        .json(
+            Method::GET,
+            &history_path,
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(history.as_array().unwrap().len(), 1);
+    assert_eq!(history[0]["anterior"], Value::Null);
+    assert_eq!(history[0]["autor_login"], "admin-revisao");
+    let preview = api
+        .json(
+            Method::POST,
+            "/api/pessoas/risco/previa",
+            token,
+            json!({"pessoa_id":a,"classificacao_risco":"MANIPULATIVO","toxicidade":0.3}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(preview["alteracoes"].as_array().unwrap().len(), 3);
+    assert_eq!(preview["pessoa"]["hp"], 0.7);
+    assert_eq!(preview["pessoa"]["penalidade_propria"], 0.3);
+    let unchanged = api
+        .json(
+            Method::GET,
+            &format!("/api/pessoas/{a}"),
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(unchanged["toxicidade"], 0.5);
+    assert_eq!(
+        api.json(
+            Method::GET,
+            &history_path,
+            token,
+            Value::Null,
+            StatusCode::OK
+        )
+        .await,
+        history
+    );
+    let update = json!({"nome":"Fonte","classificacao_risco":"MANIPULATIVO","toxicidade":0.3,"risco_justificativa":"Revisão contextualizada","risco_revisado_em":"2026-09-18"});
+    let saved = api
+        .json(
+            Method::PUT,
+            &format!("/api/pessoas/{a}"),
+            token,
+            update.clone(),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(saved["psicossocial"], preview["pessoa"]);
+    let graph = api
+        .json(
+            Method::GET,
+            "/api/vinculos/grafo",
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    for change in preview["alteracoes"].as_array().unwrap() {
+        let node = graph["nodes"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|n| n["id"] == change["pessoa_id"])
+            .unwrap();
+        assert_eq!(node["hp"], change["hp_depois"]);
+    }
+    let history = api
+        .json(
+            Method::GET,
+            &history_path,
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(history.as_array().unwrap().len(), 2);
+    assert_eq!(history[0]["anterior"]["toxicidade"], 0.5);
+    assert_eq!(history[0]["novo"]["toxicidade"], 0.3);
+    assert_eq!(
+        history[0]["novo"]["justificativa"],
+        "Revisão contextualizada"
+    );
+    for body in [update.clone(), json!({"nome":"Fonte renomeada"})] {
+        api.json(
+            Method::PUT,
+            &format!("/api/pessoas/{a}"),
+            token,
+            body,
+            StatusCode::OK,
+        )
+        .await;
+    }
+    assert_eq!(
+        api.json(
+            Method::GET,
+            &history_path,
+            token,
+            Value::Null,
+            StatusCode::OK
+        )
+        .await,
+        history
+    );
+    for (field, value) in [
+        ("risco_revisado_em", json!("2026-02-30")),
+        ("risco_justificativa", json!("x".repeat(5001))),
+        (
+            "contatos",
+            json!([{"id":999,"tipo_contato_id":1,"valor":"inválido"}]),
+        ),
+    ] {
+        let mut invalid = update.clone();
+        invalid["toxicidade"] = json!(0.4);
+        invalid[field] = value;
+        api.json(
+            Method::PUT,
+            &format!("/api/pessoas/{a}"),
+            token,
+            invalid,
+            StatusCode::BAD_REQUEST,
+        )
+        .await;
+        assert_eq!(
+            api.json(
+                Method::GET,
+                &history_path,
+                token,
+                Value::Null,
+                StatusCode::OK
+            )
+            .await,
+            history
+        );
+        assert_eq!(
+            api.json(
+                Method::GET,
+                &format!("/api/pessoas/{a}"),
+                token,
+                Value::Null,
+                StatusCode::OK
+            )
+            .await["toxicidade"],
+            0.3
+        );
+    }
+    api.json(
+        Method::POST,
+        "/api/pessoas/risco/previa",
+        token,
+        json!({"pessoa_id":999,"classificacao_risco":"MANIPULATIVO","toxicidade":0.3}),
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    api.json(
+        Method::POST,
+        "/api/pessoas/risco/previa",
+        token,
+        json!({"pessoa_id":a,"classificacao_risco":"MANIPULATIVO","toxicidade":0.9}),
+        StatusCode::BAD_REQUEST,
+    )
+    .await;
+    let new_preview = api
+        .json(
+            Method::POST,
+            "/api/pessoas/risco/previa",
+            token,
+            json!({"nome":"Nova pessoa","classificacao_risco":"MANIPULATIVO","toxicidade":0.4}),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(new_preview["pessoa"]["hp"], 0.6);
+    assert_eq!(new_preview["alteracoes"].as_array().unwrap().len(), 1);
+    assert_eq!(new_preview["alteracoes"][0]["hp_antes"], Value::Null);
+    assert_eq!(
+        sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM pessoa")
+            .fetch_one(&pool)
+            .await
+            .unwrap(),
+        3
+    );
+    api.json(
+        Method::PUT,
+        &format!("/api/pessoas/{a}"),
+        token,
+        json!({"nome":"Fonte","risco_justificativa":"","risco_revisado_em":""}),
+        StatusCode::OK,
+    )
+    .await;
+    let cleared = api
+        .json(
+            Method::GET,
+            &format!("/api/pessoas/{a}"),
+            token,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(cleared["risco_registro"]["justificativa"], "");
+    assert_eq!(cleared["risco_registro"]["revisado_em"], Value::Null);
+    api.json(
+        Method::DELETE,
+        &format!("/api/pessoas/{a}"),
+        token,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+    api.json(
+        Method::GET,
+        &history_path,
+        token,
+        Value::Null,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+    api.json(
+        Method::POST,
+        &format!("/api/produtividade/lixeira/{a}/restaurar"),
+        token,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+    assert_eq!(
+        api.json(
+            Method::GET,
+            &history_path,
+            token,
+            Value::Null,
+            StatusCode::OK
+        )
+        .await
+        .as_array()
+        .unwrap()
+        .len(),
+        3
+    );
+}
+
+#[tokio::test]
 async fn hp_snapshot_cadastro_configuracao_permissoes_e_lixeira() {
     let mut config = Config::from_env().unwrap();
     config.database_url = "sqlite::memory:".into();
@@ -100,7 +426,8 @@ async fn hp_snapshot_cadastro_configuracao_permissoes_e_lixeira() {
         .await;
     let a = source["id"].as_i64().unwrap();
     assert_eq!(source["psicossocial"]["aura_nome"], "Crítico");
-    assert_eq!(source["psicossocial"]["hp"], 1.0);
+    assert_eq!(source["psicossocial"]["hp"], 0.5);
+    assert_eq!(source["psicossocial"]["penalidade_propria"], 0.5);
     let b = api
         .json(
             Method::POST,

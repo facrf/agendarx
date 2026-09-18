@@ -33,7 +33,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOp
 
 use crate::{AppState, error::AppError, middleware::auth::SessaoAutenticada};
 
-const SCHEMA_ATUAL: i64 = 17;
+const SCHEMA_ATUAL: i64 = 18;
 const FORMATO_BACKUP: u32 = 1;
 const EXPIRACAO_RESTORE_MINUTOS: i64 = 30;
 
@@ -1412,10 +1412,13 @@ mod tests {
             config,
             backup_runtime: BackupRuntime::default(),
         };
-        sqlx::query("INSERT INTO pessoa (nome, classificacao_risco, toxicidade) VALUES ('Antes', 'MANIPULATIVO', 0.3)")
+        sqlx::query("INSERT INTO pessoa (nome, classificacao_risco, toxicidade, risco_justificativa, risco_revisado_em) VALUES ('Antes', 'MANIPULATIVO', 0.3, 'Contexto preservado', '2026-09-17')")
             .execute(&pool)
             .await
             .unwrap();
+        sqlx::query("INSERT INTO pessoa_risco_historico (pessoa_id, autor_login, novo_json) VALUES (1, 'admin-backup', ?)")
+            .bind(serde_json::json!({"classificacao_risco":"MANIPULATIVO","toxicidade":0.3,"justificativa":"Contexto preservado","revisado_em":"2026-09-17"}).to_string())
+            .execute(&pool).await.unwrap();
         let parametros_hp = crate::domain::hp_psicossocial::ParametrosHp {
             fator_segundo_grau: 0.4,
             ..Default::default()
@@ -1462,7 +1465,7 @@ mod tests {
         assert_eq!(extraido_validacao.pessoas, 1);
         assert_eq!(extraido_manifesto.unwrap().formato, FORMATO_BACKUP);
         assert_eq!(extraido_hash, backup.sha256);
-        sqlx::query("UPDATE pessoa SET nome = 'Depois', toxicidade = 0.1")
+        sqlx::query("UPDATE pessoa SET nome = 'Depois', toxicidade = 0.1, risco_justificativa = '', risco_revisado_em = NULL")
             .execute(&pool)
             .await
             .unwrap();
@@ -1482,6 +1485,20 @@ mod tests {
                 .await
                 .unwrap();
         assert_eq!(risco, ("MANIPULATIVO".into(), 0.3));
+        let revisao: (String, String) =
+            sqlx::query_as("SELECT risco_justificativa, risco_revisado_em FROM pessoa")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+        assert_eq!(revisao, ("Contexto preservado".into(), "2026-09-17".into()));
+        let historico: String = sqlx::query_scalar("SELECT novo_json FROM pessoa_risco_historico")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(
+            serde_json::from_str::<serde_json::Value>(&historico).unwrap()["justificativa"],
+            "Contexto preservado"
+        );
         let hp: (i64, String) = sqlx::query_as(
             "SELECT versao, parametros_json FROM hp_psicossocial_configuracao WHERE id = 1",
         )

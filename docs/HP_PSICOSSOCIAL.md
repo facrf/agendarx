@@ -3,11 +3,12 @@
 Status: implementado na versão 0.6.5. O HP é uma simulação configurável de exposição na rede;
 classificações e pesos são informados no cadastro, sem inferência automática.
 
-## Indicadores independentes
+## Risco cadastrado e vitalidade
 
 A **aura de risco comportamental** usa a toxicidade T do próprio perfil. A
-**Vitalidade psicossocial · HP** usa as penalidades recebidas dos vínculos.
-Uma pessoa pode ter aura crítica e HP preservado, ou aura estável e HP impactado.
+**Vitalidade psicossocial · HP** desconta a toxicidade própria e as penalidades recebidas dos vínculos.
+Com o cálculo ativo, T = 0,30 reduz o próprio HP de 100% para 70%, mesmo sem vínculos.
+Uma pessoa sem risco próprio também pode ter HP impactado pelas conexões.
 A cor da categoria permanece na moldura interna do avatar; a aura é externa.
 
 | T próprio | Aura padrão | Cor | Pulsação |
@@ -31,6 +32,31 @@ cadastro. “Não classificado” utiliza T = 0, sem representar uma avaliação
 ## Cadastro e validação
 
 O formulário de criação/edição contém `classificacao_risco` e `toxicidade`:
+
+A interface usa o nome **Intensidade do risco cadastrado** para `toxicidade`.
+As classificações existentes conservam suas chaves no banco/API, com rótulos
+neutros: `MANIPULATIVO` = Influência interpessoal; `PATOLOGICO` = Risco observado;
+`MISTO` = Múltiplos fatores. Os rótulos descrevem registros, sem diagnóstico.
+
+O usuário pode informar `risco_justificativa` (até 5000 caracteres) e
+`risco_revisado_em` (data AAAA-MM-DD). Omitir preserva os metadados atuais;
+enviar uma string vazia limpa o campo. Alterar o risco na interface sugere a
+data de hoje, que pode ser editada. Na API, uma revisão sem data explícita
+recebe a data UTC atual quando há mudança nos valores ou na justificativa.
+
+A prévia automática consulta `POST /api/pessoas/risco/previa`, informando
+`pessoa_id` na edição (omitido/null na criação), nome, classificação e intensidade.
+O backend usa a mesma função do perfil/grafo em uma transação de leitura,
+sem persistir a simulação. Retorna o HP/composição previsto e pessoas cujo HP,
+composição ou aura mudará. Mesmo no piso, mudanças nas penalidades são listadas.
+Outra edição concorrente na rede pode alterar o resultado final ao salvar.
+
+`GET /api/pessoas/{id}/risco/historico` retorna até 100 registros recentes com
+autor, instante da alteração, classificação, intensidade, justificativa e data,
+antes e depois. Criação tem anterior nulo; salvar valores iguais ou alterar
+somente nome/contatos não duplica a revisão. Histórico e metadados são gravados
+na mesma transação da pessoa. O histórico começa com a nova implementação,
+sem inventar alterações para perfis anteriores.
 
 - `NAO_CLASSIFICADO` e `SEM_RISCO`: T = 0.
 - `MANIPULATIVO`, `PATOLOGICO` e `MISTO`: T entre os limites administrativos,
@@ -67,9 +93,11 @@ Para cada aresta direcionada A → B:
 P_AB = T_A × W_AB
 D_B = soma das penalidades diretas de entrada
 R_C = soma das contribuições residuais elegíveis
-HP_C = clamp(hp_base − D_C − R_C, hp_min, hp_base)
+HP_C = clamp(hp_base − T_C − D_C − R_C, hp_min, hp_base)
 ```
 
+O desconto próprio é identificado em `penalidade_propria`, separado das contribuições
+dos vínculos. Ele ocorre uma vez por pessoa, sem depender de quantos vínculos possui.
 P = 0,30 reduz 30 pontos percentuais; não é 30% do HP atual. Família possui peso
 1,00; Profissional, 0,50. Tipos não cadastrados usam o peso padrão 0,50.
 Os pesos pertencem às arestas, sem relação com a categoria da pessoa.
@@ -157,7 +185,12 @@ as faixas e cores salvas pelo administrador.
 Selecionar um nó destaca vizinhos de 1º e 2º grau e identifica fontes pelas
 contribuições. O 2º grau usa traços no contorno e nas arestas correspondentes.
 O contador indica apenas nós/arestas visíveis. A barra de cada nó tem a mesma
-proporção do perfil; o PDF inclui HP numérico, aura e somas de penalidade.
+proporção do perfil, mas usa preenchimento sólido com largura de 56 px antes do
+zoom (metade da largura anterior). No mapa, HP de 70% a 100% é verde, de 40% a
+menos de 70% é amarelo e abaixo de 40% é vermelho. O percentual continua no
+texto abaixo da barra; o rótulo do nó exibe apenas o nome. Essas três cores são específicas das barras do mapa; as faixas
+administrativas continuam definindo a vitalidade do perfil e as auras.
+O PDF inclui HP numérico, aura e somas de penalidade.
 
 A pulsação é suave, com período aproximado de 3,6 segundos. A explicação também
 pode ser fechada por Escape. CSS e Cytoscape
@@ -171,6 +204,11 @@ navegador recebem aviso por `storage`; retomar/focar o perfil ou grafo também
 atualiza. Não existe push para outros dispositivos: eles atualizam ao retomar a
 página. Respostas antigas do grafo são descartadas por sequência de consulta.
 Falha na atualização do grafo mantém os últimos valores e oferece nova tentativa.
+O botão **Atualizar mapa** também permite consultar os valores a qualquer momento.
+As consultas da API não reutilizam o cache HTTP do navegador. As barras são
+sincronizadas explicitamente após aplicar cada snapshot, mesmo sem movimento
+dos nós. O cadastro bloqueia o salvamento quando não consegue carregar os dados
+e descarta respostas de uma pessoa que já deixou de estar em edição.
 
 Cytoscape permanece na mesma instância. Atualizações apenas de dados/HP/aura
 preservam posição, zoom e seleção. Mudanças de topologia ou layout executam layout;
@@ -182,7 +220,10 @@ A migração `0017_hp_psicossocial.sql` adiciona classificação/T à pessoa e c
 `hp_psicossocial_configuracao`, registro único com parâmetros JSON, versão,
 autor e data. Bancos anteriores/importações sem risco usam T = 0. HP/aura não
 são persistidos como descontos. Backup/restauração mantém pesos, faixas e perfis;
-a validação de backup reconhece o schema 17.
+a migração `0018_risco_revisao_historico.sql` acrescenta justificativa, data e
+histórico de risco; a validação de backup reconhece o schema 18. Backup completo
+preserva as revisões e seus autores. Restaurar uma pessoa da lixeira preserva
+seu histórico.
 
 | Fontes diretas sobre B, com C ligado somente a B | HP B | HP C |
 |---|---|---|

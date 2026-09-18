@@ -1,7 +1,10 @@
 # Versões e arquiteturas
 
-O workflow `.github/workflows/release.yml` é acionado por tags SemVer estritas,
-como `v0.1.0`. A tag precisa corresponder ao campo `version` do `Cargo.toml`.
+O workflow `.github/workflows/release.yml` é acionado por tags numéricas com uma
+letra de revisão opcional, como `v0.6.5a`. Essa grafia é usada na interface,
+Release, pacotes e tag Docker (`0.6.5a`). Cargo e npm usam a versão SemVer válida
+`0.6.5-a`; o workflow valida essa correspondência antes de compilar. Versões sem
+sufixo continuam correspondendo diretamente aos arquivos de pacote.
 As versões publicadas ficam em
 [github.com/facrf/agendarx/releases](https://github.com/facrf/agendarx/releases).
 O andamento de cada publicação aparece no
@@ -50,8 +53,8 @@ frontend compilado, `.env.example`, README e o exemplo do Portainer.
 git remote get-url github
 # https://github.com/facrf/agendarx.git
 git push github main
-git tag -a v0.6.5 -m "AgendarX v0.6.5"
-git push github v0.6.5
+git tag -a v0.6.5a -m "AgendarX v0.6.5a"
+git push github v0.6.5a
 ```
 
 Não use `git push origin` nesse fluxo: neste projeto `origin` é o espelho Gitea.
@@ -62,7 +65,7 @@ Só considere a imagem pronta quando o job **Imagem Docker multi-arquitetura**
 terminar com sucesso e a tag aparecer em
 [Packages > agendarx](https://github.com/facrf/agendarx/pkgs/container/agendarx).
 O workflow cria a Release com notas automáticas, pacotes e arquivos `.sha256` e
-publica no GHCR as tags `0.6.5`, `0.6`, `0` e `latest`. O envio da tag não espera
+publica no GHCR as tags `0.6.5a`, `0.6`, `0` e `latest`. O envio da tag não espera
 o build: o GitHub continua a compilação e você pode fechar o terminal.
 
 Na primeira publicação, o GitHub pode criar o pacote GHCR como privado. Para
@@ -74,8 +77,8 @@ Change visibility**, escolha **Public** e confirme. Essa mudança é permanente.
 Use a imagem publicada pelo projeto no GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5
-docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.5
+docker pull ghcr.io/facrf/agendarx:0.6.5a
+docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.5a
 ```
 
 O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
@@ -83,9 +86,9 @@ O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
 ## Usando um pacote binário
 
 ```bash
-sha256sum -c agendarx-0.6.5-linux-riscv64.tar.gz.sha256
-tar -xzf agendarx-0.6.5-linux-riscv64.tar.gz
-cd agendarx-0.6.5-linux-riscv64
+sha256sum -c agendarx-0.6.5a-linux-riscv64.tar.gz.sha256
+tar -xzf agendarx-0.6.5a-linux-riscv64.tar.gz
+cd agendarx-0.6.5a-linux-riscv64
 cp .env.example .env
 ./agendarx
 ```

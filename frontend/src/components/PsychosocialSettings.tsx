@@ -38,20 +38,20 @@ export function PsychosocialSettings() {
   };
 
   const fields = [
-    ["toxicidade_min", "T mínimo"], ["toxicidade_max", "T máximo"],
+    ["toxicidade_min", "Intensidade mínima"], ["toxicidade_max", "Intensidade máxima"],
     ["hp_base", "HP base"], ["hp_min", "HP mínimo"],
     ["fator_segundo_grau", "Fator de 2º grau"], ["peso_padrao", "Peso de vínculos sem correspondência"],
   ] as const;
   return <section className="panel p-5 sm:p-7">
     <h2 className="font-display text-xl font-semibold">HP psicossocial</h2>
-    <p className="mt-1 text-sm text-slate-500">A aura usa T próprio. A barra usa o HP recebido dos vínculos. Parâmetros aplicados sem reiniciar.</p>
+    <p className="mt-1 text-sm text-slate-500">A aura usa a intensidade própria. O HP desconta o risco próprio e as exposições dos vínculos. Parâmetros aplicados sem reiniciar.</p>
     {!config ? <div className="mt-4 text-sm">{failed ? <Button type="button" variant="secondary" onClick={() => void load()}>Tentar carregar parâmetros</Button> : "Carregando parâmetros…"}</div> : <form className="mt-5 space-y-5" onSubmit={submit}>
       <label className="flex items-center gap-2 text-sm font-semibold"><input type="checkbox" checked={config.ativo} onChange={(event) => setConfig({ ...config, ativo: event.target.checked })} /> Calcular impactos na vitalidade</label>
       <div className="grid gap-3 sm:grid-cols-2">{fields.map(([key, name]) => <label key={key} className="text-sm"><span className="field-label">{name}</span><input className="field" aria-label={name} type="number" min="0" max="1" step="any" required value={config[key]} onChange={(event) => setConfig({ ...config, [key]: Number(event.target.value) })} /><span className="mt-1 block text-xs text-slate-500">{(config[key] * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%</span></label>)}</div>
       <fieldset className="space-y-2"><legend className="mb-2 text-sm font-semibold">Pesos por tipo de vínculo</legend>{weights.map((row, index) => <div key={index} className="flex items-center gap-2"><input className="field min-w-0 flex-1" aria-label={`Tipo de vínculo ${index + 1}`} required maxLength={120} value={row.tipo} onChange={(event) => setWeights(weights.map((value, i) => i === index ? { ...value, tipo: event.target.value } : value))} /><input className="field w-24" aria-label={`Peso do vínculo ${index + 1}`} required type="number" min="0" max="1" step="any" value={row.peso} onChange={(event) => setWeights(weights.map((value, i) => i === index ? { ...value, peso: Number(event.target.value) } : value))} /><button className="icon-button" type="button" aria-label={`Remover peso ${index + 1}`} onClick={() => setWeights(weights.filter((_, i) => i !== index))}><Trash2 className="size-4" /></button></div>)}<Button type="button" variant="secondary" onClick={() => setWeights([...weights, { tipo: "", peso: config.peso_padrao }])}><Plus className="size-4" /> Adicionar peso</Button></fieldset>
-      <BandEditor title="Faixas da aura (T próprio)" rows={config.faixas_aura} onChange={(rows) => setConfig({ ...config, faixas_aura: rows })} allowPulse />
-      <BandEditor title="Faixas da vitalidade (HP recebido)" rows={config.faixas_vitalidade} onChange={(rows) => setConfig({ ...config, faixas_vitalidade: rows })} />
-      <p className="text-xs text-slate-500">Faixas começam em zero, em ordem crescente. Limites de T incompatíveis com perfis existentes são rejeitados. Versão atual: {config.versao}.</p>
+      <BandEditor title="Faixas da aura (intensidade própria)" rows={config.faixas_aura} onChange={(rows) => setConfig({ ...config, faixas_aura: rows })} allowPulse />
+      <BandEditor title="Faixas da vitalidade (HP)" rows={config.faixas_vitalidade} onChange={(rows) => setConfig({ ...config, faixas_vitalidade: rows })} />
+      <p className="text-xs text-slate-500">Faixas começam em zero, em ordem crescente. Limites de intensidade incompatíveis com perfis existentes são rejeitados. Versão atual: {config.versao}.</p>
       <div className="flex flex-wrap gap-2"><Button type="submit" loading={saving}><Save className="size-4" /> Salvar parâmetros psicossociais</Button><Button type="button" variant="secondary" disabled={saving} onClick={() => void load()}>Recarregar parâmetros</Button></div>
     </form>}
   </section>;

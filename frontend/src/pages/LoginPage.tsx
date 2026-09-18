@@ -1,9 +1,11 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import { Eye, EyeOff, Fingerprint, LockKeyhole, Network, UserRound } from "lucide-react";
 import { useState } from "react";
 import type { FormEvent } from "react";
 import { Navigate, useLocation, useNavigate } from "react-router-dom";
 import { Button } from "../components/ui";
 import { BrandIcon } from "../components/BrandIcon";
+import { AppFooter } from "../components/AppFooter";
 import { useAuth } from "../contexts/AuthContext";
 import { errorMessage } from "../services/api";
 
@@ -134,6 +136,7 @@ export function LoginPage() {
           <p className="mt-8 text-center text-xs leading-5 text-slate-400">
             Sua sessão usa um cookie HttpOnly e pode ser revogada imediatamente.
           </p>
+          <AppFooter />
         </div>
       </section>
     </main>

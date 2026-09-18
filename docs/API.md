@@ -28,6 +28,14 @@ existentes e `tipo_contato_id`/`valor`. A lista substitui os contatos da pessoa
 na mesma transação dos dados básicos; omitir o campo preserva os contatos.
 IDs pertencentes a outra pessoa e IDs repetidos são rejeitados.
 
+Pessoas também aceitam `risco_justificativa` (até 5000 caracteres) e
+`risco_revisado_em` (AAAA-MM-DD); omitir preserva os valores, string vazia limpa.
+`GET /api/pessoas/{id}` inclui `risco_registro` e composição psicossocial com
+`penalidade_propria`, `penalidade_direta` e `penalidade_residual`.
+`POST /api/pessoas/risco/previa` simula classificação/intensidade sem gravar;
+`GET /api/pessoas/{id}/risco/historico` lista até 100 revisões recentes, com
+autor e valores anteriores/novos. Ambas exigem uma sessão autenticada.
+
 Uploads respeitam `MAX_UPLOAD_BYTES` (padrão: 26.214.400 bytes / 25 MiB).
 Os limites HTTP e dos extratores são alinhados, com 1 MiB adicional para o
 envelope multipart. O limite individual continua validado em cada handler.

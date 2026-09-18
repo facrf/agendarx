@@ -35,6 +35,36 @@ fn perto(a: f64, b: f64) {
 }
 
 #[test]
+fn risco_proprio_reduz_hp_sem_vinculos_e_recupera_ao_remover() {
+    let mut nos = [no(1, 0.3)];
+    let cfg = config();
+    let resultado = calcular_hp_psicossocial(&nos, &[], &cfg).unwrap();
+    perto(estado(&resultado, 1).hp, 0.7);
+    perto(estado(&resultado, 1).penalidade_propria, 0.3);
+    assert!(estado(&resultado, 1).contribuicoes.is_empty());
+    let repetido = calcular_hp_psicossocial(&nos, &[], &cfg).unwrap();
+    perto(estado(&repetido, 1).hp, 0.7);
+    nos[0] = no(1, 0.0);
+    let recuperado = calcular_hp_psicossocial(&nos, &[], &cfg).unwrap();
+    perto(estado(&recuperado, 1).hp, 1.0);
+    let mut desativado = cfg;
+    desativado.parametros.ativo = false;
+    let resultado = calcular_hp_psicossocial(&[no(1, 0.5)], &[], &desativado).unwrap();
+    perto(estado(&resultado, 1).hp, 1.0);
+    perto(estado(&resultado, 1).penalidade_propria, 0.0);
+    let resultado = calcular_hp_psicossocial(
+        &[no(1, 0.5), no(2, 0.5)],
+        &[aresta(1, 1, 2, "Família")],
+        &config(),
+    )
+    .unwrap();
+    perto(estado(&resultado, 1).hp, 0.5);
+    perto(estado(&resultado, 2).hp, 0.05);
+    perto(estado(&resultado, 2).penalidade_propria, 0.5);
+    perto(estado(&resultado, 2).penalidade_direta, 0.5);
+}
+
+#[test]
 fn acumula_fontes_limita_hp_e_propaga_penalidade_original() {
     let nos = [no(1, 0.5), no(2, 0.0), no(3, 0.0), no(4, 0.5)];
     let mut edges = vec![
@@ -49,7 +79,7 @@ fn acumula_fontes_limita_hp_e_propaga_penalidade_original() {
     assert_eq!(estado(&v, 2).aura_nome, "Estável");
     assert_eq!(estado(&v, 2).vitalidade_nome, "Impactada");
     assert_eq!(estado(&v, 1).aura_nome, "Crítico");
-    perto(estado(&v, 1).hp, 0.9);
+    perto(estado(&v, 1).hp, 0.4);
     edges.remove(1);
     let restored = calcular_hp_psicossocial(&nos, &edges, &config()).unwrap();
     perto(estado(&restored, 2).hp, 0.5);
@@ -82,7 +112,7 @@ fn triangulos_nao_devolvem_residual_nem_somam_residual_a_alvo_direto() {
         aresta(3, 1, 3, "Profissional"),
     ];
     let v = calcular_hp_psicossocial(&nos, &edges, &config()).unwrap();
-    perto(estado(&v, 1).hp, 1.0);
+    perto(estado(&v, 1).hp, 0.7);
     perto(estado(&v, 3).hp, 0.85);
     perto(estado(&v, 3).penalidade_residual, 0.0);
     let cycle = [

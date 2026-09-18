@@ -4,7 +4,7 @@ import type { Core, ElementDefinition, StylesheetJson } from "cytoscape";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
 import { apiUrl } from "../services/api";
 import type { GrafoNode, GrafoResponse, PosicaoGrafo } from "../types/api";
-import { VitalityBar } from "./PsychosocialStatus";
+import { GraphVitalityBar, percentual } from "./PsychosocialStatus";
 
 export type GraphLayout = "force" | "hierarchical";
 interface GraphViewerProps {
@@ -18,7 +18,7 @@ interface GraphViewerProps {
   onPositionsChange?: (positions: PosicaoGrafo[]) => void;
 }
 export interface GraphViewerHandle { exportPng: () => string | null }
-interface Overlay { id: number; x: number; y: number; zoom: number; hp: number; color: string }
+interface Overlay { id: number; x: number; y: number; zoom: number; hp: number }
 
 export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(function GraphViewer(props, ref) {
   const { graph, layout, focusedNodeId, positions = [] } = props;
@@ -26,6 +26,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
   const cyRef = useRef<Core | null>(null);
   const callbacksRef = useRef(props);
   const structureRef = useRef("");
+  const syncOverlaysRef = useRef<(() => void) | null>(null);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
 
   useEffect(() => { callbacksRef.current = props; }, [props]);
@@ -50,11 +51,12 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
         const next = cy.nodes().map((item) => {
           const node = item.data("profile") as GrafoNode;
           const pos = item.renderedPosition();
-          return { id: node.id, x: pos.x, y: pos.y + item.renderedOuterHeight() / 2 + 32 * zoom, zoom, hp: node.hp, color: node.vitalidade_cor_hex };
+          return { id: node.id, x: pos.x, y: pos.y + item.renderedOuterHeight() / 2 + 32 * zoom, zoom, hp: node.hp };
         });
         setOverlays((previous) => JSON.stringify(previous) === JSON.stringify(next) ? previous : next);
       });
     };
+    syncOverlaysRef.current = syncOverlays;
     cy.on("render pan zoom position data", syncOverlays);
     cy.on("mouseover", "node, edge", (event) => event.target.addClass("is-hover"));
     cy.on("mouseout", "node, edge", (event) => event.target.removeClass("is-hover"));
@@ -91,6 +93,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     return () => {
       window.clearInterval(timer); cancelAnimationFrame(frame);
       motion.removeEventListener("change", applyMotion); observer.disconnect();
+      syncOverlaysRef.current = null;
       cy.destroy(); cyRef.current = null; structureRef.current = "";
     };
   }, []);
@@ -100,7 +103,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     if (!cy) return;
     const elements: ElementDefinition[] = [
       ...graph.nodes.map((node) => ({ data: { id: `node-${node.id}`, nodeId: node.id,
-        label: `${node.label} · HP ${node.hp_percentual.toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`,
+        label: node.label,
         color: node.color || "#86A6A3", image: node.foto_url ? apiUrl(node.foto_url) : "none",
         legalEntity: node.pessoa_juridica, auraColor: node.aura_cor_hex, auraPulsante: node.aura_pulsante, profile: node } })),
       ...graph.edges.map((edge) => ({ data: { id: `edge-${edge.id}`, edgeId: edge.id,
@@ -144,6 +147,8 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
       const data = focus.data("profile") as GrafoNode;
       for (const row of data.contribuicoes) cy.$id(`node-${row.fonte_id}`).addClass("is-source");
     });
+    // Synchronize DOM bars after every snapshot, even when geometry is unchanged.
+    syncOverlaysRef.current?.();
   }, [graph, layout, focusedNodeId]);
 
   useEffect(() => {
@@ -167,8 +172,9 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
   return <div className="relative h-full min-h-[38rem] w-full overflow-hidden">
     <div ref={containerRef} className="h-full min-h-[38rem] w-full cursor-grab active:cursor-grabbing" role="application" aria-label="Grafo interativo de relacionamentos" />
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
-      {overlays.map(({ id, x, y, zoom, hp, color }) => <div key={id} className="absolute w-28" style={{ left: x, top: y, transform: `translateX(-50%) scale(${zoom})`, transformOrigin: "top center" }}>
-        <VitalityBar hp={hp} color={color} compact />
+      {overlays.map(({ id, x, y, zoom, hp }) => <div key={id} data-person-id={id} className="absolute w-14" style={{ left: x, top: y, transform: `translateX(-50%) scale(${zoom})`, transformOrigin: "top center" }}>
+        <GraphVitalityBar hp={hp} />
+        <span className="mt-1 block text-center text-[10px] tabular-nums text-slate-600">{percentual(hp)}</span>
       </div>)}
     </div>
   </div>;

@@ -1,3 +1,4 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import {
   CalendarDays,
   ContactRound,
@@ -8,9 +9,10 @@ import {
   X,
 } from "lucide-react";
 import { useState } from "react";
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AdminIcon } from "./AdminIcon";
+import { AppFooter } from "./AppFooter";
 import { BrandIcon } from "./BrandIcon";
 import { TaskReminderWatcher } from "./TaskReminderWatcher";
 import { cn } from "./ui";
@@ -75,15 +77,16 @@ export function AppShell() {
               </button>
             </div>
             {links}
-            <UserPanel login={usuario?.login ?? ""} onLogout={() => void sair()} />
+            <UserPanel login={usuario?.login ?? ""} onLogout={() => void sair()} onSettings={() => setMenuAberto(false)} />
           </aside>
         </div>
       )}
 
-      <main className="min-h-screen lg:pl-72">
-        <div className="mx-auto max-w-[1480px] px-4 py-7 sm:px-7 lg:px-10 lg:py-10">
+      <main className="flex min-h-screen flex-col lg:pl-72">
+        <div className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-7 sm:px-7 lg:px-10 lg:py-10">
           <Outlet />
         </div>
+        <AppFooter />
       </main>
     </div>
   );
@@ -104,10 +107,12 @@ function Brand({ compact = false }: { compact?: boolean }) {
   );
 }
 
-function UserPanel({ login, onLogout }: { login: string; onLogout: () => void }) {
+function UserPanel({ login, onLogout, onSettings }: { login: string; onLogout: () => void; onSettings?: () => void }) {
   return (
     <div className="mt-6 flex items-center gap-3 rounded-2xl border border-white/10 bg-white/5 p-3">
-      <AdminIcon className="size-9 text-sm" />
+      <Link to="/configuracoes" onClick={onSettings} aria-label="Abrir configurações" title="Configurações" className="shrink-0 rounded-full transition hover:ring-2 hover:ring-teal-300 focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-teal-300">
+        <AdminIcon className="size-9 text-sm" />
+      </Link>
       <div className="min-w-0 flex-1">
         <p className="truncate text-sm font-medium">{login}</p>
         <p className="text-xs text-slate-400">Sessão protegida</p>

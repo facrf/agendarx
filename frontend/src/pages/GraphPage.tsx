@@ -11,6 +11,7 @@ import {
   Move,
   Network,
   Orbit,
+  RefreshCw,
   Plus,
   Save,
   Search,
@@ -322,6 +323,7 @@ export function GraphPage() {
         eyebrow="Mapa interpessoal"
         title="Teia de vínculos"
         description="Alterne entre uma rede orgânica e um diagrama hierárquico, investigue conexões e reposicione pessoas livremente."
+        action={<Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); })}><RefreshCw className="size-4" /> Atualizar mapa</Button>}
       />
 
       {refreshFailed && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status"><span>Não foi possível atualizar HP e auras. Os últimos valores continuam visíveis.</span><Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => notify(errorMessage(error), "erro"))}>Tentar atualizar grafo</Button></div>}

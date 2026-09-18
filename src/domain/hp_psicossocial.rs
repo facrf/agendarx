@@ -109,6 +109,7 @@ pub struct IndicadoresPsicossociais {
     pub hp_base: f64,
     pub hp_min: f64,
     pub penalidade_direta: f64,
+    pub penalidade_propria: f64,
     pub penalidade_residual: f64,
     pub aura_nome: String,
     pub aura_cor_hex: String,
@@ -150,7 +151,7 @@ impl ParametrosHp {
             || self.toxicidade_min > self.toxicidade_max
         {
             return Err(invalida(
-                "limites de toxicidade devem obedecer 0 < mínimo <= máximo <= 1",
+                "limites de intensidade devem obedecer 0 < mínimo <= máximo <= 1",
             ));
         }
         if !fracao(self.hp_min)
@@ -226,7 +227,7 @@ pub fn validar_perfil(
         return Err(ErroHp::PerfilInvalido {
             pessoa_id: id,
             motivo: format!(
-                "classificação/toxicidade incompatível; risco ativo exige T entre {} e {}",
+                "classificação/intensidade incompatível; risco ativo exige intensidade entre {} e {}",
                 p.toxicidade_min, p.toxicidade_max
             ),
         });
@@ -242,7 +243,7 @@ fn selecionar_faixa(faixas: &[FaixaIndicador], valor: f64) -> &FaixaIndicador {
         .unwrap_or(&faixas[0])
 }
 
-/// Recalcula todo o snapshot desde o HP base. A aura usa T próprio; a vitalidade usa HP recebido.
+/// Recalcula desde o HP base, descontando T próprio e exposições recebidas.
 pub fn calcular_hp_psicossocial(
     nos: &[NoPsicossocial],
     arestas: &[ArestaPsicossocial],
@@ -342,7 +343,8 @@ pub fn calcular_hp_psicossocial(
                 .filter(|c| c.grau == 2)
                 .map(|c| c.penalidade)
                 .sum();
-            let hp = (p.hp_base - direta - residual).clamp(p.hp_min, p.hp_base);
+            let propria = if p.ativo { no.toxicidade } else { 0.0 };
+            let hp = (p.hp_base - propria - direta - residual).clamp(p.hp_min, p.hp_base);
             let aura = selecionar_faixa(&p.faixas_aura, no.toxicidade);
             let vitalidade = selecionar_faixa(&p.faixas_vitalidade, hp);
             AtualizacaoHp {
@@ -353,6 +355,7 @@ pub fn calcular_hp_psicossocial(
                     hp_base: p.hp_base,
                     hp_min: p.hp_min,
                     penalidade_direta: direta,
+                    penalidade_propria: propria,
                     penalidade_residual: residual,
                     aura_nome: aura.nome.clone(),
                     aura_cor_hex: aura.cor_hex.clone(),

@@ -2,7 +2,7 @@ use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
     http::StatusCode,
-    routing::get,
+    routing::{get, post},
 };
 
 use crate::{
@@ -15,6 +15,11 @@ use crate::{
 pub fn rotas() -> Router<AppState> {
     Router::new()
         .route("/", get(listar_pessoas).post(criar_pessoa))
+        .route("/risco/previa", post(super::hp_psicossocial::prever_risco))
+        .route(
+            "/{id}/risco/historico",
+            get(super::hp_psicossocial::historico_risco),
+        )
         .route(
             "/{id}",
             get(obter_pessoa)
@@ -121,6 +126,17 @@ async fn criar_pessoa(
     .fetch_one(&mut *tx)
     .await?;
 
+    super::hp_psicossocial::registrar_revisao(
+        &mut tx,
+        pessoa_id,
+        &sessao,
+        input.classificacao_risco.as_ref().map(|_| &risco),
+        input.risco_justificativa.as_deref(),
+        input.risco_revisado_em.as_deref(),
+        true,
+    )
+    .await?;
+
     for contato in input.contatos {
         sqlx::query("INSERT INTO contato (pessoa_id, tipo_contato_id, valor) VALUES (?, ?, ?)")
             .bind(pessoa_id)
@@ -162,8 +178,17 @@ async fn atualizar_pessoa(
         input.toxicidade,
     )
     .await?;
-    let resultado =
-        sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ?, classificacao_risco = COALESCE(?, classificacao_risco), toxicidade = COALESCE(?, toxicidade) WHERE id = ? AND excluida_em IS NULL")
+    super::hp_psicossocial::registrar_revisao(
+        &mut tx,
+        id,
+        &sessao,
+        risco.as_ref(),
+        input.risco_justificativa.as_deref(),
+        input.risco_revisado_em.as_deref(),
+        false,
+    )
+    .await?;
+    let resultado = sqlx::query("UPDATE pessoa SET nome = ?, categoria_id = ?, descricao = ?, pessoa_juridica = ?, classificacao_risco = COALESCE(?, classificacao_risco), toxicidade = COALESCE(?, toxicidade) WHERE id = ? AND excluida_em IS NULL")
             .bind(input.nome.trim())
             .bind(input.categoria_id)
             .bind(normalizar_descricao(input.descricao))
@@ -346,11 +371,13 @@ async fn buscar_pessoa_detalhe(
     let psicossocial = indicadores
         .remove(&id)
         .ok_or_else(|| AppError::interno("perfil ausente do snapshot de HP"))?;
+    let risco_registro = super::hp_psicossocial::carregar_registro(&mut tx, id).await?;
     tx.commit().await?;
     Ok(PessoaDetalhe {
         pessoa,
         contatos,
         psicossocial,
+        risco_registro,
     })
 }
 

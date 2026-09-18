@@ -1,6 +1,7 @@
 /* Developed with care by FACRF - https://github.com/facrf */
 import { MarkdownText } from "../components/MarkdownText";
 import { PsychosocialStatus, PsychosocialSummary, RiskAura } from "../components/PsychosocialStatus";
+import { RiskRecord } from "../components/RiskHistory";
 import {
   ArrowLeft,
   AlignLeft,
@@ -110,7 +111,7 @@ export function PersonProfilePage() {
         <button className={cn("flex flex-1 items-center justify-center gap-2 rounded-xl px-5 py-2.5 text-sm font-semibold transition sm:flex-none", aba === "osint" ? "bg-ink text-white" : "text-slate-500 hover:bg-slate-50")} onClick={() => setParams({ aba: "osint" })}><Radar className="size-4" /> Pesquisa pública</button>
       </div>
 
-      {aba === "tarefas" ? <TasksPanel tarefas={tarefas} /> : aba === "dossie" ? <section className="panel p-5 sm:p-7"><PsychosocialSummary indicadores={pessoa.psicossocial} /><DossierPanel pessoaId={id} /></section> : aba === "osint" ? <section className="panel p-5 sm:p-7"><OSINTTab pessoaId={id} /></section> : (
+      {aba === "tarefas" ? <TasksPanel tarefas={tarefas} /> : aba === "dossie" ? <section className="panel p-5 sm:p-7"><PsychosocialSummary indicadores={pessoa.psicossocial} /><RiskRecord registro={pessoa.risco_registro} pessoaId={id} /><DossierPanel pessoaId={id} /></section> : aba === "osint" ? <section className="panel p-5 sm:p-7"><OSINTTab pessoaId={id} /></section> : (
         <div className="grid gap-5 xl:grid-cols-[1fr_20rem]">
           <section className="panel p-5 sm:p-7">
             <h2 className="font-display text-xl font-semibold">Meios de contato</h2>
@@ -132,6 +133,7 @@ export function PersonProfilePage() {
               <div className="mt-3 rounded-2xl border border-slate-100 bg-slate-50 p-4 text-sm leading-7 text-slate-600">
                 <MarkdownText>{pessoa.descricao || "Nenhuma descrição cadastrada para esta pessoa."}</MarkdownText>
               </div>
+              <RiskRecord registro={pessoa.risco_registro} pessoaId={id} />
             </div>
           </section>
           <aside className="panel p-5">

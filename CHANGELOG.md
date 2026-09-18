@@ -1,7 +1,39 @@
 # Histórico de alterações
 
 O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
-versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
+versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
+grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
+
+## [0.6.5a] - 2026-09-17
+
+### Adicionado
+
+- Rodapé discreto com a versão e o link www.fabianocesar.com, inclusive no login.
+- Justificativa e data de revisão no cadastro de risco psicossocial.
+- Histórico de revisões com autor, instante e valores anteriores/novos, preservado
+  nos backups e na lixeira; migração automática para o esquema 18.
+- Prévia antes de salvar usando o cálculo real da rede, com HP previsto e lista
+  de pessoas afetadas, sem persistir a simulação.
+- Composição explícita do HP: base, risco próprio, vínculos e piso mínimo.
+- Botão Atualizar mapa e sincronização das barras após aplicar cada snapshot.
+
+### Alterado
+
+- Risco próprio também reduz o HP da pessoa cadastrada, além dos vínculos.
+- Barras do grafo com metade da largura, preenchimento sólido e percentual abaixo:
+  verde a partir de 70%, amarelo de 40% a menos de 70%, vermelho abaixo de 40%.
+- Nome dos nós sem HP duplicado; terminologia neutra para classificação e intensidade.
+- Ícone do usuário autenticado abre Configurações, fechando o menu móvel.
+- Publicação aceita tags com uma letra de revisão e gera imagens AMD64, ARM64 e
+  ARMv7 no GHCR, além dos pacotes binários para quatro arquiteturas.
+
+### Corrigido
+
+- Consultas de indicadores sem reutilização do cache HTTP e atualização entre abas.
+- Salvamento bloqueado quando o cadastro falha ao carregar; respostas antigas de
+  outra pessoa em edição são descartadas.
+- Gravação do histórico e dos metadados na mesma transação da classificação,
+  evitando revisões parciais ou duplicadas quando os valores não mudam.
 
 ## [0.6.5] - 2026-09-17
 
@@ -263,6 +295,7 @@ versionamento pretendido é [SemVer](https://semver.org/lang/pt-BR/).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.5a]: https://github.com/facrf/agendarx/compare/v0.6.5...v0.6.5a
 [0.6.5]: https://github.com/facrf/agendarx/compare/v0.6.4...v0.6.5
 [0.6.4]: https://github.com/facrf/agendarx/compare/v0.6.3...v0.6.4
 [0.6.3]: https://github.com/facrf/agendarx/compare/v0.6.2...v0.6.3

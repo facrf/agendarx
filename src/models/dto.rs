@@ -179,6 +179,8 @@ pub struct PessoaInput {
     pub contatos: Vec<ContatoInput>,
     pub classificacao_risco: Option<String>,
     pub toxicidade: Option<f64>,
+    pub risco_justificativa: Option<String>,
+    pub risco_revisado_em: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -191,6 +193,8 @@ pub struct PessoaUpdateInput {
     pub contatos: Option<Vec<ContatoEdicaoInput>>,
     pub classificacao_risco: Option<String>,
     pub toxicidade: Option<f64>,
+    pub risco_justificativa: Option<String>,
+    pub risco_revisado_em: Option<String>,
 }
 
 #[derive(Debug, Deserialize)]
@@ -231,6 +235,7 @@ pub struct PessoaDetalhe {
     pub pessoa: PessoaResumo,
     pub contatos: Vec<Contato>,
     pub psicossocial: crate::domain::hp_psicossocial::IndicadoresPsicossociais,
+    pub risco_registro: crate::handlers::hp_psicossocial::RegistroRisco,
 }
 
 #[derive(Debug, Clone, Serialize, FromRow)]

@@ -8,6 +8,14 @@ export function percentual(value: number) {
   return `${(value * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })}%`;
 }
 
+export function GraphVitalityBar({ hp }: { hp: number }) {
+  const value = Math.max(0, Math.min(1, hp));
+  const color = value >= 0.7 ? "#22C55E" : value >= 0.4 ? "#EAB308" : "#EF4444";
+  return <div className="h-1 w-14 overflow-hidden rounded-full bg-slate-200" role="progressbar" aria-label="Vitalidade psicossocial · HP" aria-valuemin={0} aria-valuemax={100} aria-valuenow={value * 100} aria-valuetext={percentual(value)}>
+    <div className="h-full rounded-full" style={{ width: `${value * 100}%`, backgroundColor: color }} />
+  </div>;
+}
+
 export function VitalityBar({ hp, color, compact = false, label = "Vitalidade psicossocial · HP" }: {
   hp: number; color: string; compact?: boolean; label?: string;
 }) {
@@ -26,24 +34,28 @@ export function VitalityBar({ hp, color, compact = false, label = "Vitalidade ps
 export function RiskAura({ indicadores, children, square = false }: {
   indicadores: IndicadoresPsicossociais; children: ReactNode; square?: boolean;
 }) {
-  return <div className={`risk-aura ${indicadores.aura_pulsante ? "risk-aura-pulse" : ""} ${square ? "risk-aura-square" : ""}`} style={{ "--aura-color": indicadores.aura_cor_hex } as CSSProperties} title={`Aura de risco cadastrado: ${indicadores.aura_nome}. Independente do HP recebido.`} aria-label={`Aura de risco: ${indicadores.aura_nome}`}>
+  return <div className={`risk-aura ${indicadores.aura_pulsante ? "risk-aura-pulse" : ""} ${square ? "risk-aura-square" : ""}`} style={{ "--aura-color": indicadores.aura_cor_hex } as CSSProperties} title={`Aura de risco cadastrado: ${indicadores.aura_nome}. O HP considera o risco próprio e os vínculos.`} aria-label={`Aura de risco: ${indicadores.aura_nome}`}>
     {children}
   </div>;
 }
 
 export function ImpactDetails({ indicadores }: { indicadores: IndicadoresPsicossociais }) {
   const rows = indicadores.contribuicoes;
+  const propria = indicadores.penalidade_propria ?? 0;
+  const vinculos = indicadores.penalidade_direta + indicadores.penalidade_residual;
+  const bruto = indicadores.hp_base - propria - vinculos;
   return <div className="space-y-3 text-sm">
-    <p className="text-slate-500">A aura indica o risco cadastrado deste perfil. O HP mostra o impacto recebido das conexões.</p>
+    <p className="text-slate-500">A aura indica o risco cadastrado. O HP desconta esse risco próprio e os impactos recebidos das conexões.</p>
+    <div className="rounded-xl bg-slate-50 p-3" aria-label="Cálculo do HP"><p>Base <strong>{percentual(indicadores.hp_base)}</strong> − risco próprio <strong>{percentual(propria)}</strong> − vínculos <strong>{percentual(vinculos)}</strong> = <strong>{percentual(bruto)}</strong>.</p><p className="mt-1">HP final: <strong>{percentual(indicadores.hp)}</strong>{bruto < indicadores.hp_min && " (limitado pelo piso configurado)"}.</p><p className="mt-1 text-xs text-slate-500">Vínculos: {percentual(indicadores.penalidade_direta)} diretos + {percentual(indicadores.penalidade_residual)} de 2º grau.</p></div>
     <p>Base: <strong>{percentual(indicadores.hp_base)}</strong> · piso: <strong>{percentual(indicadores.hp_min)}</strong> · perda aplicada: <strong>{percentual(indicadores.hp_base - indicadores.hp)}</strong>.</p>
     {!indicadores.calculo_ativo && <p className="rounded-xl bg-slate-100 p-3">Cálculo de impactos desativado nas configurações.</p>}
-    {rows.length === 0 ? <p className="text-slate-500">Nenhuma exposição ativa contribuindo para o HP.</p> : <ul className="max-h-64 space-y-2 overflow-auto">
+    {rows.length === 0 ? <p className="text-slate-500">Nenhum impacto recebido dos vínculos.</p> : <ul className="max-h-64 space-y-2 overflow-auto">
       {rows.map((row, index) => <li key={`${row.vinculo_id}-${row.grau}-${index}`} className="rounded-xl border border-slate-100 bg-slate-50 p-3">
         <div className="flex justify-between gap-3"><Link className="font-semibold text-teal-800 underline" to={`/pessoas/${row.fonte_id}`}>{row.fonte_nome}</Link><strong>{(row.penalidade * 100).toLocaleString("pt-BR", { maximumFractionDigits: 2 })} p.p.</strong></div>
-        <p className="mt-1 text-xs text-slate-500">{row.tipo_vinculo} · T = {row.toxicidade_fonte.toLocaleString("pt-BR")} · peso = {percentual(row.peso)} · {row.grau === 1 ? "impacto direto (1º grau)" : `residual (2º grau) via ${row.alvo_direto_nome}`}</p>
+        <p className="mt-1 text-xs text-slate-500">{row.tipo_vinculo} · intensidade = {row.toxicidade_fonte.toLocaleString("pt-BR")} · peso = {percentual(row.peso)} · {row.grau === 1 ? "impacto direto (1º grau)" : `residual (2º grau) via ${row.alvo_direto_nome}`}</p>
       </li>)}
     </ul>}
-    {indicadores.penalidade_direta + indicadores.penalidade_residual > indicadores.hp_base - indicadores.hp_min && <p className="text-xs text-slate-500">O HP atingiu o piso. As contribuições exibem os valores brutos antes do limite.</p>}
+    {(indicadores.penalidade_propria ?? 0) + indicadores.penalidade_direta + indicadores.penalidade_residual > indicadores.hp_base - indicadores.hp_min && <p className="text-xs text-slate-500">O HP atingiu o piso. As contribuições exibem os valores brutos antes do limite.</p>}
   </div>;
 }
 
@@ -61,23 +73,22 @@ export function PsychosocialStatus({ indicadores }: { indicadores: IndicadoresPs
 
 export function PsychosocialSummary({ indicadores }: { indicadores: IndicadoresPsicossociais }) {
   const metrics = [
+    { name: "Risco próprio", value: indicadores.penalidade_propria ?? 0, color: "#EF4444" },
     { name: "Exposição direta", value: indicadores.penalidade_direta, color: "#EF4444" },
     { name: "Estresse secundário", value: indicadores.penalidade_residual, color: "#F97316" },
     { name: "Vitalidade", value: indicadores.hp, color: indicadores.vitalidade_cor_hex },
   ];
   return <section className="mb-6 space-y-4 border-b border-slate-100 pb-6" aria-label="Resumo psicossocial">
-    <div><h2 className="font-display text-xl font-semibold">Resumo psicossocial</h2><p className="mt-1 text-sm text-slate-500">Exposições recebidas e vitalidade atual na rede ativa.</p></div>
+    <div><h2 className="font-display text-xl font-semibold">Resumo psicossocial</h2><p className="mt-1 text-sm text-slate-500">Risco próprio, exposições recebidas e vitalidade atual na rede ativa.</p></div>
     <div className="space-y-3">{metrics.map((metric) => <div key={metric.name} className="grid grid-cols-[minmax(7rem,10rem)_1fr_4.5rem] items-center gap-3 text-xs sm:text-sm"><span>{metric.name}</span><div className="h-3 overflow-hidden rounded-full bg-slate-100"><div className="h-full rounded-full" style={{ width: `${Math.min(1, metric.value) * 100}%`, backgroundColor: metric.color }} /></div><strong className="text-right tabular-nums">{percentual(metric.value)}</strong></div>)}</div>
     <details className="rounded-xl border border-slate-100 p-3"><summary className="cursor-pointer text-sm font-semibold text-teal-800">Quais vínculos contribuíram?</summary><div className="mt-3"><ImpactDetails indicadores={indicadores} /></div></details>
   </section>;
 }
 
 export function PsychosocialLegend({ config }: { config: ConfigHpPsicossocial }) {
-  const full = config.faixas_vitalidade.at(-1)!;
-  const empty = config.faixas_vitalidade[0];
   return <section className="space-y-3 border-b border-slate-100 p-4 text-xs" aria-label="Legenda psicossocial">
     <div className="flex flex-wrap items-center gap-4"><strong>Auras de risco comportamental:</strong>{[...config.faixas_aura].reverse().map((band) => <span key={band.min} className="inline-flex items-center gap-2"><span className={`aura-sample ${band.pulsante ? "risk-aura-pulse" : ""}`} style={{ "--aura-color": band.cor_hex } as CSSProperties} />{band.nome}{band.pulsante && <span className="text-slate-500">(pulsante)</span>}</span>)}</div>
-    <div className="flex flex-wrap items-center gap-4"><strong>Barra de vitalidade:</strong><div className="w-48"><VitalityBar hp={1} color={full.cor_hex} compact label={`Barra cheia: ${full.nome}`} /></div><span>Cheia = {full.nome.toLowerCase()}</span><div className="w-48"><VitalityBar hp={0} color={empty.cor_hex} compact label={`Barra vazia: ${empty.nome}`} /></div><span>Vazia = {empty.nome.toLowerCase()}</span></div>
-    <p className="text-slate-500">Aura = risco cadastrado · barra = HP recebido · 1º grau: linha contínua · 2º grau: linha tracejada. Selecione um nó para explorar até o 2º grau.</p>
+    <div className="flex flex-wrap items-center gap-4"><strong>Barras do mapa · HP:</strong>{[{ hp: 1, label: "70% a 100%" }, { hp: 0.5, label: "40% a menos de 70%" }, { hp: 0.2, label: "Abaixo de 40%" }].map(({ hp, label }) => <span key={hp} className="inline-flex items-center gap-2"><GraphVitalityBar hp={hp} />{label}</span>)}</div>
+    <p className="text-slate-500">Aura = risco cadastrado · barra = HP após risco próprio e impactos dos vínculos · 1º grau: linha contínua · 2º grau: linha tracejada. Selecione um nó para explorar até o 2º grau.</p>
   </section>;
 }
