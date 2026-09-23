@@ -17,7 +17,7 @@ fs2 = "0.4"
 http = "1"
 image = { version = "0.25", default-features = false, features = ["bmp", "gif", "ico", "jpeg", "png", "tiff", "webp"] }
 infer = "0.19"
-jsonwebtoken = { version = "9", default-features = false }
+jsonwebtoken = { version = "11", default-features = false }
 mime = "0.3"
 quick-xml = "0.38"
 rand_core = { version = "0.6", features = ["getrandom"] }
