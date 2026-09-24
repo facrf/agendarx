@@ -86,7 +86,10 @@ e persistência de mídia privada no cache do navegador.
 | Dossiê | `GET /api/dossie/anexos/{id}/thumbnail` | Miniatura WebP da imagem |
 | Foto | `GET, PUT, POST, DELETE /api/dossie/pessoas/{id}/foto` | Foto principal; `POST` usa multipart `arquivo` |
 | Vínculos | `GET, POST /api/vinculos` | Listar/criar vínculos |
-| Vínculos | `GET, PUT, DELETE /api/vinculos/{id}` | CRUD de vínculo |
+| Vínculos | `GET, PUT, DELETE /api/vinculos/{id}` | Consultar/editar e mover vínculo para a lixeira |
+| Vínculos | `GET /api/vinculos/lixeira` | Listar vínculos excluídos |
+| Vínculos | `POST /api/vinculos/lixeira/{id}/restaurar` | Restaurar vínculo com seus anexos |
+| Vínculos | `DELETE /api/vinculos/lixeira/{id}` | Exclusão definitiva (administrador) |
 | Vínculos | `GET, POST /api/vinculos/{id}/anexos` | Listar/upload multipart (`arquivo`) |
 | Vínculos | `GET, PUT, DELETE /api/vinculos/anexos/{id}` | Metadados/renomeação/exclusão de anexo |
 | Vínculos | `GET /api/vinculos/anexos/{id}/stream` | Foto, áudio ou arquivo inline com HTTP Range |

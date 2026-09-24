@@ -64,7 +64,7 @@ async fn carregar_rede(
     let arestas = sqlx::query_as::<_, ArestaPsicossocial>(
         "SELECT v.id AS vinculo_id, v.pessoa_origem_id AS origem_id, v.pessoa_destino_id AS destino_id, v.tipo_vinculo \
          FROM pessoa_vinculo v JOIN pessoa a ON a.id = v.pessoa_origem_id JOIN pessoa b ON b.id = v.pessoa_destino_id \
-         WHERE a.excluida_em IS NULL AND b.excluida_em IS NULL ORDER BY v.id",
+         WHERE v.excluido_em IS NULL AND a.excluida_em IS NULL AND b.excluida_em IS NULL ORDER BY v.id",
     ).fetch_all(&mut *conn).await?;
     Ok((nos, arestas))
 }

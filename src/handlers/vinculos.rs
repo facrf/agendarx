@@ -1,17 +1,19 @@
 use std::collections::HashMap;
 
 use axum::{
-    Json, Router,
+    Extension, Json, Router,
     extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode, header},
     response::Response,
     routing::get,
 };
 use bytes::Bytes;
+use serde::Serialize;
 
 use crate::{
     AppState,
     error::AppError,
+    middleware::auth::SessaoAutenticada,
     models::{
         AnexoNomeInput, AnexoVinculo, AnexoVinculoResumo, GrafoContato, GrafoEdge, GrafoNode,
         GrafoResponse, PessoaVinculo, VinculoInput,
@@ -22,6 +24,15 @@ pub fn rotas() -> Router<AppState> {
     Router::new()
         .route("/", get(listar_vinculos).post(criar_vinculo))
         .route("/grafo", get(obter_grafo))
+        .route("/lixeira", get(listar_lixeira))
+        .route(
+            "/lixeira/{id}/restaurar",
+            axum::routing::post(restaurar_vinculo),
+        )
+        .route(
+            "/lixeira/{id}",
+            axum::routing::delete(excluir_definitivamente),
+        )
         .route(
             "/{vinculo_id}/anexos",
             get(listar_anexos).post(enviar_anexo),
@@ -48,6 +59,7 @@ async fn obter_notas(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<super::notas::NotasResponse>, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     super::notas::obter(&state, super::notas::AnexoTipo::Vinculo, id).await
 }
 
@@ -56,6 +68,7 @@ async fn salvar_notas(
     Path(id): Path<i64>,
     Json(input): Json<super::notas::NotasInput>,
 ) -> Result<Json<super::notas::NotasInput>, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     super::notas::salvar(&state, super::notas::AnexoTipo::Vinculo, id, input).await
 }
 
@@ -78,6 +91,7 @@ async fn obter_metadados_anexo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Json<AnexoVinculoResumo>, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     let anexo = sqlx::query_as::<_, AnexoVinculoLinha>(
         "SELECT id, vinculo_id, nome_arquivo, mime_type, tamanho_bytes, data_upload \
          FROM anexo_vinculo WHERE id = ?",
@@ -167,6 +181,7 @@ async fn atualizar_nome_anexo(
     Path(id): Path<i64>,
     Json(input): Json<AnexoNomeInput>,
 ) -> Result<Json<AnexoVinculoResumo>, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     let nome_arquivo = super::dossie::normalizar_nome_arquivo(&input.nome_arquivo)?;
     let anexo = sqlx::query_as::<_, AnexoVinculoLinha>(
         "UPDATE anexo_vinculo SET nome_arquivo = ? WHERE id = ? \
@@ -214,6 +229,7 @@ async fn obter_miniatura(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<Response, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     if let Some(conteudo) = sqlx::query_scalar::<_, Vec<u8>>(
         "SELECT conteudo_webp FROM miniatura_anexo_vinculo WHERE anexo_id = ?",
     )
@@ -255,6 +271,7 @@ async fn excluir_anexo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    garantir_anexo_ativo(&state, id).await?;
     let resultado = sqlx::query("DELETE FROM anexo_vinculo WHERE id = ?")
         .bind(id)
         .execute(&state.pool)
@@ -266,6 +283,7 @@ async fn excluir_anexo(
 }
 
 async fn buscar_anexo(state: &AppState, id: i64) -> Result<AnexoVinculo, AppError> {
+    garantir_anexo_ativo(state, id).await?;
     sqlx::query_as::<_, AnexoVinculo>(
         "SELECT id, vinculo_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes, data_upload \
          FROM anexo_vinculo WHERE id = ?",
@@ -276,12 +294,26 @@ async fn buscar_anexo(state: &AppState, id: i64) -> Result<AnexoVinculo, AppErro
     .ok_or_else(|| AppError::nao_encontrado("anexo do vínculo"))
 }
 
+async fn garantir_anexo_ativo(state: &AppState, id: i64) -> Result<(), AppError> {
+    let ativo: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM anexo_vinculo a JOIN pessoa_vinculo v ON v.id = a.vinculo_id WHERE a.id = ? AND v.excluido_em IS NULL)",
+    )
+    .bind(id)
+    .fetch_one(&state.pool)
+    .await?;
+    if ativo {
+        Ok(())
+    } else {
+        Err(AppError::nao_encontrado("anexo do vínculo"))
+    }
+}
+
 async fn listar_vinculos(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PessoaVinculo>>, AppError> {
     let vinculos = sqlx::query_as::<_, PessoaVinculo>(
         "SELECT id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
-         FROM pessoa_vinculo ORDER BY data_criacao DESC, id DESC",
+         FROM pessoa_vinculo WHERE excluido_em IS NULL ORDER BY data_criacao DESC, id DESC",
     )
     .fetch_all(&state.pool)
     .await?;
@@ -301,6 +333,19 @@ async fn criar_vinculo(
     Json(input): Json<VinculoInput>,
 ) -> Result<(StatusCode, Json<PessoaVinculo>), AppError> {
     validar_vinculo(&input)?;
+    let na_lixeira: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa_vinculo WHERE pessoa_origem_id = ? AND pessoa_destino_id = ? AND tipo_vinculo = ? AND excluido_em IS NOT NULL)",
+    )
+    .bind(input.pessoa_origem_id)
+    .bind(input.pessoa_destino_id)
+    .bind(input.tipo_vinculo.trim())
+    .fetch_one(&state.pool)
+    .await?;
+    if na_lixeira {
+        return Err(AppError::Conflict(
+            "esse vínculo está na lixeira; restaure-o para recuperar também os anexos".to_owned(),
+        ));
+    }
     let vinculo = sqlx::query_as::<_, PessoaVinculo>(
         "INSERT INTO pessoa_vinculo \
             (pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao) \
@@ -325,7 +370,7 @@ async fn atualizar_vinculo(
     let vinculo = sqlx::query_as::<_, PessoaVinculo>(
         "UPDATE pessoa_vinculo SET \
             pessoa_origem_id = ?, pessoa_destino_id = ?, tipo_vinculo = ?, descricao = ? \
-         WHERE id = ? \
+         WHERE id = ? AND excluido_em IS NULL \
          RETURNING id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao",
     )
     .bind(input.pessoa_origem_id)
@@ -343,12 +388,78 @@ async fn excluir_vinculo(
     State(state): State<AppState>,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
-    let resultado = sqlx::query("DELETE FROM pessoa_vinculo WHERE id = ?")
+    let resultado = sqlx::query("UPDATE pessoa_vinculo SET excluido_em = CURRENT_TIMESTAMP WHERE id = ? AND excluido_em IS NULL")
         .bind(id)
         .execute(&state.pool)
         .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("vínculo"));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Serialize, sqlx::FromRow)]
+struct VinculoLixeira {
+    id: i64,
+    tipo_vinculo: String,
+    pessoa_origem_id: i64,
+    pessoa_destino_id: i64,
+    origem_nome: String,
+    destino_nome: String,
+    excluido_em: String,
+}
+
+async fn listar_lixeira(
+    State(state): State<AppState>,
+) -> Result<Json<Vec<VinculoLixeira>>, AppError> {
+    let vinculos = sqlx::query_as(
+        "SELECT v.id, v.tipo_vinculo, v.pessoa_origem_id, v.pessoa_destino_id, \
+                origem.nome AS origem_nome, destino.nome AS destino_nome, v.excluido_em \
+         FROM pessoa_vinculo v \
+         JOIN pessoa origem ON origem.id = v.pessoa_origem_id \
+         JOIN pessoa destino ON destino.id = v.pessoa_destino_id \
+         WHERE v.excluido_em IS NOT NULL ORDER BY v.excluido_em DESC, v.id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+    Ok(Json(vinculos))
+}
+
+async fn restaurar_vinculo(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    let resultado = sqlx::query(
+        "UPDATE pessoa_vinculo SET excluido_em = NULL WHERE id = ? AND excluido_em IS NOT NULL \
+         AND pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) \
+         AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL)",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await?;
+    if resultado.rows_affected() == 0 {
+        return Err(AppError::Conflict(
+            "vínculo ausente da lixeira ou uma das pessoas também está na lixeira".to_owned(),
+        ));
+    }
+    Ok(StatusCode::NO_CONTENT)
+}
+
+async fn excluir_definitivamente(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Path(id): Path<i64>,
+) -> Result<StatusCode, AppError> {
+    if sessao.usuario.perfil != "admin" {
+        return Err(AppError::Forbidden);
+    }
+    let resultado =
+        sqlx::query("DELETE FROM pessoa_vinculo WHERE id = ? AND excluido_em IS NOT NULL")
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
+    if resultado.rows_affected() == 0 {
+        return Err(AppError::nao_encontrado("vínculo na lixeira"));
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -412,7 +523,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
     let edges = sqlx::query_as::<_, GrafoEdge>(
         "SELECT id, pessoa_origem_id AS source, pessoa_destino_id AS target, \
                 tipo_vinculo AS label, descricao, data_criacao \
-         FROM pessoa_vinculo WHERE pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
+         FROM pessoa_vinculo WHERE excluido_em IS NULL AND pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
     )
     .fetch_all(&mut *tx)
     .await?;
@@ -447,7 +558,7 @@ struct GrafoContatoLinha {
 async fn buscar_vinculo(state: &AppState, id: i64) -> Result<PessoaVinculo, AppError> {
     sqlx::query_as::<_, PessoaVinculo>(
         "SELECT id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
-         FROM pessoa_vinculo WHERE id = ?",
+         FROM pessoa_vinculo WHERE id = ? AND excluido_em IS NULL",
     )
     .bind(id)
     .fetch_optional(&state.pool)

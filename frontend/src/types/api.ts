@@ -167,6 +167,7 @@ export interface GrafoEdge {
 
 export interface Etiqueta { id: number; nome: string; cor_hex: string }
 export interface PessoaLixeira { id: number; nome: string; excluida_em: string }
+export interface VinculoLixeira { id: number; tipo_vinculo: string; pessoa_origem_id: number; pessoa_destino_id: number; origem_nome: string; destino_nome: string; excluido_em: string }
 export interface AuditoriaItem { id: number; usuario_login: string; acao: string; recurso: string; status_http: number; data_evento: string }
 export interface PosicaoGrafo { pessoa_id: number; x: number; y: number }
 export interface BackupInfo {

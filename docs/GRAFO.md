@@ -34,5 +34,11 @@ no mapa. A profundidade de 1º, 2º ou 3º grau controla o recorte quando o foco
 isolado. Clique em uma linha para ver seus detalhes e dê duplo clique em uma pessoa
 para abrir seu perfil.
 
+Nos detalhes de uma linha, use **Excluir vínculo** para mover a relação para a
+lixeira após confirmar. Ela sai do grafo e do cálculo psicossocial, mas os anexos
+ficam preservados. Abra **Lixeira de vínculos** na lateral para restaurar a relação
+com seus anexos. Um administrador pode excluí-la definitivamente nessa lista.
+Se uma das pessoas também estiver na lixeira, restaure a pessoa primeiro.
+
 O botão **Gerar PDF** usa exatamente o recorte visível do mapa e abre a janela de
 impressão, onde é possível escolher **Salvar como PDF**.

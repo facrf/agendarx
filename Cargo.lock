@@ -21,7 +21,7 @@ dependencies = [
 
 [[package]]
 name = "agendarx"
-version = "0.6.5-b"
+version = "0.6.5-c"
 dependencies = [
  "argon2",
  "axum",

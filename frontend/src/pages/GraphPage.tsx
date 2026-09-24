@@ -33,6 +33,7 @@ import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
 import { api, errorMessage } from "../services/api";
+import { formatDate } from "../utils/format";
 import type {
   AnexoVinculo,
   Categoria,
@@ -42,6 +43,7 @@ import type {
   PessoaResumo,
   PessoaVinculo,
   VinculoPayload,
+  VinculoLixeira,
 } from "../types/api";
 
 const emptyRelationship: VinculoPayload = {
@@ -67,6 +69,7 @@ export function GraphPage() {
   const [people, setPeople] = useState<PessoaResumo[]>([]);
   const [categories, setCategories] = useState<Categoria[]>([]);
   const [relationships, setRelationships] = useState<PessoaVinculo[]>([]);
+  const [trashedRelationships, setTrashedRelationships] = useState<VinculoLixeira[]>([]);
   const [search, setSearch] = useState(searchParams.get("busca") ?? (typeof savedFilters.search === "string" ? savedFilters.search : ""));
   const [category, setCategory] = useState(typeof savedFilters.category === "string" ? savedFilters.category : "");
   const [depth, setDepth] = useState(typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
@@ -125,17 +128,19 @@ export function GraphPage() {
 
   const loadGraphData = useCallback(async () => {
     const sequence = ++loadSequence.current;
-    const [graphData, peopleData, categoryData, relationshipData] = await Promise.all([
+    const [graphData, peopleData, categoryData, relationshipData, trashData] = await Promise.all([
       api.get<GrafoResponse>("/api/vinculos/grafo"),
       api.get<PessoaResumo[]>("/api/pessoas"),
       api.get<Categoria[]>("/api/configuracoes/categorias"),
       api.get<PessoaVinculo[]>("/api/vinculos"),
+      api.get<VinculoLixeira[]>("/api/vinculos/lixeira"),
     ]);
     if (sequence !== loadSequence.current) return;
     setGraph(graphData);
     setPeople(peopleData);
     setCategories(categoryData);
     setRelationships(relationshipData);
+    setTrashedRelationships(trashData);
     setRefreshFailed(false);
   }, []);
 
@@ -311,13 +316,39 @@ export function GraphPage() {
     }
   };
 
-  const deleteRelationship = async (relationship: PessoaVinculo) => {
-    if (!window.confirm(`Excluir o vínculo “${relationship.tipo_vinculo}”?`)) return;
+  const deleteRelationship = async (relationship: Pick<PessoaVinculo, "id" | "tipo_vinculo" | "pessoa_origem_id" | "pessoa_destino_id">): Promise<void> => {
+    const source = personName(people, relationship.pessoa_origem_id);
+    const target = personName(people, relationship.pessoa_destino_id);
+    if (!window.confirm(`Mover o vínculo “${relationship.tipo_vinculo}” entre ${source} e ${target} para a lixeira? Os anexos serão preservados e o vínculo poderá ser restaurado.`)) return;
     try {
       await api.delete(`/api/vinculos/${relationship.id}`);
-      notify("Vínculo excluído");
+      notify("Vínculo movido para a lixeira");
       setSelectedEdge(null);
+      setRelationships((items) => items.filter((item) => item.id !== relationship.id));
+      setGraph((current) => ({ ...current, edges: current.edges.filter((edge) => edge.id !== relationship.id) }));
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+      return;
+    }
+    void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); });
+  };
+
+  const restoreRelationship = async (relationship: VinculoLixeira) => {
+    try {
+      await api.post(`/api/vinculos/lixeira/${relationship.id}/restaurar`);
       await loadGraphData();
+      notify("Vínculo restaurado com seus anexos");
+    } catch (error) {
+      notify(errorMessage(error), "erro");
+    }
+  };
+
+  const permanentlyDeleteRelationship = async (relationship: VinculoLixeira) => {
+    if (!window.confirm(`Excluir definitivamente o vínculo “${relationship.tipo_vinculo}” entre ${relationship.origem_nome} e ${relationship.destino_nome} e todos os seus anexos?`)) return;
+    try {
+      await api.delete(`/api/vinculos/lixeira/${relationship.id}`);
+      await loadGraphData();
+      notify("Vínculo excluído definitivamente");
     } catch (error) {
       notify(errorMessage(error), "erro");
     }
@@ -403,6 +434,25 @@ export function GraphPage() {
               </div>
             </section>
           )}
+
+          <details className="panel p-4">
+            <summary className="cursor-pointer font-display text-lg font-semibold">Lixeira de vínculos ({trashedRelationships.length})</summary>
+            <p className="mt-2 text-xs text-slate-500">Restaure vínculos e anexos. Se uma pessoa também estiver na lixeira, restaure-a primeiro.</p>
+            {trashedRelationships.length === 0 ? <p className="mt-3 text-sm text-slate-400">Nenhum vínculo na lixeira.</p> : (
+              <div className="mt-3 max-h-72 space-y-2 overflow-auto pr-1">
+                {trashedRelationships.map((relationship) => (
+                  <article key={relationship.id} className="rounded-2xl border border-slate-100 bg-slate-50 p-3">
+                    <p className="text-sm font-semibold text-slate-800">{relationship.origem_nome} — {relationship.destino_nome}</p>
+                    <p className="mt-1 text-xs text-slate-500">{relationship.tipo_vinculo} · {formatDate(relationship.excluido_em, true)}</p>
+                    <div className="mt-3 flex flex-wrap gap-2">
+                      <Button type="button" variant="secondary" onClick={() => void restoreRelationship(relationship)}>Restaurar</Button>
+                      {usuario?.perfil === "admin" && <Button type="button" variant="danger" onClick={() => void permanentlyDeleteRelationship(relationship)}>Excluir definitivamente</Button>}
+                    </div>
+                  </article>
+                ))}
+              </div>
+            )}
+          </details>
         </aside>
 
         <section ref={graphPanelRef} aria-label={expanded ? "Grafo em tela cheia" : "Mapa de relacionamentos"} className={cn("panel overflow-hidden", expanded && "fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto rounded-none bg-white")}>
@@ -487,6 +537,7 @@ export function GraphPage() {
         edge={selectedEdge}
         nodes={graph.nodes}
         onClose={() => setSelectedEdge(null)}
+        onDelete={(edge) => deleteRelationship({ id: edge.id, tipo_vinculo: edge.label, pessoa_origem_id: edge.source, pessoa_destino_id: edge.target })}
         onUpdated={async (relationship) => {
           await loadGraphData();
           setSelectedEdge({

@@ -38,7 +38,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
   const data = response.status === 204 ? undefined : await response.json();
   if (options.method && !["GET", "HEAD"].includes(options.method)
-    && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
+    && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(path) || /^\/api\/vinculos\/lixeira\/\d+(\/restaurar)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
     window.dispatchEvent(new Event("agendarx:psychosocial-updated"));
     try { localStorage.setItem("agendarx:psychosocial-update", `${Date.now()}:${Math.random()}`); } catch { /* A atualização da aba atual permanece disponível. */ }
   }

@@ -42,6 +42,7 @@ let failPreview = false;
 let previewPosts = 0;
 let logoutPosts = 0;
 let groupFixture = false;
+const deletedRelationshipIds = new Set();
 const riskRecord = person => ({ classificacao_risco: person.classificacao_risco, toxicidade: person.toxicidade, justificativa: person.risco_justificativa ?? '', revisado_em: person.risco_revisado_em || null });
 await page.context().route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
@@ -53,8 +54,11 @@ await page.context().route('**/api/**', async route => {
   else if (path.endsWith('/admin/diagnostico-armazenamento')) data = { banco_bytes: 0, dossie_bytes: 0, vinculos_bytes: 0, tarefas_bytes: 0, midia_total_bytes: 0, anexos_total: 0, pessoas_total: people.length, limite_usuario_tarefas_bytes: 1, max_arquivo_bytes: 1, usuarios: [] };
   else if (path === '/api/configuracoes/hp-psicossocial') { if (req.method() === 'PUT') { Object.assign(hpConfig, req.postDataJSON(), { versao: hpConfig.versao + 1 }); } data = hpConfig; }
   else if (path.startsWith('/api/produtividade/grafo/posicoes/')) data = people.map(p => ({ pessoa_id: p.id, x: p.id * 10000, y: -p.id * 10000 }));
-  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: [...people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: groupFixture && p.id === 3 ? 'Trabalho' : p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), ...(groupFixture ? [{ ...metrics(), id: 99, label: 'Sem vínculos', color: '#86A6A3', categoria: null, pessoa_juridica: false, contatos: [] }] : [])], edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }] };
-  else if (path === '/api/vinculos') data = [{ id: 1, pessoa_origem_id: 1, pessoa_destino_id: 2, tipo_vinculo: 'Amizade', descricao: '# Contexto' }];
+  else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: [...people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: groupFixture && p.id === 3 ? 'Trabalho' : p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), ...(groupFixture ? [{ ...metrics(), id: 99, label: 'Sem vínculos', color: '#86A6A3', categoria: null, pessoa_juridica: false, contatos: [] }] : [])], edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }].filter(edge => !deletedRelationshipIds.has(edge.id)) };
+  else if (path === '/api/vinculos/lixeira') data = [...deletedRelationshipIds].map(id => ({ id, tipo_vinculo: 'Amizade', pessoa_origem_id: 1, pessoa_destino_id: 2, origem_nome: 'Ana', destino_nome: 'Zeca', excluido_em: '2026-09-23 21:00:00' }));
+  else if (/^\/api\/vinculos\/lixeira\/\d+\/restaurar$/.test(path) && req.method() === 'POST') { deletedRelationshipIds.delete(Number(path.split('/')[4])); return route.fulfill({ status: 204 }); }
+  else if (/^\/api\/vinculos\/lixeira\/\d+$/.test(path) && req.method() === 'DELETE') { deletedRelationshipIds.delete(Number(path.split('/')[4])); return route.fulfill({ status: 204 }); }
+  else if (path === '/api/vinculos') data = [{ id: 1, pessoa_origem_id: 1, pessoa_destino_id: 2, tipo_vinculo: 'Amizade', descricao: '# Contexto' }].filter(relationship => !deletedRelationshipIds.has(relationship.id));
   else if (path === '/api/pessoas/risco/previa') {
     previewPosts++;
     if (failPreview) return route.fulfill({ status: 503, json: { erro: 'Prévia indisponível' } });
@@ -82,6 +86,10 @@ await page.context().route('**/api/**', async route => {
     const event = { ...req.postDataJSON(), id: events.length + 1, pessoas: [], anexos: [] }; events.push(event); data = event;
   }
   else if (/^\/api\/vinculos\/\d+$/.test(path) && req.method() === 'PUT') data = { ...req.postDataJSON(), id: 1 };
+  else if (/^\/api\/vinculos\/\d+$/.test(path) && req.method() === 'DELETE') {
+    deletedRelationshipIds.add(Number(path.split('/').at(-1)));
+    return route.fulfill({ status: 204 });
+  }
   else if (path.includes('/osint/parametros/')) {
     if (req.method() === 'POST') parameters.push({ ...req.postDataJSON(), id: parameters.length + 1, pessoa_id: 1 });
     data = req.method() === 'POST' ? parameters.at(-1) : parameters;
@@ -455,9 +463,28 @@ try {
   await page.waitForURL('**/configuracoes');
   assert.equal(await page.getByRole('button', { name: 'Fechar menu' }).count(), 0);
   await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.goto('http://127.0.0.1:4179/grafo');
+  await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 2);
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  const relationshipDrawer = page.getByRole('dialog', { name: 'Detalhes do vínculo' });
+  await relationshipDrawer.waitFor();
+  page.once('dialog', dialog => dialog.dismiss());
+  await relationshipDrawer.getByRole('button', { name: 'Excluir vínculo' }).click();
+  assert.equal(deletedRelationshipIds.size, 0);
+  await relationshipDrawer.waitFor();
+  page.once('dialog', dialog => dialog.accept());
+  await relationshipDrawer.getByRole('button', { name: 'Excluir vínculo' }).click();
+  await relationshipDrawer.waitFor({ state: 'hidden' });
+  await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 1);
+  assert.deepEqual([...deletedRelationshipIds], [1]);
+  assert.equal(await page.getByRole('heading', { name: 'Vínculos cadastrados' }).count(), 0);
+  await page.getByText('Lixeira de vínculos (1)').click();
+  await page.getByRole('button', { name: 'Restaurar', exact: true }).click();
+  await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 2);
+  assert.equal(deletedRelationshipIds.size, 0);
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await page.waitForURL('**/login');
   assert.equal(logoutPosts, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: regressão de navegador, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
+  console.log('PASS: regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

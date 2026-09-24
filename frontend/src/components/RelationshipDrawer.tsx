@@ -1,7 +1,7 @@
 /* Developed with care by FACRF - https://github.com/facrf */
 import { LinkedEventFields } from "./LinkedEventFields";
 import { useLinkedEvent } from "../hooks/useLinkedEvent";
-import { ArrowRight, Edit3, GitFork, Paperclip, Save, Tag, X } from "lucide-react";
+import { ArrowRight, Edit3, GitFork, Paperclip, Save, Tag, Trash2, X } from "lucide-react";
 import { MarkdownText } from "./MarkdownText";
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
@@ -21,10 +21,11 @@ interface RelationshipDrawerProps {
   edge: GrafoEdge | null;
   nodes: GrafoNode[];
   onClose: () => void;
+  onDelete: (edge: GrafoEdge) => Promise<void>;
   onUpdated: (relationship: PessoaVinculo) => void | Promise<void>;
 }
 
-export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: RelationshipDrawerProps) {
+export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }: RelationshipDrawerProps) {
   const agenda = useLinkedEvent();
   const [attachments, setAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
@@ -32,6 +33,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
   const [loadingAttachments, setLoadingAttachments] = useState(false);
   const [editing, setEditing] = useState(false);
   const [saving, setSaving] = useState(false);
+  const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState<VinculoPayload>({
     pessoa_origem_id: 0,
     pessoa_destino_id: 0,
@@ -156,6 +158,16 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
     setEditing(false);
   };
 
+  const deleteRelationship = async () => {
+    if (!edge || deleting) return;
+    setDeleting(true);
+    try {
+      await onDelete(edge);
+    } finally {
+      setDeleting(false);
+    }
+  };
+
   return (
     <div className="fixed inset-0 z-50" role="dialog" aria-modal="true" aria-label="Detalhes do vínculo">
       <button type="button" className="absolute inset-0 bg-slate-950/40 backdrop-blur-[2px]" onClick={onClose} aria-label="Fechar detalhes" />
@@ -226,6 +238,9 @@ export function RelationshipDrawer({ edge, nodes, onClose, onUpdated }: Relation
                 ) : (
                   <p className="rounded-2xl border border-dashed border-slate-200 p-4 text-sm text-slate-400">Nenhum anexo registrado nesta relação.</p>
                 )}
+              </div>
+              <div className="mt-8 border-t border-slate-100 pt-5">
+                <Button type="button" variant="danger" loading={deleting} onClick={() => void deleteRelationship()}><Trash2 className="size-4" /> Excluir vínculo</Button>
               </div>
             </>
           )}
