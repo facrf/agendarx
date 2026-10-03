@@ -154,7 +154,9 @@ jobs:
   imagem:
     name: Imagem Docker multi-arquitetura
     if: ${{ github.server_url == 'https://github.com' }}
-    needs: validar-versao
+    needs:
+      - validar-versao
+      - binarios
     runs-on: ubuntu-latest
     permissions:
       contents: read
@@ -163,6 +165,18 @@ jobs:
     steps:
       - name: Obter o código
         uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
+
+      - name: Recuperar pacotes compilados
+        uses: actions/download-artifact@3e5f45b2cfb9172054b4087a40e8e0b5a5461e7c # v8
+        with:
+          pattern: release-*
+          path: .cache/pacotes
+          merge-multiple: true
+
+      - name: Preparar imagem com binários validados
+        env:
+          VERSAO: ${{ needs.validar-versao.outputs.versao }}
+        run: bash scripts/prepare-image.sh "$VERSAO" .cache/pacotes .cache/imagem-release
 
       - name: Normalizar nome da imagem
         id: imagem
@@ -196,18 +210,24 @@ jobs:
             org.opencontainers.image.version=${{ needs.validar-versao.outputs.versao }}
 
       - name: Compilar e publicar imagem
+        id: publicar
         uses: docker/build-push-action@53b7df96c91f9c12dcc8a07bcb9ccacbed38856a # v7
         with:
-          context: .
-          file: Dockerfile
+          context: .cache/imagem-release
+          file: .github/docker/packaged.Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
           tags: ${{ steps.meta.outputs.tags }}
           labels: ${{ steps.meta.outputs.labels }}
-          cache-from: type=gha,scope=imagem-release
-          cache-to: type=gha,mode=max,scope=imagem-release
+          cache-from: type=gha,scope=imagem-pacotes-release
+          cache-to: type=gha,mode=max,scope=imagem-pacotes-release
           sbom: true
           provenance: mode=max
+
+      - name: Testar inicialização nas três arquiteturas
+        env:
+          IMAGE: ${{ steps.imagem.outputs.nome }}@${{ steps.publicar.outputs.digest }}
+        run: bash scripts/smoke-image.sh "$IMAGE"
 
   github-release:
     name: Publicar GitHub Release

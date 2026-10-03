@@ -34,6 +34,14 @@ espelhada no GitHub e também impediria a CI desejada no destino.
 | ARM 32 bits v7 | `armv7-unknown-linux-gnueabihf` | Sim | Sim (`linux/arm/v7`) |
 | RISC-V 64 bits | `riscv64gc-unknown-linux-gnu` | Sim | Não |
 
+A imagem reutiliza os binários e o frontend dos pacotes compilados por `cross`.
+Os checksums são conferidos antes da montagem, evitando recompilar o Rust por
+emulação ARM dentro do Docker. O runtime dos pacotes usa Debian Trixie para
+suportar a glibc dos binários gerados no runner. Após publicar, as três arquiteturas
+precisam responder ao endpoint `/health` antes da criação da Release.
+O Dockerfile original continua disponível para
+compilar diretamente a partir do código-fonte.
+
 O manifesto Docker cobre as arquiteturas disponíveis em todas as imagens-base
 oficiais utilizadas. Como essas bases ainda não publicam RISC-V, essa arquitetura é
 entregue como pacote executável do GitHub Release. Cada pacote contém o binário, o
@@ -95,3 +103,14 @@ cp .env.example .env
 
 O sistema precisa fornecer glibc compatível e certificados CA. Edite `.env` antes
 da primeira inicialização e mantenha o diretório `data/` em armazenamento persistente.
+
+## Republicar a imagem de pacotes existentes
+
+Use **Actions > Publicar imagem dos pacotes > Run workflow** para concluir ou
+repetir a publicação quando os pacotes já tiverem sido compilados. Informe a tag
+(ex.: `v0.6.5d`) e o ID da execução de **Publicar versão** que gerou os artefatos.
+A ferramenta exige que a tag aponte para o commit dessa execução e que os jobs de
+validação, frontend e quatro binários tenham terminado com sucesso. Ela verifica
+os checksums, monta as três arquiteturas da imagem e publica a Release com os
+mesmos pacotes. Os artefatos precisam estar dentro do prazo de retenção de sete
+dias. Evite duas publicações simultâneas da mesma tag.

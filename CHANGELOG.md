@@ -16,6 +16,10 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - O foco permanece centralizado ao redimensionar a janela; o enquadramento
   reserva espaço para nomes, auras, títulos de categorias e barras de vitalidade.
 - Um novo clique na mesma pessoa recentraliza o mapa após ajustes manuais.
+- A imagem GHCR reutiliza os pacotes compilados por `cross`, com verificação de
+  checksums, evitando recompilar Rust por emulação ARM. Um workflow manual permite
+  publicar a imagem e a Release a partir de artefatos já validados. O runtime usa
+  Debian Trixie e a publicação testa `/health` nas três arquiteturas.
 
 ### Corrigido
 
