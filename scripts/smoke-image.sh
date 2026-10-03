@@ -8,12 +8,19 @@ cleanup() {
 }
 trap cleanup EXIT
 
+index=$(docker buildx imagetools inspect "$image" --raw)
 for platform in linux/amd64 linux/arm64 linux/arm/v7; do
+  architecture="${platform#linux/}"
+  architecture="${architecture%%/*}"
+  manifest_digest=$(jq -r --arg architecture "$architecture" '.manifests[] | select(.platform.os == "linux" and .platform.architecture == $architecture and ($architecture != "arm" or .platform.variant == "v7")) | .digest' <<< "$index")
+  [[ "$manifest_digest" =~ ^sha256:[a-f0-9]{64}$ ]]
+  # A separate manifest digest avoids conflicts in Docker's classic image store.
+  platform_image="${image%@*}@$manifest_digest"
   test_container_id=$(docker run --rm -d --platform "$platform" \
     -p 127.0.0.1::12000 \
     -e JWT_SECRET=teste-de-publicacao-segredo-temporario-com-mais-de-32-caracteres \
     -e ADMIN_LOGIN=teste -e ADMIN_PASSWORD=teste-de-publicacao-local \
-    "$image")
+    "$platform_image")
   mapping=$(docker port "$test_container_id" 12000/tcp)
   port="${mapping##*:}"
   ready=false
