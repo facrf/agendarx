@@ -18,10 +18,22 @@ filtros, para manter relações e indicadores dentro do quadro.
 
 ## Foco e agrupamento
 
-Use a busca para escolher uma pessoa. Ao selecionar um nó, suas conexões diretas
-ficam destacadas, as conexões de segundo grau aparecem tracejadas e o restante da
-rede fica suavizado. Marque **Mostrar apenas conexões** para ocultar pessoas fora
-do nível escolhido.
+Use a busca para escolher uma pessoa. Um clique em um nó coloca a pessoa no
+centro, ajusta o zoom para seus relacionamentos até o segundo grau e ativa
+**Mostrar apenas conexões** e **Tela cheia**. As conexões diretas ficam destacadas
+e as conexões de segundo grau aparecem tracejadas. Clique novamente na mesma
+pessoa para recentralizar após mover o mapa. Use **Sair da tela cheia** ou `Esc`
+para voltar à página; desmarque **Mostrar apenas conexões** para ver o restante
+da rede, que fica suavizado enquanto houver foco.
+
+No perfil de uma pessoa, **Abrir no mapa** abre esse mesmo recorte em tela cheia.
+A seleção usa o ID, mesmo quando existem nomes iguais. Nessa abertura, filtros
+salvos de categoria, tipo de vínculo e período são limpos para permitir a
+visualização dos relacionamentos.
+
+O foco se adapta ao tamanho da janela e reserva espaço para nomes, auras e barras
+de vitalidade. Pessoas sem vínculos também ficam centralizadas, com aproximação
+limitada para manter a visualização confortável.
 
 Marque **Agrupar por categoria** para separar visualmente as pessoas por categoria.
 Cada grupo recebe um título; pessoas sem categoria são reunidas em **Sem categoria**.

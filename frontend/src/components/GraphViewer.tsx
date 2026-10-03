@@ -11,6 +11,8 @@ interface GraphViewerProps {
   graph: GrafoResponse;
   layout: GraphLayout;
   focusedNodeId: number | null;
+  focusDepth: number;
+  focusRevision: number;
   groupByCategory: boolean;
   expanded: boolean;
   onEdgeClick: (edgeId: number) => void;
@@ -22,7 +24,7 @@ interface Overlay { id: number; x: number; y: number; zoom: number; hp: number; 
 interface GroupLabel { name: string; x: number; y: number; zoom: number }
 
 export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(function GraphViewer(props, ref) {
-  const { graph, layout, focusedNodeId, groupByCategory, expanded } = props;
+  const { graph, layout, focusedNodeId, focusDepth, focusRevision, groupByCategory, expanded } = props;
   const containerRef = useRef<HTMLDivElement>(null);
   const cyRef = useRef<Core | null>(null);
   const callbacksRef = useRef(props);
@@ -100,7 +102,13 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     };
     motion.addEventListener("change", applyMotion);
     applyMotion();
-    const observer = new ResizeObserver(() => { cy.resize(); fitGraph(cy); syncOverlays(); });
+    const observer = new ResizeObserver(() => {
+      cy.resize();
+      const { focusedNodeId, focusDepth } = callbacksRef.current;
+      if (focusedNodeId !== null) focusGraph(cy, focusedNodeId, focusDepth);
+      else fitGraph(cy);
+      syncOverlays();
+    });
     observer.observe(containerRef.current);
     return () => {
       window.clearInterval(timer); cancelAnimationFrame(frame);
@@ -133,7 +141,8 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     });
     cy.nodes("[!auraPulsante]").style("underlay-opacity", 0.16);
     const structure = `${layout}:${groupByCategory}:${graph.nodes.map((node) => `${node.id}${groupByCategory ? `-${node.categoria}` : ""}`).sort().join(",")}:${graph.edges.map((edge) => `${edge.id}-${edge.source}-${edge.target}`).sort().join(",")}`;
-    if (structure !== structureRef.current) {
+    const structureChanged = structure !== structureRef.current;
+    if (structureChanged) {
       structureRef.current = structure;
       organizeGraph(cy, graph, layout, groupByCategory);
     }
@@ -154,9 +163,12 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
       const data = focus.data("profile") as GrafoNode;
       for (const row of data.contribuicoes) cy.$id(`node-${row.fonte_id}`).addClass("is-source");
     });
+    cy.nodes().unselect();
+    if (focusedNodeId !== null) cy.$id(`node-${focusedNodeId}`).select();
+    if (structureChanged && focusedNodeId !== null) focusGraph(cy, focusedNodeId, focusDepth);
     // Synchronize DOM bars after every snapshot, even when geometry is unchanged.
     syncOverlaysRef.current?.();
-  }, [graph, layout, focusedNodeId, groupByCategory]);
+  }, [graph, layout, focusedNodeId, focusDepth, groupByCategory]);
 
   useEffect(() => {
     const cy = cyRef.current;
@@ -166,8 +178,8 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     const node = cy.$id(`node-${focusedNodeId}`);
     if (node.empty()) return;
     node.select();
-    // Selecting a node highlights it without moving an already adjusted viewport.
-  }, [focusedNodeId]);
+    focusGraph(cy, focusedNodeId, focusDepth);
+  }, [focusedNodeId, focusDepth, focusRevision]);
 
   return <div className={`relative h-full w-full overflow-hidden ${expanded ? "min-h-80" : "min-h-[38rem]"}`}>
     <div ref={containerRef} className={`h-full w-full cursor-grab active:cursor-grabbing ${expanded ? "min-h-80" : "min-h-[38rem]"}`} role="application" aria-label="Grafo interativo de relacionamentos" />
@@ -200,6 +212,36 @@ function fitGraph(cy: Core) {
   cy.viewport({ zoom, pan: {
     x: (cy.width() - zoom * (bounds.x1 + bounds.x2)) / 2,
     y: (cy.height() - zoom * (bounds.y1 + bounds.y2)) / 2,
+  } });
+}
+
+// Keep the person at the viewport center while fitting the visible connections.
+function focusGraph(cy: Core, nodeId: number, depth: number) {
+  const focus = cy.$id(`node-${nodeId}`);
+  if (focus.empty() || cy.width() <= 0 || cy.height() <= 0) return;
+  let nodes = focus;
+  for (let level = 0; level < depth; level += 1) nodes = nodes.union(nodes.neighborhood("node"));
+  const bounds = nodes.union(nodes.edgesWith(nodes)).boundingBox();
+  if (cy.scratch("groupByCategory")) {
+    for (const [, groupNodes] of categoryGroups(cy)) {
+      if (groupNodes.intersection(nodes).empty()) continue;
+      const group = groupNodes.boundingBox();
+      const labelCenter = (group.x1 + group.x2) / 2;
+      bounds.x1 = Math.min(bounds.x1, labelCenter - 100);
+      bounds.x2 = Math.max(bounds.x2, labelCenter + 100);
+      bounds.y1 = Math.min(bounds.y1, group.y1 - 65);
+    }
+  }
+  const center = focus.position();
+  // Reserve space for labels, auras and DOM vitality bars below each node.
+  const halfWidth = Math.max(center.x - bounds.x1, bounds.x2 - center.x) + 20;
+  const halfHeight = Math.max(center.y - bounds.y1 + 20, bounds.y2 - center.y + 100);
+  const padding = Math.min(60, cy.width() / 4, cy.height() / 4);
+  const zoom = Math.min(1.3, cy.maxZoom(), (cy.width() - 2 * padding) / (2 * halfWidth),
+    (cy.height() - 2 * padding) / (2 * halfHeight));
+  cy.viewport({ zoom, pan: {
+    x: cy.width() / 2 - center.x * zoom,
+    y: cy.height() / 2 - center.y * zoom,
   } });
 }
 

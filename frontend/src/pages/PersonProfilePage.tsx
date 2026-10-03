@@ -97,7 +97,7 @@ export function PersonProfilePage() {
             <PsychosocialStatus indicadores={pessoa.psicossocial} />
           </div>
           <div className="flex flex-wrap gap-2">
-            <Link className="btn btn-secondary" to={`/grafo?busca=${encodeURIComponent(pessoa.nome)}`}><GitFork className="size-4" /> Abrir no mapa</Link>
+            <Link className="btn btn-secondary" to={`/grafo?pessoa=${pessoa.id}&busca=${encodeURIComponent(pessoa.nome)}`}><GitFork className="size-4" /> Abrir no mapa</Link>
             <Link className="btn btn-secondary" to={`/pessoas/${id}/editar`}><Edit3 className="size-4" /> Editar</Link>
             <Button variant="danger" loading={excluindo} onClick={() => void excluir()}><Trash2 className="size-4" /> Excluir</Button>
           </div>
@@ -140,7 +140,7 @@ export function PersonProfilePage() {
             <div className="grid size-11 place-items-center rounded-2xl bg-coral/10 text-coral"><GitFork className="size-5" /></div>
             <h2 className="mt-4 font-display text-lg font-semibold">Conexões</h2>
             <p className="mt-2 text-sm leading-6 text-slate-500">Veja esta pessoa no mapa e compreenda seus vínculos na rede.</p>
-            <Link className="btn btn-secondary mt-5 w-full" to={`/grafo?busca=${encodeURIComponent(pessoa.nome)}`}>Abrir no mapa</Link>
+            <Link className="btn btn-secondary mt-5 w-full" to={`/grafo?pessoa=${pessoa.id}&busca=${encodeURIComponent(pessoa.nome)}`}>Abrir no mapa</Link>
           </aside>
         </div>
       )}

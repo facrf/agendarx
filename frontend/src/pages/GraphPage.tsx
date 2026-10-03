@@ -55,7 +55,11 @@ const emptyRelationship: VinculoPayload = {
 
 export function GraphPage() {
   const agenda = useLinkedEvent();
-  const [searchParams] = useSearchParams();
+  const [searchParams, setSearchParams] = useSearchParams();
+  const requestedPersonId = Number(searchParams.get("pessoa"));
+  const openingPerson = Number.isSafeInteger(requestedPersonId) && requestedPersonId > 0;
+  const [selectedPersonId, setSelectedPersonId] = useState<number | null>(openingPerson ? requestedPersonId : null);
+  const [focusRevision, setFocusRevision] = useState(0);
   const { usuario } = useAuth();
   const filterKey = `agendarx:graph-filters:${usuario?.id}`;
   const [savedFilters] = useState(() => {
@@ -71,17 +75,17 @@ export function GraphPage() {
   const [relationships, setRelationships] = useState<PessoaVinculo[]>([]);
   const [trashedRelationships, setTrashedRelationships] = useState<VinculoLixeira[]>([]);
   const [search, setSearch] = useState(searchParams.get("busca") ?? (typeof savedFilters.search === "string" ? savedFilters.search : ""));
-  const [category, setCategory] = useState(typeof savedFilters.category === "string" ? savedFilters.category : "");
-  const [depth, setDepth] = useState(typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
+  const [category, setCategory] = useState(!openingPerson && typeof savedFilters.category === "string" ? savedFilters.category : "");
+  const [depth, setDepth] = useState(openingPerson ? 2 : typeof savedFilters.depth === "number" && [1, 2, 3].includes(savedFilters.depth) ? savedFilters.depth : 1);
   const [layout, setLayout] = useState<GraphLayout>(savedFilters.layout === "hierarchical" ? "hierarchical" : "force");
   const [groupByCategory, setGroupByCategory] = useState(savedFilters.groupByCategory === true);
-  const [isolateFocus, setIsolateFocus] = useState(savedFilters.isolateFocus !== false);
-  const [expanded, setExpanded] = useState(false);
+  const [isolateFocus, setIsolateFocus] = useState(openingPerson || savedFilters.isolateFocus !== false);
+  const [expanded, setExpanded] = useState(openingPerson);
   const graphPanelRef = useRef<HTMLElement>(null);
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
-  const [relationshipType, setRelationshipType] = useState(typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
-  const [dateFrom, setDateFrom] = useState(typeof savedFilters.dateFrom === "string" ? savedFilters.dateFrom : "");
-  const [dateTo, setDateTo] = useState(typeof savedFilters.dateTo === "string" ? savedFilters.dateTo : "");
+  const [relationshipType, setRelationshipType] = useState(!openingPerson && typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
+  const [dateFrom, setDateFrom] = useState(!openingPerson && typeof savedFilters.dateFrom === "string" ? savedFilters.dateFrom : "");
+  const [dateTo, setDateTo] = useState(!openingPerson && typeof savedFilters.dateTo === "string" ? savedFilters.dateTo : "");
   const [form, setForm] = useState<VinculoPayload>(emptyRelationship);
   const [editingId, setEditingId] = useState<number | null>(null);
   const [saving, setSaving] = useState(false);
@@ -103,7 +107,7 @@ export function GraphPage() {
   }, [filterKey, search, category, depth, layout, relationshipType, dateFrom, dateTo, groupByCategory, isolateFocus]);
 
   useEffect(() => {
-    if (!expanded) return;
+    if (!expanded || loading) return;
     const previousOverflow = document.documentElement.style.overflow;
     const previousFocus = document.activeElement as HTMLElement | null;
     document.documentElement.style.overflow = "hidden";
@@ -124,7 +128,7 @@ export function GraphPage() {
       window.removeEventListener("keydown", keyboard);
       previousFocus?.focus();
     };
-  }, [expanded]);
+  }, [expanded, loading]);
 
   const loadGraphData = useCallback(async () => {
     const sequence = ++loadSequence.current;
@@ -189,8 +193,8 @@ export function GraphPage() {
   const categoryGraph = useMemo(() => filterByCategory(relationshipGraph, category), [relationshipGraph, category]);
   const relationshipTypes = useMemo(() => [...new Set(graph.edges.map((edge) => edge.label))].sort((a, b) => a.localeCompare(b, "pt-BR")), [graph.edges]);
   const focusedNode = useMemo(
-    () => findFocusedNode(categoryGraph.nodes, search),
-    [categoryGraph.nodes, search],
+    () => selectedPersonId !== null ? categoryGraph.nodes.find(node => node.id === selectedPersonId) : findFocusedNode(categoryGraph.nodes, search),
+    [categoryGraph.nodes, search, selectedPersonId],
   );
   const visibleGraph = useMemo(
     () => isolateConnections(categoryGraph, isolateFocus ? focusedNode?.id ?? null : null, depth),
@@ -362,9 +366,19 @@ export function GraphPage() {
     (nodeId: number) => navigate(`/pessoas/${nodeId}`),
     [navigate],
   );
+  const searchPerson = (value: string) => {
+    setSelectedPersonId(null);
+    setSearch(value);
+    if (searchParams.has("pessoa")) {
+      const params = new URLSearchParams(searchParams);
+      params.delete("pessoa");
+      params.delete("busca");
+      setSearchParams(params, { replace: true });
+    }
+  };
   const selectPerson = useCallback((nodeId: number) => {
     const node = graph.nodes.find((item) => item.id === nodeId);
-    if (node) { setSearch(node.label); setDepth(2); setIsolateFocus(false); }
+    if (node) { setSelectedPersonId(nodeId); setSearch(node.label); setDepth(2); setIsolateFocus(true); setExpanded(true); setFocusRevision(value => value + 1); }
   }, [graph.nodes]);
 
   if (loading) return <Spinner label="Desenhando sua rede" />;
@@ -470,7 +484,7 @@ export function GraphPage() {
             dateFrom={dateFrom}
             dateTo={dateTo}
             focusedNode={focusedNode}
-            onSearch={setSearch}
+            onSearch={searchPerson}
             onCategory={setCategory}
             onDepth={setDepth}
             onLayout={setLayout}
@@ -493,7 +507,7 @@ export function GraphPage() {
           />
           <div className="shrink-0 px-4 pb-3 text-xs text-slate-500">
             Filtros lembrados neste navegador.
-            <button type="button" className="ml-3 underline" onClick={() => { setSearch(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); setGroupByCategory(false); setIsolateFocus(true); }}>Limpar filtros</button>
+            <button type="button" className="ml-3 underline" onClick={() => { searchPerson(""); setCategory(""); setDepth(1); setLayout("force"); setRelationshipType(""); setDateFrom(""); setDateTo(""); setGroupByCategory(false); setIsolateFocus(true); }}>Limpar filtros</button>
           </div>
           <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 pb-3 text-xs"><strong>Legenda:</strong>{categories.map((item) => <span key={item.id} className="inline-flex items-center gap-1"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} />{item.nome_categoria}</span>)}<span className="inline-flex items-center gap-1"><span className="size-3 rounded-full bg-[#86A6A3]" />Sem categoria</span></div>
           {graph.hp_configuracao && <PsychosocialLegend config={graph.hp_configuracao} />}
@@ -517,6 +531,8 @@ export function GraphPage() {
                 graph={visibleGraph}
                 layout={layout}
                 focusedNodeId={focusedNode?.id ?? null}
+                focusDepth={depth}
+                focusRevision={focusRevision}
                 groupByCategory={groupByCategory}
                 expanded={expanded}
                 onEdgeClick={openEdge}
@@ -526,7 +542,7 @@ export function GraphPage() {
             )}
             <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
               <span className="rounded-xl border border-white bg-white/88 px-3 py-2 shadow-sm backdrop-blur"><Move className="mr-1 inline size-3" /> Arraste os nós para reorganizar</span>
-              <span className="rounded-xl border border-white bg-white/88 px-3 py-2 shadow-sm backdrop-blur"><Info className="mr-1 inline size-3" /> Linha: detalhes · duplo clique: perfil</span>
+              <span className="rounded-xl border border-white bg-white/88 px-3 py-2 shadow-sm backdrop-blur"><Info className="mr-1 inline size-3" /> Clique: centralizar conexões · linha: detalhes · duplo clique: perfil</span>
             </div>
           </div>
         </section>

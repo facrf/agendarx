@@ -124,6 +124,24 @@ const expectGraphFramed = async () => {
       });
   });
 };
+const expectPersonCentered = async (id, depth = 2) => {
+  await page.waitForFunction(({ id, depth }) => {
+    const cy = document.querySelector('[role=application]')?._cyreg?.cy;
+    const focus = cy?.$id(`node-${id}`);
+    if (!focus?.selected()) return false;
+    const pos = focus.renderedPosition();
+    if (Math.abs(pos.x - cy.width() / 2) > 1 || Math.abs(pos.y - cy.height() / 2) > 1) return false;
+    let nodes = focus;
+    for (let level = 0; level < depth; level++) nodes = nodes.union(nodes.neighborhood('node'));
+    const bounds = nodes.union(nodes.edgesWith(nodes)).renderedBoundingBox();
+    const rect = cy.container().getBoundingClientRect();
+    return bounds.x1 >= 0 && bounds.y1 >= 0 && bounds.x2 <= cy.width() && bounds.y2 <= cy.height()
+      && nodes.every(node => {
+        const bar = document.querySelector(`[data-person-id="${node.data('nodeId')}"]`)?.getBoundingClientRect();
+        return bar && bar.left >= rect.left && bar.right <= rect.right && bar.top >= rect.top && bar.bottom <= rect.bottom;
+      });
+  }, { id, depth });
+};
 try {
   await page.goto('http://127.0.0.1:4179/pessoas');
   await page.getByRole('heading', { name: /Pessoas físicas · Amigos/ }).waitFor();
@@ -196,6 +214,43 @@ try {
   assert.equal(events.length, 2);
   assert.deepEqual(events[1].pessoas_ids, [4]);
   assert.ok(events[1].descricao.includes('/pessoas/4'));
+  // Profile links focus by ID despite duplicate names and restrictive saved filters.
+  const originalName = people[1].nome;
+  people[1].nome = people[0].nome;
+  await page.evaluate(() => localStorage.setItem('agendarx:graph-filters:1', JSON.stringify({ category: 'Inexistente', relationshipType: 'Inexistente', dateFrom: '2099-01-01' })));
+  await page.goto('http://127.0.0.1:4179/pessoas/2');
+  await page.getByRole('link', { name: 'Abrir no mapa', exact: true }).first().click();
+  await page.waitForURL('**/grafo?pessoa=2&busca=Ana');
+  await expectPersonCentered(2);
+  assert.equal(await page.getByLabel('Mostrar apenas conexões', { exact: true }).isChecked(), true);
+  await page.getByLabel('Grafo em tela cheia', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  assert.equal(await page.getByLabel('Tipo de vínculo').inputValue(), '');
+  people[1].nome = originalName;
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
+  await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
+  // Single click and another click on the same person restore framing after manual panning.
+  await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    cy.$id('node-1').position({ x: -200, y: 50 });
+    cy.$id('node-2').position({ x: 100, y: 50 });
+    cy.$id('node-3').position({ x: 250, y: 200 });
+    cy.zoom(0.5); cy.pan({ x: 200, y: 150 });
+  });
+  const nodePosition = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-1').renderedPosition());
+  await page.getByRole('application').click({ position: { x: nodePosition.x, y: nodePosition.y } });
+  await expectPersonCentered(1);
+  assert.equal(await page.getByLabel('Mostrar apenas conexões', { exact: true }).isChecked(), true);
+  await page.getByLabel('Grafo em tela cheia', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.waitForTimeout(400);
+  await page.evaluate(() => {
+    const cy = document.querySelector('[role=application]')._cyreg.cy;
+    cy.pan({ x: 9000, y: 9000 }); cy.$id('node-1').emit('tap');
+  });
+  await expectPersonCentered(1);
+  await page.getByRole('button', { name: 'Sair da tela cheia', exact: true }).click();
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
   await page.goto('http://127.0.0.1:4179/grafo?busca=Ana');
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.nodes(':selected').length === 1);
   await expectGraphFramed();
@@ -240,6 +295,8 @@ try {
   await page.emulateMedia({ reducedMotion: 'no-preference' });
   await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('node-1').emit('tap'); });
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-3').hasClass('is-secondary')), true);
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').style('line-color') === 'rgb(15,118,110)');
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-2').style('line-style')), 'dashed');
@@ -276,15 +333,24 @@ try {
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 4);
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').style('opacity') === '0.2');
   await page.waitForFunction(() => document.querySelector('[data-person-id="99"]')?.style.opacity === '0.2');
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').emit('tap'));
+  await expectPersonCentered(99);
+  assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length), 1);
+  await page.keyboard.press('Escape');
+  assert.ok(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom() <= 1.3));
   await page.getByRole('button', { name: 'Limpar foco', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').empty()
     && document.querySelector('[role=application]')._cyreg.cy.elements('.is-dimmed').empty());
   await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-1').emit('tap'));
+  await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').hasClass('is-dimmed'));
   await page.getByLabel('Mostrar apenas conexões', { exact: true }).check();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
   await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 4);
+  await page.getByRole('button', { name: 'Limpar foco', exact: true }).click();
   await page.getByLabel('Agrupar por categoria', { exact: true }).check();
   await page.waitForFunction(() => document.querySelectorAll('[data-graph-category]').length === 3);
   assert.deepEqual(await page.locator('[data-graph-category]').allTextContents(), ['Amigos', 'Sem categoria', 'Trabalho']);
@@ -321,7 +387,7 @@ try {
   await expectGraphFramed();
   if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'hp-grafo.png'), fullPage: false, timeout: 10000 });
 
-  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.edges().first().emit('tap'); });
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'); });
   await page.getByRole('dialog', { name: 'Detalhes do vínculo' }).waitFor();
   await page.getByAltText('foto1.png').click();
   await page.getByRole('button', { name: 'Próxima imagem' }).waitFor();

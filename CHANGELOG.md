@@ -4,6 +4,26 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.6.5d] - 2026-10-03
+
+### Alterado
+
+- Um clique em uma pessoa no grafo centraliza o nó e ajusta o zoom para exibir
+  suas conexões até o segundo grau, ativando apenas conexões e tela cheia.
+- Abrir no mapa pelo perfil usa o ID da pessoa, entra em tela cheia e isola seus
+  relacionamentos; filtros salvos de categoria, vínculo e período são limpos
+  nessa abertura para não ocultar a pessoa ou suas conexões.
+- O foco permanece centralizado ao redimensionar a janela; o enquadramento
+  reserva espaço para nomes, auras, títulos de categorias e barras de vitalidade.
+- Um novo clique na mesma pessoa recentraliza o mapa após ajustes manuais.
+
+### Corrigido
+
+- Pessoas com nomes iguais são selecionadas pelo ID no clique e em Abrir no mapa.
+- Pessoas sem vínculos recebem um enquadramento com aproximação limitada.
+- Testes de navegador validam a centralização, a abertura automática em tela
+  cheia, a saída por Esc e a seleção de vínculos pelo ID após isolar conexões.
+
 ## [0.6.5c] - 2026-09-23
 
 ### Adicionado
@@ -329,6 +349,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.5d]: https://github.com/facrf/agendarx/compare/v0.6.5c...v0.6.5d
 [0.6.5c]: https://github.com/facrf/agendarx/compare/v0.6.5b...v0.6.5c
 [0.6.5b]: https://github.com/facrf/agendarx/compare/v0.6.5a...v0.6.5b
 [0.6.5a]: https://github.com/facrf/agendarx/compare/v0.6.5...v0.6.5a
