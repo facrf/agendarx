@@ -23,6 +23,8 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ### Corrigido
 
+- A imagem de pacotes ARMv7 ajusta o limite de backup para no máximo 4 GiB menos
+  1 byte, evitando falha de inicialização com o padrão de 5 GiB em 32 bits.
 - Pessoas com nomes iguais são selecionadas pelo ID no clique e em Abrir no mapa.
 - Pessoas sem vínculos recebem um enquadramento com aproximação limitada.
 - Testes de navegador validam a centralização, a abertura automática em tela

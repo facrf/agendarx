@@ -38,7 +38,12 @@ A imagem reutiliza os binários e o frontend dos pacotes compilados por `cross`.
 Os checksums são conferidos antes da montagem, evitando recompilar o Rust por
 emulação ARM dentro do Docker. O runtime dos pacotes usa Debian Trixie para
 suportar a glibc dos binários gerados no runner. Após publicar, as três arquiteturas
-precisam responder ao endpoint `/health` antes da criação da Release.
+precisam responder ao endpoint `/health`; só então são atualizadas as tags da
+versão e `latest`, e criada a Release. A montagem usa uma tag temporária
+`build-ID_DA_EXECUCAO` durante essa validação.
+Em ARMv7, a inicialização da imagem limita `BACKUP_MAX_UPLOAD_BYTES` a
+`4294967295` bytes (4 GiB menos 1 byte), compatível com o executável de 32 bits.
+Limites menores configurados pelo usuário são preservados.
 O Dockerfile original continua disponível para
 compilar diretamente a partir do código-fonte.
 
@@ -100,6 +105,9 @@ cd agendarx-0.6.5d-linux-riscv64
 cp .env.example .env
 ./agendarx
 ```
+
+Ao usar o pacote ARMv7 diretamente, defina `BACKUP_MAX_UPLOAD_BYTES=4294967295`
+(ou um valor menor) no `.env`, pois o padrão de 5 GiB não cabe em 32 bits.
 
 O sistema precisa fornecer glibc compatível e certificados CA. Edite `.env` antes
 da primeira inicialização e mantenha o diretório `data/` em armazenamento persistente.

@@ -74,6 +74,11 @@ docker run --rm -p 12000:12000 \
 
 O contêiner executa sem privilégios e todo o estado fica em `/app/data`.
 
+Em imagens ARMv7, o limite de backup é ajustado automaticamente para no máximo
+`4294967295` bytes (4 GiB menos 1 byte), conforme a capacidade do executável de
+32 bits. Limites menores são preservados. Nos pacotes ARMv7 executados fora do
+Docker, configure esse limite no `.env`.
+
 ## Portainer
 
 O arquivo [portainer-stack.yml](../deploy/portainer-stack.yml) pode ser colado no

@@ -23,5 +23,6 @@ for architecture in amd64 arm64 armv7; do
     cp -R "$extract/$package/frontend/dist" "$context/frontend"
   fi
 done
+install -m 0755 "$(dirname "${BASH_SOURCE[0]}")/docker-entrypoint.sh" "$context/docker-entrypoint.sh"
 # Intermediate package directories do not belong in the Docker build context.
 rm -rf -- "$context/packages"

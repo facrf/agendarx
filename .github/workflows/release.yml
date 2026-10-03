@@ -217,7 +217,7 @@ jobs:
           file: .github/docker/packaged.Dockerfile
           platforms: linux/amd64,linux/arm64,linux/arm/v7
           push: true
-          tags: ${{ steps.meta.outputs.tags }}
+          tags: ${{ steps.imagem.outputs.nome }}:build-${{ github.run_id }}
           labels: ${{ steps.meta.outputs.labels }}
           cache-from: type=gha,scope=imagem-pacotes-release
           cache-to: type=gha,mode=max,scope=imagem-pacotes-release
@@ -228,6 +228,20 @@ jobs:
         env:
           IMAGE: ${{ steps.imagem.outputs.nome }}@${{ steps.publicar.outputs.digest }}
         run: bash scripts/smoke-image.sh "$IMAGE"
+
+      - name: Promover imagem validada para as tags de versão
+        shell: bash
+        env:
+          IMAGE: ${{ steps.imagem.outputs.nome }}@${{ steps.publicar.outputs.digest }}
+          RELEASE_TAGS: ${{ steps.meta.outputs.tags }}
+        run: |
+          arguments=()
+          while IFS= read -r tag; do
+            if [[ -n "$tag" ]]; then arguments+=(--tag "$tag"); fi
+          done <<< "$RELEASE_TAGS"
+          [[ ${#arguments[@]} -gt 0 ]]
+          docker buildx imagetools create "${arguments[@]}" "$IMAGE"
+
 
   github-release:
     name: Publicar GitHub Release

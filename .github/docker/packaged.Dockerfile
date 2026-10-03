@@ -15,6 +15,7 @@ ARG TARGETARCH
 WORKDIR /app
 COPY --chown=agendarx:agendarx binaries/${TARGETARCH}/agendarx /usr/local/bin/agendarx
 COPY --chown=agendarx:agendarx frontend /app/frontend
+COPY --chown=agendarx:agendarx docker-entrypoint.sh /usr/local/bin/docker-entrypoint.sh
 
 USER agendarx
 LABEL org.opencontainers.image.source="https://github.com/facrf/agendarx"
@@ -25,4 +26,4 @@ ENV SERVER_ADDR=0.0.0.0:12000 \
 VOLUME ["/app/data"]
 EXPOSE 12000
 
-ENTRYPOINT ["/usr/local/bin/agendarx"]
+ENTRYPOINT ["/usr/local/bin/docker-entrypoint.sh"]
