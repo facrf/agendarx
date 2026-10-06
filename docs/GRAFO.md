@@ -15,6 +15,13 @@ filtros, para manter relações e indicadores dentro do quadro.
   voltar à página.
 - A roda do mouse ajusta o zoom e o arrasto no espaço vazio move o mapa. Arraste
   uma pessoa para reposicioná-la durante a análise atual.
+- Os controles **+**, **−** e **Enquadrar mapa** ficam no canto do canvas, com o zoom
+  atual em percentual. Redimensionar preserva a aproximação e o centro manuais.
+- O mapa ocupa a largura disponível. **Gerenciar vínculos** abre o formulário,
+  a lista de vínculos e a lixeira; **Recolher vínculos** libera a área lateral.
+- **Salvar organização** grava posições por conta e layout. **Carregar organização**
+  recupera somente os nós com posições salvas. A recuperação é explícita e novos
+  nós mantêm a posição atual. Consulte [o guia de produtividade](PRODUTIVIDADE.md).
 
 ## Foco e agrupamento
 
@@ -48,7 +55,7 @@ para abrir seu perfil.
 
 Nos detalhes de uma linha, use **Excluir vínculo** para mover a relação para a
 lixeira após confirmar. Ela sai do grafo e do cálculo psicossocial, mas os anexos
-ficam preservados. Abra **Lixeira de vínculos** na lateral para restaurar a relação
+ficam preservados. Abra **Gerenciar vínculos → Lixeira de vínculos** para restaurar a relação
 com seus anexos. Um administrador pode excluí-la definitivamente nessa lista.
 Se uma das pessoas também estiver na lixeira, restaure a pessoa primeiro.
 

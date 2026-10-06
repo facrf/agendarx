@@ -15,6 +15,7 @@ use crate::{
 pub fn rotas() -> Router<AppState> {
     Router::new()
         .route("/", get(listar_pessoas).post(criar_pessoa))
+        .route("/paginadas", get(listar_paginadas))
         .route("/risco/previa", post(super::hp_psicossocial::prever_risco))
         .route(
             "/{id}/risco/historico",
@@ -41,47 +42,88 @@ pub fn rotas() -> Router<AppState> {
 #[derive(serde::Deserialize, Default)]
 struct PessoaFiltro {
     busca: Option<String>,
+    categoria: Option<String>,
+    tipo: Option<String>,
+    favoritos: Option<bool>,
+    pagina: Option<i64>,
+    por_pagina: Option<i64>,
 }
-
+const SELECT_PESSOAS: &str = "SELECT p.id,p.nome,p.categoria_id,p.descricao,c.nome_categoria,c.cor_hex,p.classificacao_risco,p.toxicidade,(p.foto_principal IS NOT NULL) AS tem_foto,p.pessoa_juridica,p.data_cadastro,COALESCE((SELECT group_concat(e.nome,char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),'') AS etiquetas,EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=";
+fn consulta_pessoas(
+    prefixo: &str,
+    filtro: &PessoaFiltro,
+    usuario: i64,
+) -> Result<sqlx::QueryBuilder<'static, sqlx::Sqlite>, AppError> {
+    let mut q = sqlx::QueryBuilder::new(prefixo.to_owned());
+    q.push_bind(usuario).push(") AS favorito FROM pessoa p LEFT JOIN categoria_pessoa c ON c.id=p.categoria_id WHERE p.excluida_em IS NULL");
+    if let Some(busca) = filtro.busca.as_deref().filter(|s| !s.trim().is_empty()) {
+        if let Some(termo) = super::busca::termo_fts(busca)? {
+            q.push(" AND p.id IN (WITH encontrados AS (SELECT d.tipo,d.recurso_id,d.pessoa_id FROM busca_fts JOIN busca_visivel d ON d.id=busca_fts.rowid WHERE busca_fts MATCH ").push_bind(termo)
+             .push(" AND (d.usuario_id IS NULL OR d.usuario_id=").push_bind(usuario).push(")) SELECT pessoa_id FROM encontrados UNION SELECT v.pessoa_destino_id FROM encontrados e JOIN pessoa_vinculo v ON v.id=CASE WHEN e.tipo='vinculo' THEN e.recurso_id ELSE (SELECT vinculo_id FROM anexo_vinculo WHERE id=e.recurso_id AND e.tipo='anexo_vinculo') END UNION SELECT tp.pessoa_id FROM encontrados e JOIN tarefa_calendario_pessoa tp ON tp.tarefa_id=CASE WHEN e.tipo='tarefa' THEN e.recurso_id ELSE (SELECT tarefa_id FROM anexo_tarefa_calendario WHERE id=e.recurso_id AND e.tipo='anexo_tarefa') END)");
+        } else {
+            q.push(" AND 0");
+        }
+    }
+    if let Some(categoria) = filtro.categoria.as_deref().filter(|s| !s.is_empty()) {
+        if categoria == "sem" {
+            q.push(" AND p.categoria_id IS NULL");
+        } else {
+            let id = categoria
+                .parse::<i64>()
+                .map_err(|_| AppError::BadRequest("categoria inválida".into()))?;
+            if id <= 0 {
+                return Err(AppError::BadRequest("categoria inválida".into()));
+            }
+            q.push(" AND p.categoria_id=").push_bind(id);
+        }
+    }
+    if let Some(tipo) = filtro.tipo.as_deref().filter(|s| !s.is_empty()) {
+        if !matches!(tipo, "fisica" | "juridica") {
+            return Err(AppError::BadRequest("tipo de pessoa inválido".into()));
+        }
+        q.push(" AND p.pessoa_juridica=")
+            .push_bind(tipo == "juridica");
+    }
+    if filtro.favoritos == Some(true) {
+        q.push(" AND EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=").push_bind(usuario).push(")");
+    }
+    Ok(q)
+}
 async fn listar_pessoas(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Query(filtro): Query<PessoaFiltro>,
 ) -> Result<Json<Vec<PessoaResumo>>, AppError> {
-    let busca = filtro
-        .busca
-        .map(|v| normalizar_busca(v.trim()))
-        .filter(|v| !v.is_empty());
-    let conteudo = if busca.is_some() {
-        "trim(COALESCE(p.descricao,'') || ' ' || COALESCE((SELECT group_concat(co.valor, ' ') FROM contato co WHERE co.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(a.nome_arquivo || ' ' || a.notas || ' ' || CASE WHEN a.mime_type LIKE 'text/%' OR lower(a.nome_arquivo) GLOB '*.md' OR lower(a.nome_arquivo) GLOB '*.txt' THEN CAST(a.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_dossie a WHERE a.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(av.nome_arquivo || ' ' || av.notas || ' ' || CASE WHEN av.mime_type LIKE 'text/%' OR lower(av.nome_arquivo) GLOB '*.md' OR lower(av.nome_arquivo) GLOB '*.txt' THEN CAST(av.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_vinculo av JOIN pessoa_vinculo pv ON pv.id=av.vinculo_id WHERE pv.excluido_em IS NULL AND (pv.pessoa_origem_id=p.id OR pv.pessoa_destino_id=p.id)),'') || ' ' || COALESCE((SELECT group_concat(at.nome_arquivo || ' ' || at.notas || ' ' || CASE WHEN at.mime_type LIKE 'text/%' OR lower(at.nome_arquivo) GLOB '*.md' OR lower(at.nome_arquivo) GLOB '*.txt' THEN CAST(at.conteudo_blob AS TEXT) ELSE '' END, ' ') FROM anexo_tarefa_calendario at JOIN tarefa_calendario_pessoa tp ON tp.tarefa_id=at.tarefa_id WHERE tp.pessoa_id=p.id),'') || ' ' || COALESCE((SELECT group_concat(e.nome, ' ') FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),''))"
-    } else {
-        "''"
-    };
-    let sql = format!(
-        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
-                (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
-                COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
-                {conteudo} AS conteudo_busca, \
-                EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=?) AS favorito \
-         FROM pessoa p \
-         LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
-         WHERE p.excluida_em IS NULL \
-         ORDER BY p.nome COLLATE NOCASE",
-    );
-    let mut pessoas = sqlx::query_as::<_, PessoaResumo>(&sql)
-        .bind(sessao.usuario.id)
-        .fetch_all(&state.pool)
-        .await?;
-    if let Some(busca) = busca {
-        pessoas.retain(|pessoa| {
-            let texto = format!(
-                "{} {} {}",
-                pessoa.nome, pessoa.etiquetas, pessoa.conteudo_busca
-            );
-            normalizar_busca(&texto).contains(&busca)
-        });
-    }
-    Ok(Json(pessoas))
+    let mut q = consulta_pessoas(SELECT_PESSOAS, &filtro, sessao.usuario.id)?;
+    q.push(" ORDER BY favorito DESC,p.nome COLLATE NOCASE,p.id");
+    Ok(Json(q.build_query_as().fetch_all(&state.pool).await?))
+}
+#[derive(serde::Serialize)]
+struct PessoasPagina {
+    #[serde(flatten)]
+    pagina: super::busca::Pagina<PessoaResumo>,
+    total_com_foto: i64,
+}
+async fn listar_paginadas(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Query(filtro): Query<PessoaFiltro>,
+) -> Result<Json<PessoasPagina>, AppError> {
+    let (pagina, tamanho) = super::busca::paginacao(filtro.pagina, filtro.por_pagina)?;
+    let prefixo = format!("SELECT COUNT(*),COALESCE(SUM(tem_foto),0) FROM ({SELECT_PESSOAS}");
+    let mut count = consulta_pessoas(&prefixo, &filtro, sessao.usuario.id)?;
+    count.push(")");
+    let (total, fotos): (i64, i64) = count.build_query_as().fetch_one(&state.pool).await?;
+    let mut q = consulta_pessoas(SELECT_PESSOAS, &filtro, sessao.usuario.id)?;
+    q.push(" ORDER BY favorito DESC,p.nome COLLATE NOCASE,p.id LIMIT ")
+        .push_bind(tamanho)
+        .push(" OFFSET ")
+        .push_bind((pagina - 1) * tamanho);
+    let itens = q.build_query_as().fetch_all(&state.pool).await?;
+    Ok(Json(PessoasPagina {
+        pagina: super::busca::Pagina::nova(itens, total, pagina, tamanho),
+        total_com_foto: fotos,
+    }))
 }
 
 async fn obter_pessoa(
@@ -349,7 +391,6 @@ async fn buscar_pessoa_detalhe(
         "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
                 COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
-                '' AS conteudo_busca, \
                 EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=?) AS favorito \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
@@ -417,22 +458,6 @@ fn normalizar_descricao(descricao: Option<String>) -> Option<String> {
     })
 }
 
-fn normalizar_busca(valor: &str) -> String {
-    valor
-        .chars()
-        .flat_map(char::to_lowercase)
-        .map(|c| match c {
-            'á' | 'à' | 'â' | 'ã' | 'ä' => 'a',
-            'é' | 'è' | 'ê' | 'ë' => 'e',
-            'í' | 'ì' | 'î' | 'ï' => 'i',
-            'ó' | 'ò' | 'ô' | 'õ' | 'ö' => 'o',
-            'ú' | 'ù' | 'û' | 'ü' => 'u',
-            'ç' => 'c',
-            other => other,
-        })
-        .collect()
-}
-
 fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
     if input.tipo_contato_id <= 0 || input.valor.trim().is_empty() {
         return Err(AppError::BadRequest(
@@ -444,12 +469,7 @@ fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalizar_busca, normalizar_descricao, validar_descricao};
-
-    #[test]
-    fn busca_ignora_acentos_e_caixa() {
-        assert_eq!(normalizar_busca("REUNIÃO São"), "reuniao sao");
-    }
+    use super::{normalizar_descricao, validar_descricao};
 
     #[test]
     fn normaliza_descricao_vazia_e_remove_espacos() {

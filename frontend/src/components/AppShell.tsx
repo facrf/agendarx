@@ -1,6 +1,7 @@
 /* Developed with care by FACRF - https://github.com/facrf */
 import {
   CalendarDays,
+  LayoutDashboard,
   ContactRound,
   GitFork,
   LogOut,
@@ -12,12 +13,14 @@ import { useState } from "react";
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { useAuth } from "../contexts/AuthContext";
 import { AdminIcon } from "./AdminIcon";
+import { GlobalSearch } from "./GlobalSearch";
 import { AppFooter } from "./AppFooter";
 import { BrandIcon } from "./BrandIcon";
 import { TaskReminderWatcher } from "./TaskReminderWatcher";
 import { cn } from "./ui";
 
 const navegacao = [
+  { to: "/", label: "Seu dia", icon: LayoutDashboard },
   { to: "/pessoas", label: "Pessoas", icon: ContactRound },
   { to: "/calendario", label: "Calendário", icon: CalendarDays },
   { to: "/grafo", label: "Mapa de vínculos", icon: GitFork },
@@ -40,6 +43,7 @@ export function AppShell() {
         <NavLink
           key={to}
           to={to}
+          end={to === "/"}
           onClick={() => setMenuAberto(false)}
           className={({ isActive }) => cn("nav-link", isActive && "nav-link-active")}
         >
@@ -84,6 +88,7 @@ export function AppShell() {
 
       <main className="flex min-h-screen flex-col lg:pl-72">
         <div className="mx-auto w-full max-w-[1480px] flex-1 px-4 py-7 sm:px-7 lg:px-10 lg:py-10">
+          <GlobalSearch />
           <Outlet />
         </div>
         <AppFooter />

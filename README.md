@@ -7,9 +7,15 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
-Versão atual: **v0.6.5d**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
+Versão atual: **v0.6.5e**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
 
 ## Funcionalidades
+
+- Painel inicial com tarefas de hoje, atrasadas e próximos sete dias, incluindo conclusão rápida.
+- Busca global em pessoas, tarefas, vínculos e arquivos, com índice textual FTS5 e paginação.
+- Recuperação de rascunhos nos formulários de pessoas, tarefas e vínculos.
+- Auditoria administrativa com filtros, paginação, método HTTP, duração e detalhes.
+- Organização manual do grafo salva por conta e layout, com recuperação explícita.
 
 - Cadastro de pessoas com descrição livre, categorias coloridas e meios de
   contato dinâmicos.
@@ -53,6 +59,8 @@ Versão atual: **v0.6.5d**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRA
 - Backup completo com horário e retenções diária, semanal e mensal configuráveis,
   prévia de restauração, verificação SHA-256 e exportação ZIP protegida com AES-256.
 
+Guia de uso das melhorias: [Painel, busca e recuperação de trabalho](docs/PRODUTIVIDADE.md).
+
 ## Início rápido
 
 Requer Rust estável e Node.js 24.
@@ -93,13 +101,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5d
+docker pull ghcr.io/facrf/agendarx:0.6.5e
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.5d
+  ghcr.io/facrf/agendarx:0.6.5e
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -130,7 +138,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.6.5d
+    image: ghcr.io/facrf/agendarx:0.6.5e
     restart: unless-stopped
     ports:
       - "12000:12000"

@@ -1,4 +1,6 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftNotice } from "../components/DraftNotice";
 import { MarkdownText } from "../components/MarkdownText";
 import {
   CalendarCheck,
@@ -99,6 +101,10 @@ export function CalendarPage() {
   const [filtroFim, setFiltroFim] = useState("");
   const [salvando, setSalvando] = useState(false);
   const { notify } = useToast();
+
+  const formDraft = useFormDraft({ name: `tarefa:${tarefaEditando?.id ?? "nova"}`, value: form,
+    enabled: modalAberto, meaningful: Boolean(form.titulo.trim() || form.descricao.trim()),
+    validate: item => item.pessoasIds.every(id => typeof id === "number"), restore: setForm });
 
   const diasDoCalendario = useMemo(() => montarDiasDoCalendario(mesAtual), [mesAtual]);
 
@@ -321,6 +327,7 @@ export function CalendarPage() {
       await Promise.all([carregarTarefas(), carregarArmazenamento()]);
       if (falharam.length > 0) {
         const atualizada = await api.get<TarefaCalendario>(`/api/calendario/tarefas/${tarefaSalva.id}`);
+        formDraft.clear();
         setTarefaEditando(atualizada);
         setForm(formularioDaTarefa(atualizada));
         setArquivosPendentes(falharam);
@@ -331,6 +338,7 @@ export function CalendarPage() {
           ? ` · ${tarefaSalva.total_ocorrencias} ocorrências criadas`
           : "";
         notify(`${estavaEditando ? "Tarefa atualizada" : "Tarefa agendada"}${recorrencias}`);
+        formDraft.clear();
         setModalAberto(false);
         setTarefaEditando(null);
         setArquivosPendentes([]);
@@ -678,6 +686,7 @@ export function CalendarPage() {
 
       <Modal open={modalAberto} onClose={fecharModal} title={tarefaEditando ? "Editar tarefa" : "Nova tarefa"} className="max-w-3xl">
         <form className="space-y-5" onSubmit={salvar}>
+          <DraftNotice draft={formDraft} />
           <div>
             <label className="field-label" htmlFor="tarefa-titulo">Título</label>
             <input id="tarefa-titulo" className="field" autoFocus maxLength={160} required placeholder="Ex.: Retornar ligação" value={form.titulo} onChange={(event) => setForm({ ...form, titulo: event.target.value })} />

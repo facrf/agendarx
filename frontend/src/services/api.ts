@@ -31,12 +31,17 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
         ? body.erro
         : httpErrorMessage(response.status);
     if (response.status === 401 && path !== "/api/auth/login") {
+      clearApiCache();
       window.dispatchEvent(new Event("agendarx:unauthorized"));
     }
     throw new ApiError(response.status, message);
   }
 
   const data = response.status === 204 ? undefined : await response.json();
+  if (options.method && !["GET", "HEAD"].includes(options.method)) {
+    clearApiCache();
+    window.dispatchEvent(new CustomEvent("agendarx:data-updated", { detail: { path, method: options.method } }));
+  }
   if (options.method && !["GET", "HEAD"].includes(options.method)
     && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(path) || /^\/api\/vinculos\/lixeira\/\d+(\/restaurar)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
     window.dispatchEvent(new Event("agendarx:psychosocial-updated"));
@@ -50,8 +55,26 @@ export function apiUrl(path: string): string {
   return `${API_BASE}${path.startsWith("/") ? path : `/${path}`}`;
 }
 
+const getCache = new Map<string, { value: unknown; expires: number }>();
+const pendingGets = new Map<string, Promise<unknown>>();
+let cacheRevision = 0;
+export function clearApiCache() { cacheRevision += 1; getCache.clear(); pendingGets.clear(); }
+async function get<T>(path: string, options: { signal?: AbortSignal; cacheMs?: number } = {}): Promise<T> {
+  const cached = getCache.get(path);
+  if (options.cacheMs && cached && cached.expires > Date.now()) return cached.value as T;
+  if (!options.signal && pendingGets.has(path)) return pendingGets.get(path) as Promise<T>;
+  const revision = cacheRevision;
+  const pending = request<T>(path, { signal: options.signal }).then(value => {
+    if (options.cacheMs && revision === cacheRevision) getCache.set(path, { value, expires: Date.now() + options.cacheMs });
+    return value;
+  });
+  if (!options.signal) pendingGets.set(path, pending);
+  try { return await pending; }
+  finally { if (pendingGets.get(path) === pending) pendingGets.delete(path); }
+}
+
 export const api = {
-  get: <T>(path: string) => request<T>(path),
+  get,
   post: <T>(path: string, data?: unknown) =>
     request<T>(path, {
       method: "POST",
@@ -84,6 +107,8 @@ export const api = {
       });
       xhr.addEventListener("load", () => {
         if (xhr.status >= 200 && xhr.status < 300) {
+          clearApiCache();
+          window.dispatchEvent(new CustomEvent("agendarx:data-updated", { detail: { path, method: "POST" } }));
           onProgress?.(100);
           resolve(xhr.response as T);
           return;

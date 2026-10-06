@@ -9,6 +9,8 @@ mod hp_integration_tests;
 mod integration_tests;
 mod middleware;
 mod models;
+#[cfg(test)]
+mod workflow_integration_tests;
 
 use axum::{
     Json, Router,
@@ -74,6 +76,8 @@ fn construir_app(state: AppState) -> Router {
         .nest("/api/configuracoes", handlers::configuracoes::rotas())
         .nest("/api/calendario", handlers::calendario::rotas())
         .nest("/api/pessoas", handlers::pessoas::rotas())
+        .nest("/api/busca", handlers::busca::rotas())
+        .nest("/api/painel", handlers::painel::rotas())
         .nest("/api/produtividade", handlers::produtividade::rotas())
         .nest("/api/dossie", handlers::dossie::rotas())
         .nest("/api/osint", handlers::osint::rotas())

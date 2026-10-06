@@ -329,3 +329,45 @@ Use `{"tipo":"PROCESSO","valor":"0000832-35.2018.4.01.3202","provider":"DATAJUD"
 ### Contexto para agendar a partir de anexos
 
 `GET /api/{dossie|vinculos|calendario}/anexos/{id}/notas` retorna `notas` e `pessoas_ids`, derivados do registro ao qual o arquivo pertence. O `PUT` mantém o corpo `{ "notas": "..." }`. Anexos de tarefas mantêm a verificação do proprietário. O agendamento opcional usa `POST /api/calendario/tarefas` com `pessoas_ids` e referências Markdown na descrição, depois da persistência do registro/arquivo.
+
+## Busca, painel e auditoria paginada
+
+Todas as rotas abaixo exigem autenticação. Paginação usa `pagina` (1 a 1.000.000)
+e `por_pagina` (1 a 100, padrão 30), retornando:
+
+```json
+{
+  "itens": [], "total": 0, "pagina": 1,
+  "por_pagina": 30, "total_paginas": 0
+}
+```
+
+| Método e rota | Parâmetros e resposta |
+|---|---|
+| `GET /api/pessoas/paginadas` | `busca`, `categoria` (ID ou `sem`), `tipo` (`fisica` ou `juridica`), `favoritos` (`true`/`false`), paginação. Itens `PessoaResumo` e campo adicional `total_com_foto`, ambos considerando os filtros. |
+| `GET /api/busca` | `busca` obrigatório, `tipo` opcional (`pessoa`, `tarefa`, `vinculo`, `anexo`), paginação. Cada item contém `tipo`, `recurso_id`, `titulo`, `resumo`, `url`. |
+| `GET /api/painel` | `inicio` e `fim` obrigatórios em RFC3339, delimitando o dia local; `dia` opcional em AAAA-MM-DD para a data local dos eventos de dia inteiro. Retorna listas `hoje`, `atrasadas`, `proximas` e contagens `total_hoje`, `total_atrasadas`, `total_proximas`. |
+| `GET /api/produtividade/auditoria/paginada` | Somente admin. `usuario` e `recurso` por trecho, `acao` (`CRIAR`, `ALTERAR`, `EXCLUIR`, `EXECUTAR`), `desde`/`ate` em AAAA-MM-DD UTC, `status` de 100 a 599, paginação. Inclui os campos originais e `metodo`, `duracao_ms`, `resumo`. |
+| `GET /api/produtividade/grafo/posicoes/{layout}` | Posições da própria conta, com `layout=force` ou `hierarchical`. |
+| `PUT /api/produtividade/grafo/posicoes/{layout}` | Lista de `{ "pessoa_id": 1, "x": 100, "y": 200 }`. Atualiza somente os IDs enviados e retorna 204. Até 10.000 IDs distintos, ativos, positivos; coordenadas finitas entre -1.000.000 e 1.000.000. ID inexistente/inativo retorna 404; entrada inválida retorna 400. |
+
+`GET /api/pessoas` continua retornando uma lista para integrações e seletores,
+com os mesmos filtros de busca, categoria, tipo e favoritos, sem paginação.
+`GET /api/produtividade/auditoria` preserva a resposta antiga com os últimos
+500 registros. Os novos endpoints paginados são usados pelas telas.
+
+Busca textual usa prefixos de palavras com FTS5, sem distinção de caixa/acentos,
+e aceita até 200 caracteres e 12 palavras. Pessoas, dossiês e vínculos seguem
+compartilhados; tarefas e seus arquivos são filtrados pelo usuário autenticado,
+inclusive quando usados para localizar pessoas. Itens na lixeira ficam fora
+dos resultados. URLs de arquivos exigem a sessão também no acesso ao conteúdo.
+
+O painel considera somente tarefas não concluídas da própria conta e retorna
+até 20 itens por grupo com o total completo. O intervalo deve ser crescente e
+não exceder 26 horas. `dia` é enviado pelo frontend para preservar a data dos
+eventos de dia inteiro em qualquer fuso. Próximos compromissos cobrem os sete
+dias seguintes ao dia informado. Datas inválidas e filtros fora dos limites
+retornam 400; acesso não administrativo à auditoria retorna 403.
+
+Rascunhos são locais ao navegador e não acrescentam rotas à API. Consulte
+[uso do painel, busca e rascunhos](PRODUTIVIDADE.md) para os detalhes da interface.

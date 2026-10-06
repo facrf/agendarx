@@ -66,8 +66,8 @@ frontend compilado, `.env.example`, README e o exemplo do Portainer.
 git remote get-url github
 # https://github.com/facrf/agendarx.git
 git push github main
-git tag -a v0.6.5d -m "AgendarX v0.6.5d"
-git push github v0.6.5d
+git tag -a v0.6.5e -m "AgendarX v0.6.5e"
+git push github v0.6.5e
 ```
 
 Não use `git push origin` nesse fluxo: neste projeto `origin` é o espelho Gitea.
@@ -78,7 +78,7 @@ Só considere a imagem pronta quando o job **Imagem Docker multi-arquitetura**
 terminar com sucesso e a tag aparecer em
 [Packages > agendarx](https://github.com/facrf/agendarx/pkgs/container/agendarx).
 O workflow cria a Release com notas automáticas, pacotes e arquivos `.sha256` e
-publica no GHCR as tags `0.6.5d`, `0.6`, `0` e `latest`. O envio da tag não espera
+publica no GHCR as tags `0.6.5e`, `0.6`, `0` e `latest`. O envio da tag não espera
 o build: o GitHub continua a compilação e você pode fechar o terminal.
 
 Na primeira publicação, o GitHub pode criar o pacote GHCR como privado. Para
@@ -90,8 +90,8 @@ Change visibility**, escolha **Public** e confirme. Essa mudança é permanente.
 Use a imagem publicada pelo projeto no GitHub Container Registry:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5d
-docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.5d
+docker pull ghcr.io/facrf/agendarx:0.6.5e
+docker run --rm -p 12000:12000 ghcr.io/facrf/agendarx:0.6.5e
 ```
 
 O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
@@ -99,9 +99,9 @@ O Docker seleciona automaticamente AMD64, ARM64 ou ARMv7 a partir do manifesto.
 ## Usando um pacote binário
 
 ```bash
-sha256sum -c agendarx-0.6.5d-linux-riscv64.tar.gz.sha256
-tar -xzf agendarx-0.6.5d-linux-riscv64.tar.gz
-cd agendarx-0.6.5d-linux-riscv64
+sha256sum -c agendarx-0.6.5e-linux-riscv64.tar.gz.sha256
+tar -xzf agendarx-0.6.5e-linux-riscv64.tar.gz
+cd agendarx-0.6.5e-linux-riscv64
 cp .env.example .env
 ./agendarx
 ```
@@ -116,7 +116,7 @@ da primeira inicialização e mantenha o diretório `data/` em armazenamento per
 
 Use **Actions > Publicar imagem dos pacotes > Run workflow** para concluir ou
 repetir a publicação quando os pacotes já tiverem sido compilados. Informe a tag
-(ex.: `v0.6.5d`) e o ID da execução de **Publicar versão** que gerou os artefatos.
+(ex.: `v0.6.5e`) e o ID da execução de **Publicar versão** que gerou os artefatos.
 A ferramenta exige que a tag aponte para o commit dessa execução e que os jobs de
 validação, frontend e quatro binários tenham terminado com sucesso. Ela verifica
 os checksums, monta as três arquiteturas da imagem e publica a Release com os

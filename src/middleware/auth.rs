@@ -90,8 +90,10 @@ pub async fn exigir_autenticacao(
     let method = request.method().clone();
     let recurso = request.uri().path().to_owned();
     request.extensions_mut().insert(sessao.clone());
+    let inicio = std::time::Instant::now();
     let response = next.run(request).await;
 
+    let duracao_ms = i64::try_from(inicio.elapsed().as_millis()).unwrap_or(i64::MAX);
     if !(recurso.starts_with("/api/configuracoes/restauracoes/") && recurso.ends_with("/confirmar"))
         && !matches!(
             method,
@@ -105,15 +107,18 @@ pub async fn exigir_autenticacao(
             _ => "EXECUTAR",
         };
         if let Err(error) = sqlx::query(
-            "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http) \
-             VALUES (CASE WHEN EXISTS(SELECT 1 FROM usuario WHERE id = ?) THEN ? ELSE NULL END, ?, ?, ?, ?)",
+            "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http, metodo, duracao_ms, resumo) \
+             VALUES (CASE WHEN EXISTS(SELECT 1 FROM usuario WHERE id = ?) THEN ? ELSE NULL END, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(sessao.usuario.id)
         .bind(sessao.usuario.id)
         .bind(&sessao.usuario.login)
         .bind(acao)
-        .bind(recurso)
+        .bind(&recurso)
         .bind(i64::from(response.status().as_u16()))
+        .bind(method.as_str())
+        .bind(duracao_ms)
+        .bind(format!("{} {} · {}", method, recurso, if response.status().is_success() { "operação concluída" } else { "operação recusada ou falhou" }))
         .execute(&state.pool)
         .await
         {

@@ -19,7 +19,7 @@ export function LoginPage() {
   const navigate = useNavigate();
   const location = useLocation();
 
-  if (!auth.carregando && auth.usuario) return <Navigate to="/pessoas" replace />;
+  if (!auth.carregando && auth.usuario) return <Navigate to="/" replace />;
 
   const submit = async (event: FormEvent) => {
     event.preventDefault();
@@ -27,7 +27,7 @@ export function LoginPage() {
     setEnviando(true);
     try {
       await auth.login(login, senha);
-      const from = (location.state as { from?: string } | null)?.from || "/pessoas";
+      const from = (location.state as { from?: string } | null)?.from || "/";
       navigate(from, { replace: true });
     } catch (error) {
       setErro(errorMessage(error));

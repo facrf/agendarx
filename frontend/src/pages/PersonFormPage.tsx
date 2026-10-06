@@ -1,4 +1,6 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftNotice } from "../components/DraftNotice";
 import { LinkedEventFields } from "../components/LinkedEventFields";
 import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import {
@@ -55,6 +57,7 @@ export function PersonFormPage() {
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [tipos, setTipos] = useState<TipoMeioContato[]>([]);
   const [etiquetas, setEtiquetas] = useState<Etiqueta[]>([]);
+  const [carregandoEtiquetas, setCarregandoEtiquetas] = useState(true);
   const [etiquetasIds, setEtiquetasIds] = useState<number[]>([]);
   const [temFoto, setTemFoto] = useState(false);
   const [removerFoto, setRemoverFoto] = useState(false);
@@ -65,6 +68,20 @@ export function PersonFormPage() {
   const [salvando, setSalvando] = useState(false);
   const [progressoFoto, setProgressoFoto] = useState<number | null>(null);
   const [pessoaSalvaId, setPessoaSalvaId] = useState<number | null>(null);
+
+  const formDraft = useFormDraft({
+    name: `pessoa:${pessoaId ?? "nova"}`, enabled: !carregando && !carregandoEtiquetas && !erroCarregamento,
+    meaningful: Boolean(nome.trim() || descricao.trim() || contatos.length),
+    value: { nome, descricao, pessoaJuridica, classificacaoRisco, toxicidade, riscoJustificativa, riscoRevisadoEm, categoriaId, contatos, etiquetasIds, removerFoto, pessoaSalvaId, agenda: agenda.draft },
+    validate: item => item.contatos.every(c => typeof c.tipo_contato_id === "number" && typeof c.valor === "string") && item.etiquetasIds.every(id => typeof id === "number"),
+    restore: item => {
+      setNome(item.nome); setDescricao(item.descricao); setPessoaJuridica(item.pessoaJuridica);
+      setClassificacaoRisco(item.classificacaoRisco); setToxicidade(item.toxicidade);
+      setRiscoJustificativa(item.riscoJustificativa); setRiscoRevisadoEm(item.riscoRevisadoEm);
+      setCategoriaId(item.categoriaId); setContatos(item.contatos); setEtiquetasIds(item.etiquetasIds);
+      setRemoverFoto(item.removerFoto); setPessoaSalvaId(item.pessoaSalvaId); agenda.setDraft(item.agenda);
+    },
+  });
 
   useEffect(() => {
     let active = true;
@@ -100,11 +117,14 @@ export function PersonFormPage() {
   }, [pessoaId, notify]);
 
   useEffect(() => {
+    setCarregandoEtiquetas(true);
+    let active = true;
     Promise.all([
       api.get<Etiqueta[]>("/api/produtividade/etiquetas"),
       pessoaId ? api.get<Etiqueta[]>(`/api/produtividade/pessoas/${pessoaId}/etiquetas`) : Promise.resolve([]),
-    ]).then(([todas, selecionadas]) => { setEtiquetas(todas); setEtiquetasIds(selecionadas.map((item) => item.id)); })
-      .catch((error) => notify(errorMessage(error), "erro"));
+    ]).then(([todas, selecionadas]) => { if (!active) return; setEtiquetas(todas); setEtiquetasIds(selecionadas.map((item) => item.id)); })
+      .catch(error => { if (active) notify(errorMessage(error), "erro"); }).finally(() => { if (active) setCarregandoEtiquetas(false); });
+    return () => { active = false; };
   }, [pessoaId, notify]);
 
   const preview = useMemo(() => (foto ? URL.createObjectURL(foto) : null), [foto]);
@@ -222,6 +242,7 @@ export function PersonFormPage() {
       if (fotoPreparada) { setFoto(null); setTemFoto(true); }
       if (removerFoto) { setRemoverFoto(false); setTemFoto(false); }
       await agenda.save({ people: [destinoId], title: nome, references: [`[Pessoa: ${nome.replaceAll("[", "").replaceAll("]", "")}](/pessoas/${destinoId})`] });
+      formDraft.clear();
       notify(editando ? "Pessoa atualizada" : "Pessoa cadastrada");
       navigate(`/pessoas/${destinoId}`, { replace: true });
     } catch (error) {
@@ -232,10 +253,11 @@ export function PersonFormPage() {
     }
   };
 
-  if (carregando) return <Spinner label={editando ? "Carregando perfil" : "Preparando formulário"} />;
+  if (carregando || carregandoEtiquetas) return <Spinner label={editando ? "Carregando perfil" : "Preparando formulário"} />;
 
   return (
     <div className="mx-auto max-w-5xl">
+      <DraftNotice draft={formDraft} />
       <PageHeader
         eyebrow={editando ? "Atualizar perfil" : "Novo contato"}
         title={editando ? "Editar pessoa" : "Cadastrar pessoa"}

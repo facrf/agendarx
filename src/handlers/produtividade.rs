@@ -1,6 +1,6 @@
 use axum::{
     Extension, Json, Router,
-    extract::{Path, State},
+    extract::{Path, Query, State},
     http::StatusCode,
     routing::get,
 };
@@ -33,6 +33,7 @@ pub fn rotas() -> Router<AppState> {
             axum::routing::delete(excluir_definitivamente),
         )
         .route("/auditoria", get(listar_auditoria))
+        .route("/auditoria/paginada", get(auditoria_paginada))
         .route(
             "/grafo/posicoes/{layout}",
             get(obter_posicoes).put(salvar_posicoes),
@@ -322,18 +323,135 @@ async fn salvar_posicoes(
     Json(posicoes): Json<Vec<PosicaoGrafo>>,
 ) -> Result<StatusCode, AppError> {
     validar_layout(&layout)?;
+    let mut ids = std::collections::HashSet::new();
     if posicoes.len() > 10_000
-        || posicoes
-            .iter()
-            .any(|p| !p.x.is_finite() || !p.y.is_finite())
+        || posicoes.iter().any(|p| {
+            p.pessoa_id <= 0
+                || !ids.insert(p.pessoa_id)
+                || !p.x.is_finite()
+                || !p.y.is_finite()
+                || p.x.abs() > 1_000_000.0
+                || p.y.abs() > 1_000_000.0
+        })
     {
         return Err(AppError::BadRequest("posições inválidas".into()));
     }
     let mut tx = state.pool.begin().await?;
     for p in posicoes {
-        sqlx::query("INSERT INTO posicao_grafo (usuario_id, layout, pessoa_id, x, y) VALUES (?, ?, ?, ?, ?) ON CONFLICT(usuario_id, layout, pessoa_id) DO UPDATE SET x=excluded.x, y=excluded.y, data_atualizacao=CURRENT_TIMESTAMP")
-        .bind(sessao.usuario.id).bind(&layout).bind(p.pessoa_id).bind(p.x).bind(p.y).execute(&mut *tx).await?;
+        let result = sqlx::query("INSERT INTO posicao_grafo (usuario_id, layout, pessoa_id, x, y) SELECT ?, ?, id, ?, ? FROM pessoa WHERE id=? AND excluida_em IS NULL ON CONFLICT(usuario_id, layout, pessoa_id) DO UPDATE SET x=excluded.x, y=excluded.y, data_atualizacao=CURRENT_TIMESTAMP")
+        .bind(sessao.usuario.id).bind(&layout).bind(p.x).bind(p.y).bind(p.pessoa_id).execute(&mut *tx).await?;
+        if result.rows_affected() == 0 {
+            return Err(AppError::nao_encontrado("pessoa ativa"));
+        }
     }
     tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
+}
+
+#[derive(Deserialize)]
+struct AuditoriaFiltro {
+    usuario: Option<String>,
+    recurso: Option<String>,
+    acao: Option<String>,
+    desde: Option<String>,
+    ate: Option<String>,
+    status: Option<i64>,
+    pagina: Option<i64>,
+    por_pagina: Option<i64>,
+}
+#[derive(Serialize, sqlx::FromRow)]
+struct AuditoriaDetalhe {
+    id: i64,
+    usuario_login: String,
+    acao: String,
+    recurso: String,
+    status_http: i64,
+    data_evento: String,
+    metodo: String,
+    duracao_ms: Option<i64>,
+    resumo: String,
+}
+fn filtro_auditoria(
+    q: &mut sqlx::QueryBuilder<sqlx::Sqlite>,
+    f: &AuditoriaFiltro,
+) -> Result<(), AppError> {
+    q.push(" FROM auditoria WHERE 1=1");
+    for (coluna, valor) in [("usuario_login", &f.usuario), ("recurso", &f.recurso)] {
+        if let Some(valor) = valor.as_deref().filter(|s| !s.trim().is_empty()) {
+            if valor.chars().count() > 200 {
+                return Err(AppError::BadRequest("filtro muito longo".into()));
+            }
+            q.push(format!(" AND instr(lower({coluna}),lower("))
+                .push_bind(valor.trim().to_owned())
+                .push("))>0");
+        }
+    }
+    if let Some(acao) = f.acao.as_deref().filter(|s| !s.is_empty()) {
+        if !matches!(acao, "CRIAR" | "ALTERAR" | "EXCLUIR" | "EXECUTAR") {
+            return Err(AppError::BadRequest("ação inválida".into()));
+        }
+        q.push(" AND acao=").push_bind(acao.to_owned());
+    }
+    let data = |s: &str| {
+        chrono::NaiveDate::parse_from_str(s, "%Y-%m-%d")
+            .map_err(|_| AppError::BadRequest("data inválida".into()))
+    };
+    let desde = f
+        .desde
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(data)
+        .transpose()?;
+    let ate = f
+        .ate
+        .as_deref()
+        .filter(|s| !s.is_empty())
+        .map(data)
+        .transpose()?;
+    if desde.zip(ate).is_some_and(|(a, b)| a > b) {
+        return Err(AppError::BadRequest("período inválido".into()));
+    }
+    if let Some(data) = desde {
+        q.push(" AND data_evento>=")
+            .push_bind(format!("{data} 00:00:00"));
+    }
+    if let Some(data) = ate {
+        let proxima = data
+            .succ_opt()
+            .ok_or_else(|| AppError::BadRequest("data inválida".into()))?;
+        q.push(" AND data_evento<")
+            .push_bind(format!("{proxima} 00:00:00"));
+    }
+    if let Some(status) = f.status {
+        if !(100..=599).contains(&status) {
+            return Err(AppError::BadRequest("status inválido".into()));
+        }
+        q.push(" AND status_http=").push_bind(status);
+    }
+    Ok(())
+}
+async fn auditoria_paginada(
+    State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    Query(filtro): Query<AuditoriaFiltro>,
+) -> Result<Json<super::busca::Pagina<AuditoriaDetalhe>>, AppError> {
+    if sessao.usuario.perfil != "admin" {
+        return Err(AppError::Forbidden);
+    }
+    let (pagina, tamanho) = super::busca::paginacao(filtro.pagina, filtro.por_pagina)?;
+    let mut count = sqlx::QueryBuilder::<sqlx::Sqlite>::new("SELECT COUNT(*)");
+    filtro_auditoria(&mut count, &filtro)?;
+    let total = count.build_query_scalar().fetch_one(&state.pool).await?;
+    let mut q = sqlx::QueryBuilder::<sqlx::Sqlite>::new(
+        "SELECT id,usuario_login,acao,recurso,status_http,data_evento,metodo,duracao_ms,resumo",
+    );
+    filtro_auditoria(&mut q, &filtro)?;
+    q.push(" ORDER BY id DESC LIMIT ")
+        .push_bind(tamanho)
+        .push(" OFFSET ")
+        .push_bind((pagina - 1) * tamanho);
+    let itens = q.build_query_as().fetch_all(&state.pool).await?;
+    Ok(Json(super::busca::Pagina::nova(
+        itens, total, pagina, tamanho,
+    )))
 }

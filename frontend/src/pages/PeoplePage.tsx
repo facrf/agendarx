@@ -15,7 +15,8 @@ import { Avatar, EmptyState, PageHeader, Spinner } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
 import { api, errorMessage } from "../services/api";
-import type { Categoria, PessoaResumo } from "../types/api";
+import type { Categoria, PessoaResumo, PessoasPagina } from "../types/api";
+import { Pagination } from "../components/Pagination";
 import { formatDate } from "../utils/format";
 
 export function PeoplePage() {
@@ -29,6 +30,11 @@ export function PeoplePage() {
   const [agrupar, setAgrupar] = useState(() => readPreference(preferenceKey, "agrupar") !== "nao");
   const [somenteFavoritos, setSomenteFavoritos] = useState(() => readPreference(preferenceKey, "favoritos") === "sim");
   const [carregando, setCarregando] = useState(true);
+  const [pagina, setPagina] = useState(1);
+  const [tamanho, setTamanho] = useState(30);
+  const [resultado, setResultado] = useState<PessoasPagina | null>(null);
+  const [erro, setErro] = useState(false);
+  const [revision, setRevision] = useState(0);
   const { notify } = useToast();
 
   useEffect(() => {
@@ -40,7 +46,7 @@ export function PeoplePage() {
   const alternarFavorito = async (pessoa: PessoaResumo) => {
     const favorito = !pessoa.favorito;
     setPessoas((atuais) => atuais.map((item) => item.id === pessoa.id ? { ...item, favorito } : item));
-    try { await api.put(`/api/produtividade/pessoas/${pessoa.id}/favorito`, { favorito }); }
+    try { await api.put(`/api/produtividade/pessoas/${pessoa.id}/favorito`, { favorito }); setRevision(value => value + 1); }
     catch (error) {
       setPessoas((atuais) => atuais.map((item) => item.id === pessoa.id ? { ...item, favorito: pessoa.favorito } : item));
       notify(errorMessage(error), "erro");
@@ -48,37 +54,28 @@ export function PeoplePage() {
   };
 
   useEffect(() => {
-    Promise.all([
-      api.get<PessoaResumo[]>("/api/pessoas"),
-      api.get<Categoria[]>("/api/configuracoes/categorias"),
-    ])
-      .then(([pessoasData, categoriasData]) => {
-        setPessoas(pessoasData);
-        setCategorias(categoriasData);
-        setCategoria((current) => current && current !== "sem" && !categoriasData.some((item) => String(item.id) === current) ? "" : current);
-      })
-      .catch((error) => notify(errorMessage(error), "erro"))
-      .finally(() => setCarregando(false));
+    const controller = new AbortController();
+    api.get<Categoria[]>("/api/configuracoes/categorias", { signal: controller.signal, cacheMs: 60_000 })
+      .then(setCategorias).catch(error => { if (!controller.signal.aborted) notify(errorMessage(error), "erro"); });
+    return () => controller.abort();
   }, [notify]);
 
   useEffect(() => {
-    let active = true;
+    const controller = new AbortController();
     const timer = window.setTimeout(() => {
-      api.get<PessoaResumo[]>(`/api/pessoas?busca=${encodeURIComponent(busca.trim())}`)
-        .then((data) => { if (active) setPessoas(data); }).catch((error) => { if (active) notify(errorMessage(error), "erro"); });
+      setCarregando(true); setErro(false);
+      const params = new URLSearchParams({ busca: busca.trim(), categoria, tipo, favoritos: String(somenteFavoritos), pagina: String(pagina), por_pagina: String(tamanho) });
+      api.get<PessoasPagina>(`/api/pessoas/paginadas?${params}`, { signal: controller.signal })
+        .then(data => {
+          if (data.total_paginas > 0 && pagina > data.total_paginas) { setPagina(data.total_paginas); return; }
+          setResultado(data); setPessoas(data.itens);
+        }).catch(error => { if (!controller.signal.aborted) { setErro(true); notify(errorMessage(error), "erro"); } })
+        .finally(() => { if (!controller.signal.aborted) setCarregando(false); });
     }, 250);
-    return () => { active = false; window.clearTimeout(timer); };
-  }, [busca, notify]);
+    return () => { controller.abort(); window.clearTimeout(timer); };
+  }, [busca, categoria, tipo, somenteFavoritos, pagina, tamanho, revision, notify]);
 
-  const filtradas = useMemo(() => {
-    return pessoas.filter(
-      (pessoa) =>
-        (!categoria || (categoria === "sem" ? pessoa.categoria_id === null : pessoa.categoria_id === Number(categoria))) &&
-        (!tipo || pessoa.pessoa_juridica === (tipo === "juridica")) &&
-        (!somenteFavoritos || pessoa.favorito),
-    ).sort((a, b) => Number(b.favorito) - Number(a.favorito) || a.nome.localeCompare(b.nome, "pt-BR", { sensitivity: "base", numeric: true }) || a.id - b.id);
-  }, [pessoas, categoria, tipo, somenteFavoritos]);
-
+  const filtradas = pessoas;
   const grupos = useMemo(() => {
     if (!agrupar) return [{ key: "todos", title: "Todos os contatos", pessoas: filtradas }];
     const groups = new Map<string, { key: string; title: string; pessoas: PessoaResumo[]; juridica: boolean }>();
@@ -90,7 +87,7 @@ export function PeoplePage() {
     return [...groups.values()].sort((a, b) => Number(a.juridica) - Number(b.juridica) || a.title.localeCompare(b.title, "pt-BR"));
   }, [filtradas, agrupar]);
 
-  if (carregando) return <Spinner label="Abrindo sua agenda" />;
+  if (carregando && !resultado) return <Spinner label="Abrindo sua agenda" />;
 
   return (
     <div>
@@ -106,9 +103,9 @@ export function PeoplePage() {
       />
 
       <section className="mb-6 grid gap-3 sm:grid-cols-3">
-        <Stat icon={<UsersRound />} value={pessoas.length} label="pessoas cadastradas" />
+        <Stat icon={<UsersRound />} value={resultado?.total ?? 0} label="pessoas encontradas" />
         <Stat icon={<SlidersHorizontal />} value={categorias.length} label="categorias ativas" />
-        <Stat icon={<Camera />} value={pessoas.filter((p) => p.tem_foto).length} label="perfis com foto" />
+        <Stat icon={<Camera />} value={resultado?.total_com_foto ?? 0} label="perfis com foto" />
       </section>
 
       <section className="panel mb-6 flex flex-col gap-3 p-3 lg:flex-row lg:flex-wrap">
@@ -119,23 +116,25 @@ export function PeoplePage() {
             className="field border-0 bg-slate-50 pl-10 shadow-none"
             placeholder="Buscar em nomes, contatos, descrições, notas e arquivos..."
             value={busca}
-            onChange={(event) => setBusca(event.target.value)}
+            onChange={(event) => { setBusca(event.target.value); setPagina(1); }}
           />
         </label>
-        <select aria-label="Categoria" className="field border-0 bg-slate-50 shadow-none lg:w-56" value={categoria} onChange={(event) => setCategoria(event.target.value)}>
+        <select aria-label="Categoria" className="field border-0 bg-slate-50 shadow-none lg:w-56" value={categoria} onChange={(event) => { setCategoria(event.target.value); setPagina(1); }}>
           <option value="">Todas as categorias</option>
           <option value="sem">Sem categoria</option>
           {categorias.map((item) => <option key={item.id} value={item.id}>{item.nome_categoria}</option>)}
         </select>
-        <select aria-label="Tipo de pessoa" className="field border-0 bg-slate-50 shadow-none lg:w-48" value={tipo} onChange={(event) => setTipo(event.target.value)}>
+        <select aria-label="Tipo de pessoa" className="field border-0 bg-slate-50 shadow-none lg:w-48" value={tipo} onChange={(event) => { setTipo(event.target.value); setPagina(1); }}>
           <option value="">Todos os tipos</option><option value="fisica">Pessoas físicas</option><option value="juridica">Pessoas jurídicas</option>
         </select>
         <label className="flex items-center gap-2 px-2 text-sm"><input type="checkbox" checked={agrupar} onChange={(event) => setAgrupar(event.target.checked)} /> Agrupar por tipo e categoria</label>
-        <label className="flex items-center gap-2 px-2 text-sm"><input type="checkbox" checked={somenteFavoritos} onChange={(event) => setSomenteFavoritos(event.target.checked)} /> Somente favoritos</label>
-        <button type="button" className="btn btn-ghost" onClick={() => { setBusca(""); setCategoria(""); setTipo(""); setSomenteFavoritos(false); }}>Limpar filtros</button>
+        <label className="flex items-center gap-2 px-2 text-sm"><input type="checkbox" checked={somenteFavoritos} onChange={(event) => { setSomenteFavoritos(event.target.checked); setPagina(1); }} /> Somente favoritos</label>
+        <button type="button" className="btn btn-ghost" onClick={() => { setBusca(""); setCategoria(""); setTipo(""); setSomenteFavoritos(false); setPagina(1); }}>Limpar filtros</button>
       </section>
 
-      {pessoas.length === 0 ? (
+      {erro && <div className="mb-4 rounded-xl bg-amber-50 p-3" role="alert">Não foi possível carregar a lista. <button type="button" className="underline" onClick={() => setRevision(value => value + 1)}>Tentar novamente</button></div>}
+      {carregando && <p className="mb-3 text-sm text-slate-500" role="status">Atualizando resultados…</p>}
+      {!erro && resultado?.total === 0 && !busca && !categoria && !tipo && !somenteFavoritos ? (
         <EmptyState
           icon={<ContactRound className="size-7" />}
           title="Sua agenda está pronta para começar"
@@ -156,6 +155,7 @@ export function PeoplePage() {
           </section>)}
         </div>
       )}
+      {resultado && <Pagination page={pagina} pages={resultado.total_paginas} total={resultado.total} size={tamanho} busy={carregando} onPage={setPagina} onSize={size => { setTamanho(size); setPagina(1); }} />}
     </div>
   );
 }

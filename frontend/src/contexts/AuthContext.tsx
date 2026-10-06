@@ -1,6 +1,6 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState } from "react";
 import type { PropsWithChildren } from "react";
-import { api } from "../services/api";
+import { api, clearApiCache } from "../services/api";
 import type { CredenciaisPayload, LoginResponse, UsuarioSessao } from "../types/api";
 
 interface AuthContextValue {
@@ -31,7 +31,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
 
   useEffect(() => {
     void verificarSessao();
-    const invalidar = () => setUsuario(null);
+    const invalidar = () => { clearApiCache(); setUsuario(null); };
     window.addEventListener("agendarx:unauthorized", invalidar);
     return () => window.removeEventListener("agendarx:unauthorized", invalidar);
   }, [verificarSessao]);
@@ -49,6 +49,7 @@ export function AuthProvider({ children }: PropsWithChildren) {
     try {
       await api.post<void>("/api/auth/logout");
     } finally {
+      clearApiCache();
       setUsuario(null);
     }
   }, []);

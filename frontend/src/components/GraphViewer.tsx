@@ -2,8 +2,9 @@
 import cytoscape from "cytoscape";
 import type { Core, CollectionReturnValue, ElementDefinition, StylesheetJson } from "cytoscape";
 import { forwardRef, useEffect, useImperativeHandle, useRef, useState } from "react";
+import { Minus, Plus, Scan } from "lucide-react";
 import { apiUrl } from "../services/api";
-import type { GrafoNode, GrafoResponse } from "../types/api";
+import type { GrafoNode, GrafoResponse, PosicaoGrafo } from "../types/api";
 import { GraphVitalityBar, percentual } from "./PsychosocialStatus";
 
 export type GraphLayout = "force" | "hierarchical";
@@ -19,7 +20,7 @@ interface GraphViewerProps {
   onNodeDoubleClick: (nodeId: number) => void;
   onNodeSelect: (nodeId: number) => void;
 }
-export interface GraphViewerHandle { exportPng: () => string | null; organize: () => void; fit: () => void }
+export interface GraphViewerHandle { exportPng: () => string | null; organize: () => void; fit: () => void; positions: () => PosicaoGrafo[]; restorePositions: (positions: PosicaoGrafo[]) => boolean }
 interface Overlay { id: number; x: number; y: number; zoom: number; hp: number; dimmed: boolean }
 interface GroupLabel { name: string; x: number; y: number; zoom: number }
 
@@ -32,14 +33,33 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
   const syncOverlaysRef = useRef<(() => void) | null>(null);
   const [overlays, setOverlays] = useState<Overlay[]>([]);
   const [groupLabels, setGroupLabels] = useState<GroupLabel[]>([]);
+  const [currentZoom, setCurrentZoom] = useState(1);
 
   useEffect(() => { callbacksRef.current = props; }, [props]);
   useImperativeHandle(ref, () => ({ organize: () => {
     const cy = cyRef.current;
-    if (cy) organizeGraph(cy, callbacksRef.current.graph, callbacksRef.current.layout, callbacksRef.current.groupByCategory);
+    if (cy) {
+      const current = callbacksRef.current;
+      organizeGraph(cy, current.graph, current.layout, current.groupByCategory);
+      if (current.focusedNodeId !== null) focusGraph(cy, current.focusedNodeId, current.focusDepth);
+    }
   }, fit: () => {
     const cy = cyRef.current;
     if (cy) { cy.resize(); fitGraph(cy); }
+  }, positions: () => cyRef.current?.nodes().map(node => ({ pessoa_id: Number(node.data("nodeId")), ...node.position() })) ?? [],
+  restorePositions: (positions) => {
+    const cy = cyRef.current;
+    if (!cy) return false;
+    const saved = new Map(positions.filter(p => Number.isFinite(p.x) && Number.isFinite(p.y)).map(p => [`node-${p.pessoa_id}`, p]));
+    if (cy.nodes().filter(node => saved.has(node.id())).empty()) return false;
+    cy.batch(() => cy.nodes().positions(node => {
+      const position = saved.get(node.id());
+      return position ? { x: position.x, y: position.y } : node.position();
+    }));
+    const current = callbacksRef.current;
+    if (current.focusedNodeId !== null) focusGraph(cy, current.focusedNodeId, current.focusDepth);
+    else fitGraph(cy);
+    return true;
   }, exportPng: () => {
     const cy = cyRef.current;
     if (!cy) return null;
@@ -58,6 +78,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
       cancelAnimationFrame(frame);
       frame = requestAnimationFrame(() => {
         const zoom = cy.zoom();
+        setCurrentZoom(zoom);
         const next = cy.nodes().map((item) => {
           const node = item.data("profile") as GrafoNode;
           const pos = item.renderedPosition();
@@ -75,6 +96,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     };
     syncOverlaysRef.current = syncOverlays;
     cy.on("render pan zoom position data", syncOverlays);
+    cy.on("dragpan scrollzoom pinchzoom", () => cy.scratch("viewportMode", "manual"));
     cy.on("mouseover", "node, edge", (event) => event.target.addClass("is-hover"));
     cy.on("mouseout", "node, edge", (event) => event.target.removeClass("is-hover"));
     let lastTap = { id: "", at: 0 };
@@ -102,11 +124,21 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     };
     motion.addEventListener("change", applyMotion);
     applyMotion();
+    let viewportWidth = cy.width();
+    let viewportHeight = cy.height();
     const observer = new ResizeObserver(() => {
+      const pan = cy.pan();
       cy.resize();
-      const { focusedNodeId, focusDepth } = callbacksRef.current;
-      if (focusedNodeId !== null) focusGraph(cy, focusedNodeId, focusDepth);
-      else fitGraph(cy);
+      if (cy.scratch("viewportMode") === "manual") {
+        cy.pan({ x: pan.x + (cy.width() - viewportWidth) / 2,
+          y: pan.y + (cy.height() - viewportHeight) / 2 });
+      } else if (cy.scratch("viewportMode") === "focus") {
+        const { focusedNodeId, focusDepth } = callbacksRef.current;
+        if (focusedNodeId !== null) focusGraph(cy, focusedNodeId, focusDepth);
+        else fitGraph(cy);
+      } else fitGraph(cy);
+      viewportWidth = cy.width();
+      viewportHeight = cy.height();
       syncOverlays();
     });
     observer.observe(containerRef.current);
@@ -157,7 +189,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
       direct.addClass("is-direct"); secondary.addClass("is-secondary");
       focus.connectedEdges().addClass("focus-edge");
       direct.connectedEdges().difference(focus.connectedEdges()).addClass("second-edge");
-      const neighborhood = focus.union(direct).union(secondary);
+      const neighborhood = connectionNodes(focus, focusDepth);
       cy.nodes().difference(neighborhood).addClass("is-dimmed");
       cy.edges().difference(neighborhood.edgesWith(neighborhood)).addClass("is-dimmed");
       const data = focus.data("profile") as GrafoNode;
@@ -174,15 +206,23 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     const cy = cyRef.current;
     if (!cy) return;
     cy.nodes().unselect();
-    if (focusedNodeId === null) return;
+    if (focusedNodeId === null) { fitGraph(cy); return; }
     const node = cy.$id(`node-${focusedNodeId}`);
     if (node.empty()) return;
     node.select();
     focusGraph(cy, focusedNodeId, focusDepth);
   }, [focusedNodeId, focusDepth, focusRevision]);
 
-  return <div className={`relative h-full w-full overflow-hidden ${expanded ? "min-h-80" : "min-h-[38rem]"}`}>
-    <div ref={containerRef} className={`h-full w-full cursor-grab active:cursor-grabbing ${expanded ? "min-h-80" : "min-h-[38rem]"}`} role="application" aria-label="Grafo interativo de relacionamentos" />
+  const changeZoom = (factor: number) => {
+    const cy = cyRef.current;
+    if (!cy) return;
+    cy.scratch("viewportMode", "manual");
+    cy.zoom({ level: Math.max(cy.minZoom(), Math.min(cy.maxZoom(), cy.zoom() * factor)),
+      renderedPosition: { x: cy.width() / 2, y: cy.height() / 2 } });
+  };
+
+  return <div className={`relative h-full w-full overflow-hidden ${expanded ? "min-h-80" : ""}`}>
+    <div ref={containerRef} className="h-full w-full cursor-grab active:cursor-grabbing" role="application" aria-label="Grafo interativo de relacionamentos" />
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       {groupLabels.map(({ name, x, y, zoom }) => <div key={name} data-graph-category={name} title={name} className="absolute max-w-[200px] truncate rounded-full border border-teal-200 bg-white/95 px-3 py-1 text-xs font-semibold text-teal-900 shadow-sm" style={{ left: x, top: y, transform: `scale(${zoom}) translate(-50%, -100%)`, transformOrigin: "top left" }}>{name}</div>)}
       {overlays.map(({ id, x, y, zoom, hp, dimmed }) => <div key={id} data-person-id={id} className="absolute w-14" style={{ left: x, top: y, opacity: dimmed ? 0.2 : 1, transform: `scale(${zoom}) translateX(-50%)`, transformOrigin: "top left" }}>
@@ -190,25 +230,22 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
         <span className="mt-1 block text-center text-[10px] tabular-nums text-slate-600">{percentual(hp)}</span>
       </div>)}
     </div>
+    <div className="absolute right-3 top-3 flex items-center gap-1 rounded-xl border border-slate-200 bg-white/95 p-1 shadow-sm" role="group" aria-label="Controles de zoom">
+      <button type="button" className="icon-button" aria-label="Diminuir zoom" onClick={() => changeZoom(1 / 1.25)}><Minus className="size-4" /></button>
+      <output className="min-w-12 text-center text-xs tabular-nums text-slate-600" aria-label="Zoom atual">{Math.round(currentZoom * 100)}%</output>
+      <button type="button" className="icon-button" aria-label="Aumentar zoom" onClick={() => changeZoom(1.25)}><Plus className="size-4" /></button>
+      <button type="button" className="icon-button" aria-label="Enquadrar mapa" onClick={() => { if (cyRef.current) fitGraph(cyRef.current); }}><Scan className="size-4" /></button>
+    </div>
   </div>;
 });
 
 function fitGraph(cy: Core) {
   if (cy.elements().empty() || cy.width() <= 0 || cy.height() <= 0) return;
-  // Include DOM vitality bars beneath the nodes in the viewport calculation.
-  const bounds = cy.elements().boundingBox();
-  if (cy.scratch("groupByCategory")) {
-    for (const [, nodes] of categoryGroups(cy)) {
-      const group = nodes.boundingBox();
-      const center = (group.x1 + group.x2) / 2;
-      bounds.x1 = Math.min(bounds.x1, center - 100);
-      bounds.x2 = Math.max(bounds.x2, center + 100);
-    }
-    bounds.w = bounds.x2 - bounds.x1;
-  }
-  const padding = Math.min(60, cy.width() / 4, cy.height() / 4);
-  const zoom = Math.min(cy.maxZoom(), (cy.width() - 2 * padding) / (bounds.w + 20),
-    (cy.height() - 2 * padding) / (bounds.h + 160));
+  const bounds = visualBounds(cy, cy.elements("node"));
+  const padding = Math.min(24, cy.width() / 8, cy.height() / 8);
+  const zoom = Math.min(2, cy.maxZoom(), (cy.width() - 2 * padding) / bounds.w,
+    (cy.height() - 2 * padding) / bounds.h);
+  cy.scratch("viewportMode", "all");
   cy.viewport({ zoom, pan: {
     x: (cy.width() - zoom * (bounds.x1 + bounds.x2)) / 2,
     y: (cy.height() - zoom * (bounds.y1 + bounds.y2)) / 2,
@@ -219,30 +256,54 @@ function fitGraph(cy: Core) {
 function focusGraph(cy: Core, nodeId: number, depth: number) {
   const focus = cy.$id(`node-${nodeId}`);
   if (focus.empty() || cy.width() <= 0 || cy.height() <= 0) return;
-  let nodes = focus;
-  for (let level = 0; level < depth; level += 1) nodes = nodes.union(nodes.neighborhood("node"));
-  const bounds = nodes.union(nodes.edgesWith(nodes)).boundingBox();
-  if (cy.scratch("groupByCategory")) {
-    for (const [, groupNodes] of categoryGroups(cy)) {
-      if (groupNodes.intersection(nodes).empty()) continue;
-      const group = groupNodes.boundingBox();
-      const labelCenter = (group.x1 + group.x2) / 2;
-      bounds.x1 = Math.min(bounds.x1, labelCenter - 100);
-      bounds.x2 = Math.max(bounds.x2, labelCenter + 100);
-      bounds.y1 = Math.min(bounds.y1, group.y1 - 65);
-    }
-  }
+  const nodes = connectionNodes(focus, depth);
+  const bounds = visualBounds(cy, nodes);
   const center = focus.position();
   // Reserve space for labels, auras and DOM vitality bars below each node.
-  const halfWidth = Math.max(center.x - bounds.x1, bounds.x2 - center.x) + 20;
-  const halfHeight = Math.max(center.y - bounds.y1 + 20, bounds.y2 - center.y + 100);
-  const padding = Math.min(60, cy.width() / 4, cy.height() / 4);
-  const zoom = Math.min(1.3, cy.maxZoom(), (cy.width() - 2 * padding) / (2 * halfWidth),
+  const halfWidth = Math.max(center.x - bounds.x1, bounds.x2 - center.x);
+  const halfHeight = Math.max(center.y - bounds.y1, bounds.y2 - center.y);
+  const padding = Math.min(24, cy.width() / 8, cy.height() / 8);
+  const zoom = Math.min(2, cy.maxZoom(), (cy.width() - 2 * padding) / (2 * halfWidth),
     (cy.height() - 2 * padding) / (2 * halfHeight));
+  cy.scratch("viewportMode", "focus");
   cy.viewport({ zoom, pan: {
     x: cy.width() / 2 - center.x * zoom,
     y: cy.height() / 2 - center.y * zoom,
   } });
+}
+
+function connectionNodes(focus: CollectionReturnValue, depth: number) {
+  let nodes = focus;
+  for (let level = 0; level < depth; level += 1) nodes = nodes.union(nodes.neighborhood("node"));
+  return nodes;
+}
+
+// Account for the actual DOM decorations instead of adding a fixed empty band.
+function visualBounds(cy: Core, nodes: CollectionReturnValue) {
+  // A single element can return Cytoscape's cached box; keep our visual margins
+  // separate so repeated framing cannot enlarge the renderer's own bounds.
+  const bounds = { ...nodes.union(nodes.edgesWith(nodes)).boundingBox() };
+  nodes.forEach(node => {
+    const position = node.position();
+    bounds.x1 = Math.min(bounds.x1, position.x - 28);
+    bounds.x2 = Math.max(bounds.x2, position.x + 28);
+    bounds.y2 = Math.max(bounds.y2, position.y + node.outerHeight() / 2 + 58);
+  });
+  if (cy.scratch("groupByCategory")) {
+    for (const [, groupNodes] of categoryGroups(cy)) {
+      if (groupNodes.intersection(nodes).empty()) continue;
+      const group = groupNodes.boundingBox();
+      const center = (group.x1 + group.x2) / 2;
+      bounds.x1 = Math.min(bounds.x1, center - 100);
+      bounds.x2 = Math.max(bounds.x2, center + 100);
+      bounds.y1 = Math.min(bounds.y1, group.y1 - 67);
+    }
+  }
+  bounds.x1 -= 10; bounds.x2 += 10;
+  bounds.y1 -= 10; bounds.y2 += 10;
+  bounds.w = bounds.x2 - bounds.x1;
+  bounds.h = bounds.y2 - bounds.y1;
+  return bounds;
 }
 
 function categoryGroups(cy: Core): [string, CollectionReturnValue][] {
@@ -266,12 +327,18 @@ function organizeGraph(cy: Core, graph: GrafoResponse, layout: GraphLayout, grou
       runLayout(nodes.union(nodes.edgesWith(nodes)), subset, layout);
       return { nodes, bounds: nodes.boundingBox() };
     });
-    const columns = Math.ceil(Math.sqrt(groups.length));
-    const width = Math.max(...groups.map(group => group.bounds.w), 200) + 160;
-    const height = Math.max(...groups.map(group => group.bounds.h), 150) + 180;
+    const averageWidth = groups.reduce((sum, group) => sum + Math.max(group.bounds.w, 200) + 80, 0) / groups.length;
+    const averageHeight = groups.reduce((sum, group) => sum + group.bounds.h + 140, 0) / groups.length;
+    const aspect = cy.width() / Math.max(1, cy.height());
+    const columns = Math.max(1, Math.min(groups.length, Math.round(Math.sqrt(groups.length * aspect * averageHeight / averageWidth))));
+    let x = 0, y = 0, rowHeight = 0;
     cy.batch(() => groups.forEach(({ nodes, bounds }, index) => {
-      nodes.positions(node => ({ x: node.position("x") - bounds.x1 + index % columns * width,
-        y: node.position("y") - bounds.y1 + Math.floor(index / columns) * height }));
+      if (index > 0 && index % columns === 0) { x = 0; y += rowHeight; rowHeight = 0; }
+      const width = Math.max(bounds.w, 200);
+      nodes.positions(node => ({ x: node.position("x") - bounds.x1 + x + (width - bounds.w) / 2,
+        y: node.position("y") - bounds.y1 + y }));
+      x += width + 80;
+      rowHeight = Math.max(rowHeight, bounds.h + 140);
     }));
   } else runLayout(cy.elements(), graph, layout);
   fitGraph(cy);

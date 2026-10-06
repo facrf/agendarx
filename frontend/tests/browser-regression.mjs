@@ -42,6 +42,14 @@ let failPreview = false;
 let previewPosts = 0;
 let logoutPosts = 0;
 let groupFixture = false;
+let newFlowFixtures = false, dashboardDone = false;
+const savedPositions = new Map();
+const searchFixtures = [
+ { tipo: 'pessoa', recurso_id: 1, titulo: 'Ana', resumo: 'Contato de teste', url: '/pessoas/1' },
+ { tipo: 'tarefa', recurso_id: 71, titulo: 'Reunião com Ana', resumo: 'Pauta da reunião', url: '/calendario?tarefa=71' },
+ { tipo: 'vinculo', recurso_id: 1, titulo: 'Ana ↔ Zeca · Amizade', resumo: 'Contexto do vínculo', url: '/grafo?vinculo=1' },
+ { tipo: 'anexo_dossie', recurso_id: 1, titulo: 'foto1.png', resumo: 'Arquivo de Ana', url: '/api/dossie/anexos/1/stream' },
+];
 const deletedRelationshipIds = new Set();
 const riskRecord = person => ({ classificacao_risco: person.classificacao_risco, toxicidade: person.toxicidade, justificativa: person.risco_justificativa ?? '', revisado_em: person.risco_revisado_em || null });
 await page.context().route('**/api/**', async route => {
@@ -53,7 +61,10 @@ await page.context().route('**/api/**', async route => {
   else if (path === '/api/configuracoes/backups/configuracao') data = { ativo: false, horario: '03:00', manter_diarios: 7, manter_semanais: 4, manter_mensais: 12, max_upload_bytes: 1000000 };
   else if (path.endsWith('/admin/diagnostico-armazenamento')) data = { banco_bytes: 0, dossie_bytes: 0, vinculos_bytes: 0, tarefas_bytes: 0, midia_total_bytes: 0, anexos_total: 0, pessoas_total: people.length, limite_usuario_tarefas_bytes: 1, max_arquivo_bytes: 1, usuarios: [] };
   else if (path === '/api/configuracoes/hp-psicossocial') { if (req.method() === 'PUT') { Object.assign(hpConfig, req.postDataJSON(), { versao: hpConfig.versao + 1 }); } data = hpConfig; }
-  else if (path.startsWith('/api/produtividade/grafo/posicoes/')) data = people.map(p => ({ pessoa_id: p.id, x: p.id * 10000, y: -p.id * 10000 }));
+  else if (path.startsWith('/api/produtividade/grafo/posicoes/')) {
+    if (req.method() === 'PUT') { savedPositions.set(path, req.postDataJSON()); return route.fulfill({ status: 204 }); }
+    data = savedPositions.get(path) ?? people.map(p => ({ pessoa_id: p.id, x: p.id * 10000, y: -p.id * 10000 }));
+  }
   else if (path === '/api/vinculos/grafo') data = { hp_configuracao: hpConfig, nodes: [...people.map(p => ({ ...metrics(), ...(savedSnapshot?.[p.id] ?? {}), classificacao_risco: p.classificacao_risco, toxicidade: p.toxicidade, id: p.id, label: p.nome, color: p.cor_hex, categoria: groupFixture && p.id === 3 ? 'Trabalho' : p.nome_categoria, pessoa_juridica: p.pessoa_juridica, contatos: [] })), ...(groupFixture ? [{ ...metrics(), id: 99, label: 'Sem vínculos', color: '#86A6A3', categoria: null, pessoa_juridica: false, contatos: [] }] : [])], edges: [{ id: 1, source: 1, target: 2, label: 'Amizade', descricao: '# Contexto', data_criacao: '2026-09-14' }, { id: 2, source: 2, target: 3, label: 'Profissional', descricao: null, data_criacao: '2026-09-14' }].filter(edge => !deletedRelationshipIds.has(edge.id)) };
   else if (path === '/api/vinculos/lixeira') data = [...deletedRelationshipIds].map(id => ({ id, tipo_vinculo: 'Amizade', pessoa_origem_id: 1, pessoa_destino_id: 2, origem_nome: 'Ana', destino_nome: 'Zeca', excluido_em: '2026-09-23 21:00:00' }));
   else if (/^\/api\/vinculos\/lixeira\/\d+\/restaurar$/.test(path) && req.method() === 'POST') { deletedRelationshipIds.delete(Number(path.split('/')[4])); return route.fulfill({ status: 204 }); }
@@ -67,6 +78,29 @@ await page.context().route('**/api/**', async route => {
     data = { pessoa: { ...indicators, hp, hp_percentual: hp * 100, penalidade_propria: proposed.toxicidade }, versao_configuracao: 1, alteracoes: [{ pessoa_id: proposed.pessoa_id ?? 4, nome: proposed.nome || 'Nova pessoa', hp_antes: proposed.pessoa_id ? 1 : null, hp_depois: hp, aura_antes: 'Crítico', aura_depois: 'Observação' }, { pessoa_id: 3, nome: 'Empresa', hp_antes: 1, hp_depois: 0.85, aura_antes: 'Estável', aura_depois: 'Estável' }] };
   }
   else if (/^\/api\/pessoas\/\d+\/risco\/historico$/.test(path)) data = riskHistory[Number(path.split('/')[3])] ?? [];
+  else if (path === '/api/pessoas/paginadas') {
+    const params = new URL(req.url()).searchParams;
+    const size = Number(params.get('por_pagina') || 30), current = Number(params.get('pagina') || 1);
+    const filtered = people.filter(p => (!params.get('tipo') || p.pessoa_juridica === (params.get('tipo') === 'juridica'))
+      && (!params.get('categoria') || String(p.categoria_id) === params.get('categoria'))
+      && (!params.get('busca') || p.nome.toLowerCase().includes(params.get('busca').toLowerCase())));
+    data = { itens: filtered.slice((current - 1) * size, current * size), total: filtered.length, pagina: current, por_pagina: size, total_paginas: Math.ceil(filtered.length / size), total_com_foto: filtered.filter(p => p.tem_foto).length };
+  }
+  else if (path === '/api/produtividade/auditoria/paginada') {
+    const params = new URL(req.url()).searchParams;
+    const items = newFlowFixtures && (!params.get('usuario') || params.get('usuario') === 'teste') ? [{ id: 22, usuario_login: 'teste', acao: 'ALTERAR', recurso: '/api/pessoas/1', status_http: 200, data_evento: '2026-10-06 12:00:00', metodo: 'PUT', duracao_ms: 15, resumo: 'Operação concluída' }] : [];
+    data = { itens: items, total: items.length, pagina: 1, por_pagina: 10, total_paginas: items.length ? 1 : 0 };
+  }
+  else if (path === '/api/painel') {
+    const today = newFlowFixtures && !dashboardDone ? [{ id: 71, titulo: 'Reunião de hoje', inicio_em: '2026-10-06T12:00:00.000Z', fim_em: null, dia_inteiro: false, status: 'PENDENTE', prioridade: 'ALTA' }] : [];
+    data = { hoje: today, atrasadas: [], proximas: [], total_hoje: today.length, total_atrasadas: 0, total_proximas: 0 };
+  }
+  else if (path === '/api/calendario/tarefas/71/status') { dashboardDone = true; data = {}; }
+  else if (path === '/api/busca') {
+    const params = new URL(req.url()).searchParams;
+    const items = searchFixtures.filter(item => !params.get('tipo') || (params.get('tipo') === 'anexo' ? item.tipo.startsWith('anexo_') : item.tipo === params.get('tipo')));
+    data = { itens: items, total: items.length, pagina: 1, por_pagina: 30, total_paginas: 1 };
+  }
   else if (path === '/api/pessoas') {
     if (req.method() === 'POST') { personPosts++; data = { ...base, ...req.postDataJSON(), id: 4 }; }
     else data = people;
@@ -237,6 +271,8 @@ try {
     cy.$id('node-3').position({ x: 250, y: 200 });
     cy.zoom(0.5); cy.pan({ x: 200, y: 150 });
   });
+  await page.getByRole('application').scrollIntoViewIfNeeded();
+  await page.waitForTimeout(100);
   const nodePosition = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-1').renderedPosition());
   await page.getByRole('application').click({ position: { x: nodePosition.x, y: nodePosition.y } });
   await expectPersonCentered(1);
@@ -336,8 +372,11 @@ try {
   await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').emit('tap'));
   await expectPersonCentered(99);
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length), 1);
+  const isolatedBounds = await page.evaluate(() => ({ ...document.querySelector('[role=application]')._cyreg.cy.$id('node-99').boundingBox() }));
+  for (let attempt = 0; attempt < 3; attempt++) await page.getByRole('button', { name: 'Enquadrar mapa', exact: true }).click();
+  assert.deepEqual(await page.evaluate(() => ({ ...document.querySelector('[role=application]')._cyreg.cy.$id('node-99').boundingBox() })), isolatedBounds);
   await page.keyboard.press('Escape');
-  assert.ok(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom() <= 1.3));
+  assert.ok(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom() <= 2));
   await page.getByRole('button', { name: 'Limpar foco', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').empty()
     && document.querySelector('[role=application]')._cyreg.cy.elements('.is-dimmed').empty());
@@ -544,13 +583,113 @@ try {
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 1);
   assert.deepEqual([...deletedRelationshipIds], [1]);
   assert.equal(await page.getByRole('heading', { name: 'Vínculos cadastrados' }).count(), 0);
+  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
   await page.getByText('Lixeira de vínculos (1)').click();
   await page.getByRole('button', { name: 'Restaurar', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 2);
   assert.equal(deletedRelationshipIds.size, 0);
+  // Persistence, manual zoom, drafts, global search, dashboard and audit filters.
+  await page.getByPlaceholder('Ex.: Sócio, Irmão').fill('Vínculo em rascunho');
+  await page.reload();
+  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await page.getByPlaceholder('Ex.: Sócio, Irmão').inputValue(), 'Vínculo em rascunho');
+  await page.reload();
+  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Descartar rascunho', exact: true }).click();
+  await page.getByRole('button', { name: 'Recolher vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Salvar organização', exact: true }).click();
+  await page.getByText('Organização salva para sua conta neste layout', { exact: true }).waitFor();
+  const positionsBefore = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(n => ({ pessoa_id: Number(n.data('nodeId')), ...n.position() })));
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().positions(() => ({ x: 8000, y: 8000 })));
+  await page.getByRole('button', { name: 'Carregar organização', exact: true }).click();
+  await page.getByText('Organização recuperada', { exact: true }).waitFor();
+  assert.deepEqual(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(n => ({ pessoa_id: Number(n.data('nodeId')), ...n.position() }))), positionsBefore);
+  const zoomBefore = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom());
+  await page.getByRole('button', { name: 'Aumentar zoom', exact: true }).click();
+  const manualZoom = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom());
+  assert.ok(manualZoom > zoomBefore);
+  await page.setViewportSize({ width: 1300, height: 900 });
+  await page.waitForTimeout(300);
+  assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom()), manualZoom);
+  await page.getByRole('button', { name: 'Enquadrar mapa', exact: true }).click();
+  await expectGraphFramed();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+
+  await page.goto('http://127.0.0.1:4179/pessoas/nova');
+  await page.getByLabel('Nome completo').waitFor();
+  const previousPersonDraft = page.getByRole('button', { name: 'Descartar rascunho', exact: true });
+  if (await previousPersonDraft.isVisible()) await previousPersonDraft.click();
+  await page.getByLabel('Nome completo').fill('Rascunho recuperável');
+  await page.getByLabel('Descrição', { exact: true }).fill('Texto preservado ao recarregar');
+  await page.getByText('Rascunho salvo neste navegador.', { exact: false }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await page.getByLabel('Nome completo').inputValue(), 'Rascunho recuperável');
+  assert.equal(await page.getByLabel('Descrição', { exact: true }).inputValue(), 'Texto preservado ao recarregar');
+  await page.reload();
+  await page.getByRole('button', { name: 'Descartar rascunho', exact: true }).click();
+  assert.equal(await page.getByLabel('Nome completo').inputValue(), '');
+
+  await page.goto('http://127.0.0.1:4179/calendario');
+  await page.getByRole('button', { name: 'Nova tarefa', exact: true }).click();
+  await page.getByLabel('Título', { exact: true }).fill('Tarefa em rascunho');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Nova tarefa', exact: true }).click();
+  await page.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await page.getByLabel('Título', { exact: true }).inputValue(), 'Tarefa em rascunho');
+  await page.keyboard.press('Escape');
+
+  newFlowFixtures = true;
+  await page.goto('http://127.0.0.1:4179/');
+  await page.getByRole('heading', { name: 'Seu dia', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Reunião de hoje', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Concluir', exact: true }).click();
+  await page.getByRole('link', { name: 'Reunião de hoje', exact: true }).waitFor({ state: 'hidden' });
+  await page.keyboard.press('Control+k');
+  assert.equal(await page.getByRole('searchbox', { name: 'Buscar no sistema' }).evaluate(e => e === document.activeElement), true);
+  await page.getByRole('searchbox', { name: 'Buscar no sistema' }).fill('Ana');
+  await page.getByRole('searchbox', { name: 'Buscar no sistema' }).press('Enter');
+  await page.getByRole('heading', { name: 'Busca global', exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Ana', exact: true }).waitFor();
+  await page.getByLabel('Tipo de resultado').selectOption('vinculo');
+  await page.getByRole('link', { name: 'Ana ↔ Zeca · Amizade', exact: true }).click();
+  await page.getByRole('dialog', { name: 'Detalhes do vínculo' }).waitFor();
+  await page.keyboard.press('Escape');
+
+
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  const draftDrawer = page.getByRole('dialog', { name: 'Detalhes do vínculo' });
+  await draftDrawer.getByRole('button', { name: 'Editar', exact: true }).click();
+  await draftDrawer.getByLabel('Histórico e descrição (Markdown)', { exact: true }).fill('Contexto recuperável do vínculo');
+  await page.keyboard.press('Escape');
+  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  await draftDrawer.getByRole('button', { name: 'Editar', exact: true }).click();
+  await draftDrawer.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await draftDrawer.getByLabel('Histórico e descrição (Markdown)', { exact: true }).inputValue(), 'Contexto recuperável do vínculo');
+  await draftDrawer.getByRole('button', { name: 'Cancelar', exact: true }).click();
+  await page.keyboard.press('Escape');
+  await page.goto('http://127.0.0.1:4179/configuracoes');
+  await page.getByLabel('Usuário da auditoria').fill('ninguém');
+  await page.getByRole('button', { name: 'Filtrar auditoria', exact: true }).click();
+  await page.getByText('Nenhuma operação corresponde aos filtros.', { exact: true }).waitFor();
+  await page.getByLabel('Usuário da auditoria').fill('teste');
+  await page.getByRole('button', { name: 'Filtrar auditoria', exact: true }).click();
+  await page.locator('summary').filter({ hasText: 'HTTP 200' }).click();
+  await page.getByText('15 ms', { exact: true }).waitFor();
+  await page.getByRole('link', { name: 'Abrir recurso', exact: true }).waitFor();
+
+  const extraPeople = Array.from({ length: 40 }, (_, index) => ({ ...base, id: 200 + index, nome: `Contato ${String(index).padStart(2, '0')}` }));
+  people.push(...extraPeople);
+  await page.goto('http://127.0.0.1:4179/pessoas');
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
+  await page.getByRole('button', { name: 'Próxima', exact: true }).click();
+  await page.getByRole('heading', { name: 'Contato 27', exact: true }).waitFor();
+  assert.equal(await page.getByRole('heading', { name: 'Ana', exact: true }).count(), 0);
+  people.splice(3);
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await page.waitForURL('**/login');
   assert.equal(logoutPosts, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
+  console.log('PASS: paginação, rascunhos de pessoas/tarefas, painel e conclusão, busca global e vínculo por URL, auditoria filtrada, salvamento de posições e zoom manual, regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

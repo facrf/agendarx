@@ -1,5 +1,6 @@
 pub mod auth;
 pub mod backup;
+pub mod busca;
 pub mod calendario;
 pub mod configuracoes;
 pub mod dossie;
@@ -9,6 +10,7 @@ pub mod intercambio;
 pub mod miniaturas;
 pub mod notas;
 pub mod osint;
+pub mod painel;
 pub mod pessoas;
 pub mod produtividade;
 pub mod vinculos;

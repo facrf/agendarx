@@ -1,4 +1,6 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftNotice } from "./DraftNotice";
 import { LinkedEventFields } from "./LinkedEventFields";
 import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import { ArrowRight, Edit3, GitFork, Paperclip, Save, Tag, Trash2, X } from "lucide-react";
@@ -41,6 +43,9 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
     descricao: "",
   });
   const { notify } = useToast();
+
+  const formDraft = useFormDraft({ name: `vinculo:detalhes:${edge?.id ?? "nenhum"}`, value: { form, agenda: agenda.draft },
+    enabled: Boolean(edge) && editing, restore: item => { setForm(item.form); agenda.setDraft(item.agenda); } });
 
   useEffect(() => {
     if (!edge) return;
@@ -113,6 +118,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
       } else {
         await agenda.save({ people: [updated.pessoa_origem_id, updated.pessoa_destino_id], title: updated.tipo_vinculo, references: [`Vínculo #${updated.id}: ${updated.tipo_vinculo}`, ...[...attachments, ...uploaded].map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
         await onUpdated(updated);
+        formDraft.clear();
         setEditing(false);
         notify("Relação e arquivos atualizados");
       }
@@ -147,6 +153,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
   };
 
   const cancelEditing = () => {
+    formDraft.clear();
     agenda.reset();
     setForm({
       pessoa_origem_id: edge.source,
@@ -186,6 +193,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
         <div className="flex-1 overflow-y-auto p-5 sm:p-6">
           {editing ? (
             <form className="space-y-5" onSubmit={save}>
+              <DraftNotice draft={formDraft} />
               <div className="grid gap-3 sm:grid-cols-2">
                 <div><label className="field-label" htmlFor="drawer-source">Pessoa origem</label><select id="drawer-source" className="field" value={form.pessoa_origem_id || ""} onChange={(event) => setForm({ ...form, pessoa_origem_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
                 <div><label className="field-label" htmlFor="drawer-target">Pessoa destino</label><select id="drawer-target" className="field" value={form.pessoa_destino_id || ""} onChange={(event) => setForm({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>

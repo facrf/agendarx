@@ -22,11 +22,12 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
-import type { AuditoriaItem, BackupConfiguracao, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira, RestauracaoPrevia } from "../types/api";
+import type { BackupConfiguracao, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira, RestauracaoPrevia } from "../types/api";
 import { formatBytes, formatDate } from "../utils/format";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
 import { NOTIFICACOES_TAREFAS_KEY } from "./TaskReminderWatcher";
+import { AuditViewer } from "./AuditViewer";
 import { Button } from "./ui";
 
 export function BackupManager() {
@@ -135,15 +136,14 @@ export function BackupManager() {
 
 export function TrashAndAuditManager() {
   const [trash, setTrash] = useState<PessoaLixeira[]>([]);
-  const [audit, setAudit] = useState<AuditoriaItem[]>([]);
   const { notify } = useToast();
-  const load = () => Promise.all([api.get<PessoaLixeira[]>("/api/produtividade/lixeira"), api.get<AuditoriaItem[]>("/api/produtividade/auditoria")]).then(([a, b]) => { setTrash(a); setAudit(b); }).catch((e) => notify(errorMessage(e), "erro"));
+  const load = () => api.get<PessoaLixeira[]>("/api/produtividade/lixeira").then(setTrash).catch(e => notify(errorMessage(e), "erro"));
   useEffect(() => { void load(); }, []); // eslint-disable-line react-hooks/exhaustive-deps
   return <section className="panel overflow-hidden xl:col-span-2">
-    <header className="flex items-center gap-3 border-b p-5"><History className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Lixeira e auditoria</h2><p className="text-sm text-slate-500">Recupere cadastros e veja as últimas 500 operações.</p></div></header>
+    <header className="flex items-center gap-3 border-b p-5"><History className="size-6 text-teal-700" /><div><h2 className="font-display text-xl font-semibold">Lixeira e auditoria</h2><p className="text-sm text-slate-500">Recupere cadastros e consulte operações por usuário, período, ação e recurso.</p></div></header>
     <div className="grid gap-6 p-5 lg:grid-cols-2">
       <div><h3 className="mb-3 font-semibold">Pessoas na lixeira</h3>{trash.length === 0 ? <p className="text-sm text-slate-400">A lixeira está vazia.</p> : <div className="space-y-2">{trash.map((p) => <div key={p.id} className="flex items-center gap-2 rounded-xl bg-slate-50 p-3"><div className="min-w-0 flex-1"><p className="truncate font-medium">{p.nome}</p><p className="text-xs text-slate-400">{formatDate(p.excluida_em, true)}</p></div><Button type="button" variant="secondary" onClick={async () => { await api.post(`/api/produtividade/lixeira/${p.id}/restaurar`); await load(); notify("Pessoa restaurada"); }}>Restaurar</Button><button type="button" className="icon-button text-rose-600" title="Excluir definitivamente" onClick={async () => { if (!window.confirm(`Excluir “${p.nome}” definitivamente?`)) return; await api.delete(`/api/produtividade/lixeira/${p.id}`); await load(); notify("Pessoa excluída definitivamente"); }}><Trash2 className="size-4" /></button></div>)}</div>}</div>
-      <div><h3 className="mb-3 font-semibold">Atividade recente</h3><div className="max-h-80 overflow-y-auto rounded-xl border"><table className="w-full text-xs"><tbody>{audit.map((item) => <tr key={item.id} className="border-t first:border-0"><td className="p-2"><strong>{item.usuario_login}</strong><br /><span className="text-slate-400">{formatDate(item.data_evento, true)}</span></td><td className="p-2">{item.acao}<br /><span className="break-all text-slate-400">{item.recurso}</span></td><td className="p-2">{item.status_http}</td></tr>)}</tbody></table></div></div>
+      <AuditViewer />
     </div>
   </section>;
 }

@@ -1,4 +1,6 @@
 /* Developed with care by FACRF - https://github.com/facrf */
+import { useFormDraft } from "../hooks/useFormDraft";
+import { DraftNotice } from "../components/DraftNotice";
 import { LinkedEventFields } from "../components/LinkedEventFields";
 import { ImpactDetails, PsychosocialLegend, PsychosocialStatus } from "../components/PsychosocialStatus";
 import { useLinkedEvent } from "../hooks/useLinkedEvent";
@@ -41,6 +43,7 @@ import type {
   GrafoNode,
   GrafoResponse,
   PessoaResumo,
+  PosicaoGrafo,
   PessoaVinculo,
   VinculoPayload,
   VinculoLixeira,
@@ -72,7 +75,10 @@ export function GraphPage() {
   const [graph, setGraph] = useState<GrafoResponse>({ nodes: [], edges: [] });
   const [people, setPeople] = useState<PessoaResumo[]>([]);
   const [categories, setCategories] = useState<Categoria[]>([]);
-  const [relationships, setRelationships] = useState<PessoaVinculo[]>([]);
+  const relationships = useMemo<PessoaVinculo[]>(() => graph.edges.map(edge => ({ id: edge.id, pessoa_origem_id: edge.source, pessoa_destino_id: edge.target, tipo_vinculo: edge.label, descricao: edge.descricao, data_criacao: edge.data_criacao })), [graph.edges]);
+  const [panelRevision, setPanelRevision] = useState(0);
+  const [panelLoading, setPanelLoading] = useState(false);
+  const [positionsBusy, setPositionsBusy] = useState(false);
   const [trashedRelationships, setTrashedRelationships] = useState<VinculoLixeira[]>([]);
   const [search, setSearch] = useState(searchParams.get("busca") ?? (typeof savedFilters.search === "string" ? savedFilters.search : ""));
   const [category, setCategory] = useState(!openingPerson && typeof savedFilters.category === "string" ? savedFilters.category : "");
@@ -81,6 +87,7 @@ export function GraphPage() {
   const [groupByCategory, setGroupByCategory] = useState(savedFilters.groupByCategory === true);
   const [isolateFocus, setIsolateFocus] = useState(openingPerson || savedFilters.isolateFocus !== false);
   const [expanded, setExpanded] = useState(openingPerson);
+  const [showRelationships, setShowRelationships] = useState(false);
   const graphPanelRef = useRef<HTMLElement>(null);
   const fullscreenButtonRef = useRef<HTMLButtonElement>(null);
   const [relationshipType, setRelationshipType] = useState(!openingPerson && typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
@@ -92,6 +99,8 @@ export function GraphPage() {
   const [loading, setLoading] = useState(true);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const loadSequence = useRef(0);
+  const refreshTimer = useRef<number | undefined>(undefined);
+  const openedEdgeLink = useRef<number | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GrafoEdge | null>(null);
   const [relationshipAttachments, setRelationshipAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingRelationshipFiles, setPendingRelationshipFiles] = useState<File[]>([]);
@@ -100,6 +109,10 @@ export function GraphPage() {
   const graphViewerRef = useRef<GraphViewerHandle>(null);
   const navigate = useNavigate();
   const { notify } = useToast();
+
+  const formDraft = useFormDraft({ name: "vinculo:editor", value: { form, editingId, agenda: agenda.draft },
+    enabled: !loading && showRelationships, meaningful: Boolean(form.tipo_vinculo.trim() || form.descricao?.trim() || form.pessoa_origem_id || form.pessoa_destino_id),
+    restore: item => { setForm(item.form); setEditingId(item.editingId); agenda.setDraft(item.agenda); } });
 
   useEffect(() => {
     try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout, relationshipType, dateFrom, dateTo, groupByCategory, isolateFocus })); }
@@ -130,47 +143,82 @@ export function GraphPage() {
     };
   }, [expanded, loading]);
 
-  const loadGraphData = useCallback(async () => {
+  const loadGraphData = useCallback(async (scope: "all" | "graph" = "all") => {
+    window.clearTimeout(refreshTimer.current);
     const sequence = ++loadSequence.current;
-    const [graphData, peopleData, categoryData, relationshipData, trashData] = await Promise.all([
+    const [graphData, categoryData] = await Promise.all([
       api.get<GrafoResponse>("/api/vinculos/grafo"),
-      api.get<PessoaResumo[]>("/api/pessoas"),
-      api.get<Categoria[]>("/api/configuracoes/categorias"),
-      api.get<PessoaVinculo[]>("/api/vinculos"),
-      api.get<VinculoLixeira[]>("/api/vinculos/lixeira"),
+      scope === "all" ? api.get<Categoria[]>("/api/configuracoes/categorias", { cacheMs: 60_000 }) : Promise.resolve(null),
     ]);
     if (sequence !== loadSequence.current) return;
     setGraph(graphData);
-    setPeople(peopleData);
-    setCategories(categoryData);
-    setRelationships(relationshipData);
-    setTrashedRelationships(trashData);
+    if (categoryData) setCategories(categoryData);
     setRefreshFailed(false);
   }, []);
 
   useEffect(() => {
-    loadGraphData()
-      .catch((error) => notify(errorMessage(error), "erro"))
-      .finally(() => setLoading(false));
+    loadGraphData().catch(error => notify(errorMessage(error), "erro")).finally(() => setLoading(false));
+    return () => { loadSequence.current += 1; };
   }, [loadGraphData, notify]);
 
   useEffect(() => {
-    const refresh = () => { void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); }); };
-    const invalidate = () => { loadSequence.current += 1; };
-    const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") refresh(); };
+    if (!showRelationships) return;
+    let active = true;
+    setPanelLoading(true);
+    Promise.all([api.get<PessoaResumo[]>("/api/pessoas", { cacheMs: 30_000 }), api.get<VinculoLixeira[]>("/api/vinculos/lixeira")])
+      .then(([peopleData, trashData]) => { if (active) { setPeople(peopleData); setTrashedRelationships(trashData); } })
+      .catch(error => { if (active) notify(errorMessage(error), "erro"); })
+      .finally(() => { if (active) setPanelLoading(false); });
+    return () => { active = false; };
+  }, [showRelationships, panelRevision, notify]);
+
+  useEffect(() => {
+    const refresh = () => {
+      window.clearTimeout(refreshTimer.current);
+      refreshTimer.current = window.setTimeout(() => { void loadGraphData("graph").catch(error => { setRefreshFailed(true); notify(errorMessage(error), "erro"); }); }, 150);
+    };
+    const updated = (event: Event) => {
+      const path = (event as CustomEvent<{ path: string }>).detail?.path ?? "";
+      if (/^\/api\/(pessoas|vinculos|dossie\/pessoas|produtividade\/lixeira|configuracoes\/(categorias|hp-psicossocial))/.test(path)) {
+        if (/^\/api\/pessoas(?:\/\d+)?$/.test(path) || /^\/api\/vinculos(?:\/\d+|\/lixeira\/\d+(?:\/restaurar)?)?$/.test(path) || path.startsWith("/api/produtividade/lixeira/")) setPanelRevision(value => value + 1);
+        if (path.startsWith("/api/configuracoes/categorias")) void api.get<Categoria[]>("/api/configuracoes/categorias").then(setCategories).catch(error => notify(errorMessage(error), "erro"));
+        refresh();
+      }
+    };
+    const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") { setPanelRevision(value => value + 1); refresh(); } };
     const visibility = () => { if (!document.hidden) refresh(); };
     window.addEventListener("agendarx:psychosocial-updated", refresh);
+    window.addEventListener("agendarx:data-updated", updated);
     window.addEventListener("storage", storage);
     window.addEventListener("focus", refresh);
     document.addEventListener("visibilitychange", visibility);
     return () => {
-      invalidate();
+      window.clearTimeout(refreshTimer.current); loadSequence.current += 1;
       window.removeEventListener("agendarx:psychosocial-updated", refresh);
+      window.removeEventListener("agendarx:data-updated", updated);
       window.removeEventListener("storage", storage);
       window.removeEventListener("focus", refresh);
       document.removeEventListener("visibilitychange", visibility);
     };
   }, [loadGraphData, notify]);
+
+  const saveOrganization = async () => {
+    const positions = graphViewerRef.current?.positions();
+    if (!positions?.length) return;
+    setPositionsBusy(true);
+    try { await api.put(`/api/produtividade/grafo/posicoes/${layout}`, positions); notify("Organização salva para sua conta neste layout"); }
+    catch (error) { notify(errorMessage(error), "erro"); }
+    finally { setPositionsBusy(false); }
+  };
+  const restoreOrganization = async () => {
+    setPositionsBusy(true);
+    try {
+      const positions = await api.get<PosicaoGrafo[]>(`/api/produtividade/grafo/posicoes/${layout}`);
+      if (graphViewerRef.current?.restorePositions(positions)) notify("Organização recuperada");
+      else notify("Nenhuma posição salva para as pessoas visíveis", "aviso");
+    } catch (error) { notify(errorMessage(error), "erro"); }
+    finally { setPositionsBusy(false); }
+  };
 
   useEffect(() => {
     if (!printImage) return;
@@ -263,6 +311,7 @@ export function GraphPage() {
         await agenda.save({ people: [saved.pessoa_origem_id, saved.pessoa_destino_id], title: saved.tipo_vinculo, references: [`Vínculo #${saved.id}: ${saved.tipo_vinculo}`, ...[...relationshipAttachments, ...uploaded].map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
         notify(editingId ? "Vínculo atualizado" : "Vínculo criado");
       }
+      formDraft.clear();
       setForm(emptyRelationship);
       setEditingId(null);
       setSelectedEdge(null);
@@ -278,6 +327,7 @@ export function GraphPage() {
 
   const editRelationship = async (relationship: PessoaVinculo) => {
     agenda.reset();
+    setShowRelationships(true);
     setEditingId(relationship.id);
     setForm({
       pessoa_origem_id: relationship.pessoa_origem_id,
@@ -328,7 +378,6 @@ export function GraphPage() {
       await api.delete(`/api/vinculos/${relationship.id}`);
       notify("Vínculo movido para a lixeira");
       setSelectedEdge(null);
-      setRelationships((items) => items.filter((item) => item.id !== relationship.id));
       setGraph((current) => ({ ...current, edges: current.edges.filter((edge) => edge.id !== relationship.id) }));
     } catch (error) {
       notify(errorMessage(error), "erro");
@@ -357,6 +406,15 @@ export function GraphPage() {
       notify(errorMessage(error), "erro");
     }
   };
+
+  useEffect(() => {
+    const id = Number(searchParams.get("vinculo"));
+    if (!Number.isSafeInteger(id) || id <= 0 || openedEdgeLink.current === id || loading) return;
+    openedEdgeLink.current = id;
+    const edge = graph.edges.find(item => item.id === id);
+    if (edge) setSelectedEdge(edge);
+    else notify("O vínculo não está disponível", "aviso");
+  }, [searchParams, graph.edges, loading, notify]);
 
   const openEdge = useCallback(
     (edgeId: number) => setSelectedEdge(graph.edges.find((edge) => edge.id === edgeId) || null),
@@ -389,25 +447,24 @@ export function GraphPage() {
         eyebrow="Mapa interpessoal"
         title="Teia de vínculos"
         description="Alterne entre uma rede orgânica e um diagrama hierárquico, investigue conexões e reposicione pessoas livremente."
-        action={<Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); })}><RefreshCw className="size-4" /> Atualizar mapa</Button>}
+        action={<div className="flex flex-wrap gap-2">
+          <Button type="button" variant="secondary" aria-expanded={showRelationships} aria-controls="graph-relationships" onClick={() => setShowRelationships(value => !value)}><GitFork className="size-4" />{showRelationships ? "Recolher vínculos" : "Gerenciar vínculos"}</Button>
+          <Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); })}><RefreshCw className="size-4" /> Atualizar mapa</Button>
+        </div>}
       />
 
       {refreshFailed && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status"><span>Não foi possível atualizar HP e auras. Os últimos valores continuam visíveis.</span><Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => notify(errorMessage(error), "erro"))}>Tentar atualizar grafo</Button></div>}
 
-      <div className="grid gap-5 xl:grid-cols-[20rem_minmax(0,1fr)]">
-        <aside className="space-y-5">
-          {focusedNode && <section className="panel space-y-3 p-5" aria-label="Perfil selecionado">
-            <div><p className="eyebrow">Perfil selecionado</p><h2 className="font-display text-xl font-semibold">{focusedNode.label}</h2></div>
-            <PsychosocialStatus indicadores={focusedNode} />
-            <details><summary className="cursor-pointer text-sm font-semibold text-teal-800">Fontes e composição do impacto</summary><div className="mt-3"><ImpactDetails indicadores={focusedNode} /></div></details>
-            <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link>
-          </section>}
+      <div className={cn("grid items-start gap-5", showRelationships && "xl:grid-cols-[18rem_minmax(0,1fr)]")}>
+        <aside id="graph-relationships" hidden={!showRelationships} className="order-last space-y-5 xl:order-first">
+          {panelLoading && <p role="status" className="text-sm text-slate-500">Carregando dados dos vínculos…</p>}
+          <DraftNotice draft={formDraft} />
           <RelationshipForm
             eventFields={<LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={saving} />}
             people={people}
             form={form}
             editing={editingId !== null}
-            saving={saving}
+            saving={saving || panelLoading}
             loadingAttachments={loadingRelationshipAttachments}
             attachments={relationshipAttachments}
             pendingFiles={pendingRelationshipFiles}
@@ -469,7 +526,7 @@ export function GraphPage() {
           </details>
         </aside>
 
-        <section ref={graphPanelRef} aria-label={expanded ? "Grafo em tela cheia" : "Mapa de relacionamentos"} className={cn("panel overflow-hidden", expanded && "fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto rounded-none bg-white")}>
+        <section ref={graphPanelRef} aria-label={expanded ? "Grafo em tela cheia" : "Mapa de relacionamentos"} className={cn("panel min-w-0 overflow-hidden", expanded && "fixed inset-0 z-40 flex h-dvh flex-col overflow-y-auto rounded-none bg-white")}>
           <GraphToolbar
             graph={graph}
             nodeCount={visibleGraph.nodes.length}
@@ -497,9 +554,11 @@ export function GraphPage() {
             canGeneratePdf={visibleGraph.nodes.length > 0}
             expanded={expanded}
             extraActions={<>
+              <Button type="button" variant="secondary" loading={positionsBusy} disabled={!visibleGraph.nodes.length} onClick={() => void saveOrganization()}><Save className="size-4" /> Salvar organização</Button>
+              <Button type="button" variant="secondary" disabled={positionsBusy || !visibleGraph.nodes.length} onClick={() => void restoreOrganization()}>Carregar organização</Button>
               <Button type="button" variant="secondary" disabled={!visibleGraph.nodes.length} onClick={() => graphViewerRef.current?.fit()}><Scan className="size-4" /> Enquadrar tudo</Button>
               <button ref={fullscreenButtonRef} type="button" className="btn btn-secondary" aria-pressed={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize className="size-4" /> : <Maximize className="size-4" />}{expanded ? "Sair da tela cheia" : "Tela cheia"}</button>
-              <div className={cn("flex flex-wrap gap-4 text-xs text-slate-600", expanded ? "col-span-2" : "sm:col-span-2")}>
+              <div className={cn("flex w-full flex-wrap gap-4 text-xs text-slate-600", expanded ? "col-span-2" : "sm:col-span-2")}>
                 <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={groupByCategory} onChange={event => setGroupByCategory(event.target.checked)} /> Agrupar por categoria</label>
                 <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={isolateFocus} onChange={event => setIsolateFocus(event.target.checked)} /> Mostrar apenas conexões</label>
               </div>
@@ -512,7 +571,7 @@ export function GraphPage() {
           <div className="flex flex-wrap gap-3 border-b border-slate-100 px-4 pb-3 text-xs"><strong>Legenda:</strong>{categories.map((item) => <span key={item.id} className="inline-flex items-center gap-1"><span className="size-3 rounded-full" style={{ backgroundColor: item.cor_hex }} />{item.nome_categoria}</span>)}<span className="inline-flex items-center gap-1"><span className="size-3 rounded-full bg-[#86A6A3]" />Sem categoria</span></div>
           {graph.hp_configuracao && <PsychosocialLegend config={graph.hp_configuracao} />}
 
-          <div className={cn("relative bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]", expanded ? "min-h-80 flex-1" : "min-h-[42rem]")}>
+          <div className={cn("relative bg-[radial-gradient(#D9E2E0_1px,transparent_1px)] [background-size:22px_22px]", expanded ? "min-h-80 flex-1" : "h-[clamp(28rem,70dvh,54rem)]")}>
             {visibleGraph.nodes.length === 0 ? (
               <div className="p-5">
                 <EmptyState
@@ -540,12 +599,18 @@ export function GraphPage() {
                 onNodeSelect={selectPerson}
               />
             )}
-            <div className="pointer-events-none absolute bottom-4 left-4 right-4 flex flex-wrap gap-2 text-[11px] text-slate-500">
-              <span className="rounded-xl border border-white bg-white/88 px-3 py-2 shadow-sm backdrop-blur"><Move className="mr-1 inline size-3" /> Arraste os nós para reorganizar</span>
-              <span className="rounded-xl border border-white bg-white/88 px-3 py-2 shadow-sm backdrop-blur"><Info className="mr-1 inline size-3" /> Clique: centralizar conexões · linha: detalhes · duplo clique: perfil</span>
-            </div>
+          </div>
+          <div className="pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-slate-100 bg-white px-4 py-3 text-[11px] text-slate-500">
+            <span><Move className="mr-1 inline size-3" /> Arraste os nós para reorganizar</span>
+            <span><Info className="mr-1 inline size-3" /> Clique: centralizar conexões · linha: detalhes · duplo clique: perfil</span>
           </div>
         </section>
+        {focusedNode && <section className="panel order-last space-y-3 p-5 xl:col-span-full" aria-label="Perfil selecionado">
+          <div><p className="eyebrow">Perfil selecionado</p><h2 className="font-display text-xl font-semibold">{focusedNode.label}</h2></div>
+          <PsychosocialStatus indicadores={focusedNode} />
+          <details><summary className="cursor-pointer text-sm font-semibold text-teal-800">Fontes e composição do impacto</summary><div className="mt-3"><ImpactDetails indicadores={focusedNode} /></div></details>
+          <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link>
+        </section>}
       </div>
 
       <RelationshipDrawer
@@ -668,14 +733,14 @@ interface GraphToolbarProps {
 function GraphToolbar({ graph, nodeCount, edgeCount, categories, search, category, depth, layout, relationshipType, relationshipTypes, dateFrom, dateTo, focusedNode, onSearch, onCategory, onDepth, onLayout, onRelationshipType, onDateFrom, onDateTo, onGeneratePdf, onOrganize, generatingPdf, canGeneratePdf, extraActions, expanded }: GraphToolbarProps) {
   return (
     <div className="shrink-0 space-y-3 border-b border-slate-100 p-4">
-      <div className={cn("grid gap-3", expanded ? "grid-cols-2" : "sm:grid-cols-2")}>
-        <label className={cn("relative", expanded ? "col-span-2" : "sm:col-span-2")}>
+      <div className="flex flex-wrap items-center gap-2">
+        <label className="relative w-full md:min-w-64 md:flex-1 md:basis-80">
           <Search className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input className="field pl-9" list="graph-people" placeholder="Buscar e focar uma pessoa..." value={search} onChange={(event) => onSearch(event.target.value)} />
           <datalist id="graph-people">{graph.nodes.map((node) => <option key={node.id} value={node.label} />)}</datalist>
         </label>
-        {!expanded && <><select className="field" value={category} onChange={(event) => onCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((item) => <option key={item.id} value={item.nome_categoria}>{item.nome_categoria}</option>)}</select>
-        <label className="relative"><Filter className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select className="field pl-9" value={depth} onChange={(event) => onDepth(Number(event.target.value))} disabled={!focusedNode} title={focusedNode ? "Nível de conexão" : "Busque uma pessoa para isolar conexões"}><option value={1}>1º grau</option><option value={2}>2º grau</option><option value={3}>3º grau</option></select></label></>}
+        {!expanded && <><select className="field w-full sm:w-auto sm:min-w-40" value={category} onChange={(event) => onCategory(event.target.value)}><option value="">Todas as categorias</option>{categories.map((item) => <option key={item.id} value={item.nome_categoria}>{item.nome_categoria}</option>)}</select>
+        <label className="relative w-full sm:w-auto"><Filter className="pointer-events-none absolute left-3 top-1/2 size-4 -translate-y-1/2 text-slate-400" /><select className="field pl-9" value={depth} onChange={(event) => onDepth(Number(event.target.value))} disabled={!focusedNode} title={focusedNode ? "Nível de conexão" : "Busque uma pessoa para isolar conexões"}><option value={1}>1º grau</option><option value={2}>2º grau</option><option value={3}>3º grau</option></select></label></>}
         <div className="flex rounded-xl border border-slate-200 bg-slate-50 p-1">
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "force" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("force")} title="Layout em teia"><Orbit className="size-4" /> Teia</button>
           <button type="button" className={cn("flex items-center gap-1.5 rounded-lg px-3 py-2 text-xs font-semibold transition", layout === "hierarchical" ? "bg-white text-teal-800 shadow-sm" : "text-slate-500")} onClick={() => onLayout("hierarchical")} title="Layout hierárquico"><Workflow className="size-4" /> UML</button>

@@ -222,8 +222,6 @@ pub struct PessoaResumo {
     pub pessoa_juridica: bool,
     pub data_cadastro: String,
     pub etiquetas: String,
-    #[serde(skip_serializing)]
-    pub conteudo_busca: String,
     pub favorito: bool,
     pub classificacao_risco: String,
     pub toxicidade: f64,

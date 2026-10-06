@@ -154,3 +154,28 @@ layouts e filtros no navegador; posições reorganizadas pelo usuário são salv
 por layout. O clique em
 uma aresta abre um drawer que atualiza a própria relação e gerencia anexos por meio
 dos mesmos endpoints REST usados pelo formulário de criação.
+
+## Índice de busca e atualização da interface
+
+`busca_fonte` reúne documentos de pessoas, tarefas, vínculos e três tipos de
+anexos. Triggers mantêm `busca_documento`, com IDs e propriedade de tarefas;
+triggers desta tabela sincronizam o FTS5 externo `busca_fts`. `busca_visivel`
+remove referências na lixeira e vínculos com pessoas inativas. Cada consulta
+aplica a propriedade da tarefa antes de contar e paginar os resultados. O índice
+é criado nas migrações, evitando carregar BLOBs em Rust em cada pesquisa.
+
+As telas de pessoas, busca e auditoria recebem resultados paginados. A rota de
+pessoas sem paginação continua disponível para seletores e integrações. O painel
+calcula totais e listas limitadas no banco, com os limites do dia local enviados
+pelo navegador e tratamento separado para datas de dia inteiro.
+
+O cliente HTTP compartilha GETs em andamento sem sinal de cancelamento, usa cache
+curto somente quando solicitado e invalida as entradas em mutações e logout.
+Um contador de revisão impede respostas antigas de repovoarem o cache após uma
+invalidação. A página do grafo carrega pessoas/lixeira sob demanda, deriva sua
+lista de vínculos do snapshot e agrupa notificações de atualização.
+
+`useFormDraft` guarda campos serializáveis em localStorage com versão, conta,
+formulário e data. A recuperação exige ação do usuário; arquivos permanecem no
+fluxo de upload existente. A API de posições mantém a organização por conta e
+layout, sem substituir automaticamente a organização inicial do grafo.

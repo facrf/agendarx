@@ -447,3 +447,11 @@ export interface VarreduraPublicaResponse {
   fontes_indisponiveis: number;
   avisos: string[];
 }
+
+export interface Pagina<T> { itens: T[]; total: number; pagina: number; por_pagina: number; total_paginas: number }
+export interface PessoasPagina extends Pagina<PessoaResumo> { total_com_foto: number }
+export interface BuscaResultado { tipo: string; recurso_id: number; titulo: string; resumo: string; url: string }
+export interface TarefaPainel { id: number; titulo: string; inicio_em: string; fim_em: string | null; dia_inteiro: boolean; status: StatusTarefa; prioridade: PrioridadeTarefa }
+export interface PainelResumo { hoje: TarefaPainel[]; atrasadas: TarefaPainel[]; proximas: TarefaPainel[]; total_hoje: number; total_atrasadas: number; total_proximas: number }
+export interface PosicaoGrafo { pessoa_id: number; x: number; y: number }
+export interface AuditoriaDetalhe extends AuditoriaItem { metodo: string; duracao_ms: number | null; resumo: string }

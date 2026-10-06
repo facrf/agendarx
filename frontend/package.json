@@ -1,7 +1,7 @@
 {
   "name": "agendarx-frontend",
   "private": true,
-  "version": "0.6.5-d",
+  "version": "0.6.5-e",
   "type": "module",
   "scripts": {
     "dev": "vite",

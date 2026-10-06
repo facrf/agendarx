@@ -7,6 +7,9 @@ import { Spinner } from "./components/ui";
 import { LoginPage } from "./pages/LoginPage";
 import { NotFoundPage } from "./pages/NotFoundPage";
 
+const DashboardPage = lazy(() => import("./pages/DashboardPage").then(module => ({ default: module.DashboardPage })));
+const SearchPage = lazy(() => import("./pages/SearchPage").then(module => ({ default: module.SearchPage })));
+
 const PeoplePage = lazy(() =>
   import("./pages/PeoplePage").then((module) => ({ default: module.PeoplePage })),
 );
@@ -37,7 +40,8 @@ export default function App() {
       <Route path="/login" element={<LoginPage />} />
       <Route element={<ProtectedRoute />}>
         <Route element={<AppShell />}>
-          <Route index element={<Navigate to="/pessoas" replace />} />
+          <Route index element={deferredPage(<DashboardPage />, "Carregando painel")} />
+          <Route path="/busca" element={deferredPage(<SearchPage />, "Carregando busca")} />
           <Route path="/pessoas" element={deferredPage(<PeoplePage />, "Carregando pessoas")} />
           <Route path="/pessoas/nova" element={deferredPage(<PersonFormPage />, "Carregando formulário")} />
           <Route path="/pessoas/:id" element={deferredPage(<PersonProfilePage />, "Carregando perfil")} />
