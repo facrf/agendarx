@@ -244,7 +244,7 @@ async fn salvar_favorito(
 async fn listar_lixeira(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PessoaLixeira>>, AppError> {
-    Ok(Json(sqlx::query_as("SELECT id, nome, excluida_em FROM pessoa WHERE excluida_em IS NOT NULL ORDER BY excluida_em DESC").fetch_all(&state.pool).await?))
+    Ok(Json(sqlx::query_as("SELECT id, nome, excluida_em FROM pessoa WHERE excluida_em IS NOT NULL AND mesclada_em IS NULL ORDER BY excluida_em DESC").fetch_all(&state.pool).await?))
 }
 
 async fn restaurar_pessoa(
@@ -252,7 +252,7 @@ async fn restaurar_pessoa(
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
     let result = sqlx::query(
-        "UPDATE pessoa SET excluida_em = NULL WHERE id = ? AND excluida_em IS NOT NULL",
+        "UPDATE pessoa SET excluida_em = NULL WHERE id = ? AND excluida_em IS NOT NULL AND mesclada_em IS NULL",
     )
     .bind(id)
     .execute(&state.pool)
@@ -271,10 +271,12 @@ async fn excluir_definitivamente(
     if sessao.usuario.perfil != "admin" {
         return Err(AppError::Forbidden);
     }
-    let result = sqlx::query("DELETE FROM pessoa WHERE id = ? AND excluida_em IS NOT NULL")
-        .bind(id)
-        .execute(&state.pool)
-        .await?;
+    let result = sqlx::query(
+        "DELETE FROM pessoa WHERE id = ? AND excluida_em IS NOT NULL AND mesclada_em IS NULL",
+    )
+    .bind(id)
+    .execute(&state.pool)
+    .await?;
     if result.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa na lixeira"));
     }

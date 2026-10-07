@@ -84,10 +84,10 @@ async fn listar_tarefas_da_pessoa(
     }
 
     let rows = sqlx::query_as::<_, TarefaCalendarioRow>(
-        "SELECT t.id, t.usuario_id, t.titulo, t.descricao, t.inicio_em, t.fim_em, \
+        "SELECT t.id, t.versao, t.usuario_id, t.titulo, t.descricao, t.inicio_em, t.fim_em, \
                 t.dia_inteiro, t.status, t.prioridade, t.cor_hex, t.serie_id, \
                 t.recorrencia, t.recorrencia_fim_em, t.lembrete_minutos, \
-                t.lembrete_dispensado_em, t.data_criacao, t.data_atualizacao \
+                t.lembrete_dispensado_em, t.lembrete_adiado_ate, t.data_criacao, t.data_atualizacao \
          FROM tarefa_calendario t \
          JOIN tarefa_calendario_pessoa tp ON tp.tarefa_id = t.id \
          WHERE tp.pessoa_id = ? AND t.usuario_id = ? \
@@ -122,12 +122,12 @@ async fn listar_tarefas(
         ));
     }
 
-    let rows = match (&inicio, &fim) {
-        (Some(inicio), Some(fim)) => {
-            sqlx::query_as::<_, TarefaCalendarioRow>(
-                "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+    let rows =
+        match (&inicio, &fim) {
+            (Some(inicio), Some(fim)) => sqlx::query_as::<_, TarefaCalendarioRow>(
+                "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                         status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                        lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                        lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
                  FROM tarefa_calendario \
                  WHERE usuario_id = ? AND inicio_em < ? \
                        AND COALESCE(fim_em, inicio_em) >= ? \
@@ -137,13 +137,11 @@ async fn listar_tarefas(
             .bind(fim)
             .bind(inicio)
             .fetch_all(&state.pool)
-            .await?
-        }
-        (Some(inicio), None) => {
-            sqlx::query_as::<_, TarefaCalendarioRow>(
-                "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+            .await?,
+            (Some(inicio), None) => sqlx::query_as::<_, TarefaCalendarioRow>(
+                "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                         status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                        lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                        lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
                  FROM tarefa_calendario \
                  WHERE usuario_id = ? AND COALESCE(fim_em, inicio_em) >= ? \
                  ORDER BY inicio_em, id",
@@ -151,13 +149,11 @@ async fn listar_tarefas(
             .bind(sessao.usuario.id)
             .bind(inicio)
             .fetch_all(&state.pool)
-            .await?
-        }
-        (None, Some(fim)) => {
-            sqlx::query_as::<_, TarefaCalendarioRow>(
-                "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+            .await?,
+            (None, Some(fim)) => sqlx::query_as::<_, TarefaCalendarioRow>(
+                "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                         status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                        lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                        lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
                  FROM tarefa_calendario \
                  WHERE usuario_id = ? AND inicio_em < ? \
                  ORDER BY inicio_em, id",
@@ -165,20 +161,17 @@ async fn listar_tarefas(
             .bind(sessao.usuario.id)
             .bind(fim)
             .fetch_all(&state.pool)
-            .await?
-        }
-        (None, None) => {
-            sqlx::query_as::<_, TarefaCalendarioRow>(
-                "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+            .await?,
+            (None, None) => sqlx::query_as::<_, TarefaCalendarioRow>(
+                "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                         status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                        lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                        lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
                  FROM tarefa_calendario WHERE usuario_id = ? ORDER BY inicio_em, id",
             )
             .bind(sessao.usuario.id)
             .fetch_all(&state.pool)
-            .await?
-        }
-    };
+            .await?,
+        };
 
     let mut tarefas = Vec::with_capacity(rows.len());
     for row in rows {
@@ -267,6 +260,7 @@ async fn atualizar_tarefa(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
+    headers: HeaderMap,
     Json(mut input): Json<TarefaCalendarioInput>,
 ) -> Result<Json<TarefaCalendarioResponse>, AppError> {
     // A recorrência é materializada na criação. Depois disso, cada item é
@@ -274,7 +268,8 @@ async fn atualizar_tarefa(
     input.recorrencia = "NENHUMA".to_owned();
     input.recorrencia_fim_em = None;
     let dados = validar_tarefa(input)?;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "tarefa", id, &sessao, &headers).await?;
     validar_pessoas(&mut tx, &dados.pessoas_ids).await?;
     let status_anterior = sqlx::query_scalar::<_, String>(
         "SELECT status FROM tarefa_calendario WHERE id = ? AND usuario_id = ?",
@@ -289,7 +284,7 @@ async fn atualizar_tarefa(
         "UPDATE tarefa_calendario SET titulo = ?, descricao = ?, inicio_em = ?, fim_em = ?, \
                 dia_inteiro = ?, status = ?, prioridade = ?, cor_hex = ?, \
                 lembrete_minutos = ?, \
-                lembrete_dispensado_em = NULL, \
+                lembrete_dispensado_em = NULL, lembrete_adiado_ate = NULL, \
                 data_atualizacao = CURRENT_TIMESTAMP \
          WHERE id = ? AND usuario_id = ?",
     )
@@ -339,6 +334,7 @@ async fn atualizar_data_tarefa(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
+    headers: HeaderMap,
     Json(input): Json<TarefaCalendarioDataInput>,
 ) -> Result<Json<TarefaCalendarioResponse>, AppError> {
     let inicio = parse_data(&input.inicio_em, "inicio_em")?;
@@ -355,7 +351,8 @@ async fn atualizar_data_tarefa(
 
     let inicio_novo = formatar_data(inicio);
     let fim_novo = fim.map(formatar_data);
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "tarefa", id, &sessao, &headers).await?;
     let inicio_anterior = sqlx::query_scalar::<_, String>(
         "SELECT inicio_em FROM tarefa_calendario WHERE id = ? AND usuario_id = ?",
     )
@@ -366,7 +363,7 @@ async fn atualizar_data_tarefa(
     .ok_or_else(|| AppError::nao_encontrado("tarefa"))?;
     let resultado = sqlx::query(
         "UPDATE tarefa_calendario SET inicio_em = ?, fim_em = ?, \
-                lembrete_dispensado_em = NULL, \
+                lembrete_dispensado_em = NULL, lembrete_adiado_ate = NULL, \
                 data_atualizacao = CURRENT_TIMESTAMP \
          WHERE id = ? AND usuario_id = ?",
     )
@@ -395,10 +392,12 @@ async fn atualizar_status_tarefa(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
+    headers: HeaderMap,
     Json(input): Json<TarefaCalendarioStatusInput>,
 ) -> Result<Json<TarefaCalendarioResponse>, AppError> {
     let status = validar_status(&input.status)?;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "tarefa", id, &sessao, &headers).await?;
     let status_anterior = sqlx::query_scalar::<_, String>(
         "SELECT status FROM tarefa_calendario WHERE id = ? AND usuario_id = ?",
     )
@@ -459,18 +458,22 @@ async fn listar_lembretes(
     let limite_inferior = formatar_data(agora - Duration::days(30));
     let limite_superior = formatar_data(agora + Duration::days(366));
     let rows = sqlx::query_as::<_, TarefaCalendarioRow>(
-        "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+        "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                 status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
          FROM tarefa_calendario \
          WHERE usuario_id = ? AND status <> 'CONCLUIDA' \
                AND lembrete_minutos IS NOT NULL AND lembrete_dispensado_em IS NULL \
+               AND (lembrete_adiado_ate IS NULL OR julianday(lembrete_adiado_ate)<=julianday(?)) \
                AND inicio_em BETWEEN ? AND ? \
-         ORDER BY inicio_em, id LIMIT 200",
+               AND (julianday(inicio_em) - lembrete_minutos / 1440.0) <= julianday(?) \
+         ORDER BY inicio_em, id LIMIT 20",
     )
     .bind(sessao.usuario.id)
+    .bind(formatar_data(agora))
     .bind(limite_inferior)
     .bind(limite_superior)
+    .bind(formatar_data(agora))
     .fetch_all(&state.pool)
     .await?;
 
@@ -488,22 +491,40 @@ async fn listar_lembretes(
     Ok(Json(lembretes))
 }
 
+#[derive(serde::Deserialize)]
+struct LembreteVersao {
+    #[serde(default)]
+    versao: Option<i64>,
+    #[serde(default)]
+    lembrete_adiado_ate: Option<String>,
+    inicio_em: String,
+    lembrete_minutos: i64,
+    data_atualizacao: String,
+}
+
 async fn dispensar_lembrete(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
+    versao: Option<Json<LembreteVersao>>,
 ) -> Result<StatusCode, AppError> {
     let resultado = sqlx::query(
         "UPDATE tarefa_calendario SET lembrete_dispensado_em = ? \
-         WHERE id = ? AND usuario_id = ? AND lembrete_minutos IS NOT NULL",
+         WHERE id = ? AND usuario_id = ? AND lembrete_minutos IS NOT NULL AND status <> 'CONCLUIDA' \
+         AND (? = 0 OR (inicio_em = ? AND lembrete_minutos = ? AND data_atualizacao = ? AND lembrete_adiado_ate IS ? AND (? IS NULL OR versao=?)))",
     )
     .bind(formatar_data(Utc::now()))
-    .bind(id)
-    .bind(sessao.usuario.id)
-    .execute(&state.pool)
-    .await?;
+    .bind(id).bind(sessao.usuario.id).bind(versao.is_some())
+    .bind(versao.as_ref().map(|v| &v.inicio_em))
+    .bind(versao.as_ref().map(|v| v.lembrete_minutos))
+    .bind(versao.as_ref().map(|v| &v.data_atualizacao))
+    .bind(versao.as_ref().and_then(|v| v.lembrete_adiado_ate.as_deref()))
+    .bind(versao.as_ref().and_then(|v|v.versao)).bind(versao.as_ref().and_then(|v|v.versao))
+    .execute(&state.pool).await?;
     if resultado.rows_affected() == 0 {
-        return Err(AppError::nao_encontrado("lembrete"));
+        return Err(AppError::Conflict(
+            "o lembrete foi alterado ou já não está disponível".into(),
+        ));
     }
     Ok(StatusCode::NO_CONTENT)
 }
@@ -552,9 +573,9 @@ async fn buscar_tarefa(
     id: i64,
 ) -> Result<TarefaCalendarioResponse, AppError> {
     let row = sqlx::query_as::<_, TarefaCalendarioRow>(
-        "SELECT id, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
+        "SELECT id, versao, usuario_id, titulo, descricao, inicio_em, fim_em, dia_inteiro, \
                 status, prioridade, cor_hex, serie_id, recorrencia, recorrencia_fim_em, \
-                lembrete_minutos, lembrete_dispensado_em, data_criacao, data_atualizacao \
+                lembrete_minutos, lembrete_dispensado_em, lembrete_adiado_ate, data_criacao, data_atualizacao \
          FROM tarefa_calendario WHERE id = ? AND usuario_id = ?",
     )
     .bind(id)
@@ -583,6 +604,7 @@ async fn montar_resposta(
 
     Ok(TarefaCalendarioResponse {
         id: row.id,
+        versao: row.versao,
         titulo: row.titulo,
         descricao: row.descricao,
         inicio_em: row.inicio_em,
@@ -606,6 +628,7 @@ async fn montar_resposta(
             1
         },
         lembrete_minutos: row.lembrete_minutos,
+        lembrete_adiado_ate: row.lembrete_adiado_ate,
         pessoas,
         anexos,
         data_criacao: row.data_criacao,
@@ -719,7 +742,7 @@ async fn enviar_anexo(
         }
         let nome = campo.file_name().unwrap_or("arquivo.bin").to_owned();
         let mime = campo.content_type().map(str::to_owned);
-        let conteudo = campo.bytes().await.map_err(AppError::from)?;
+        let conteudo = super::upload::ler_campo(campo, state.config.max_upload_bytes).await?;
         arquivo = Some((nome, mime, conteudo));
         break;
     }
@@ -745,7 +768,17 @@ async fn enviar_anexo(
     };
     let tamanho = conteudo.len() as i64;
 
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let total: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM anexo_tarefa_calendario WHERE tarefa_id = ?")
+            .bind(tarefa_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if total >= MAX_ANEXOS_POR_TAREFA {
+        return Err(AppError::BadRequest(format!(
+            "cada tarefa aceita no máximo {MAX_ANEXOS_POR_TAREFA} anexos"
+        )));
+    }
     let usado_tarefa: i64 = sqlx::query_scalar(
         "SELECT COALESCE(SUM(tamanho_bytes), 0) FROM anexo_tarefa_calendario WHERE tarefa_id = ?",
     )

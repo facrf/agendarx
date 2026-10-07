@@ -4,7 +4,10 @@ use std::{
     io::{BufReader, Read},
     path::{Path as FsPath, PathBuf},
     pin::Pin,
-    sync::Arc,
+    sync::{
+        Arc,
+        atomic::{AtomicU64, Ordering},
+    },
     task::{Context, Poll},
     time::Duration as StdDuration,
 };
@@ -33,7 +36,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOp
 
 use crate::{AppState, error::AppError, middleware::auth::SessaoAutenticada};
 
-const SCHEMA_ATUAL: i64 = 21;
+const SCHEMA_ATUAL: i64 = 24;
 const FORMATO_BACKUP: u32 = 1;
 const EXPIRACAO_RESTORE_MINUTOS: i64 = 30;
 
@@ -66,8 +69,18 @@ pub fn rotas() -> Router<AppState> {
 pub struct BackupRuntime {
     operacao: Arc<Mutex<()>>,
     manutencao: Arc<RwLock<()>>,
+    geracao: Arc<AtomicU64>,
     pendentes: Arc<Mutex<HashMap<String, RestauracaoPendente>>>,
     exportacoes: Arc<Mutex<HashMap<String, ExportacaoPendente>>>,
+}
+
+impl BackupRuntime {
+    pub async fn leitura(&self) -> tokio::sync::RwLockReadGuard<'_, ()> {
+        self.manutencao.read().await
+    }
+    pub fn geracao(&self) -> u64 {
+        self.geracao.load(Ordering::Acquire)
+    }
 }
 
 #[derive(Clone)]
@@ -980,6 +993,8 @@ async fn confirmar_restauracao(
     };
     let _arquivo_pendente = ArquivoTemporario::new(pendente.caminho.clone());
     let _manutencao = state.backup_runtime.manutencao.write().await;
+    state.backup_runtime.geracao.fetch_add(1, Ordering::AcqRel);
+    super::osint::interromper_trabalhos(&state.pool).await?;
     let seguranca = criar_snapshot_interno(&state, "seguranca").await?;
     let catalogo = listar_catalogo(&state.pool).await?;
     let caminho_atual = caminho_banco(&state)?;
@@ -1023,6 +1038,10 @@ async fn recuperar_seguranca(
         .await
         .map_err(|_| AppError::interno("falha ao recuperar o backup de segurança"))??;
     sqlx::migrate!("./migrations").run(&state.pool).await?;
+    super::osint::interromper_trabalhos(&state.pool).await?;
+    sqlx::query("DELETE FROM importacao_previa")
+        .execute(&state.pool)
+        .await?;
     reconciliar_catalogo(state, catalogo).await?;
     Ok(())
 }
@@ -1034,6 +1053,10 @@ async fn finalizar_restauracao(
     previa: &RestauracaoPrevia,
 ) -> Result<(), AppError> {
     sqlx::migrate!("./migrations").run(&state.pool).await?;
+    super::osint::interromper_trabalhos(&state.pool).await?;
+    sqlx::query("DELETE FROM importacao_previa")
+        .execute(&state.pool)
+        .await?;
     sqlx::query("DELETE FROM sessao")
         .execute(&state.pool)
         .await?;
@@ -1391,6 +1414,72 @@ async fn responder_arquivo(
         .map_err(|error| AppError::interno(error.to_string()))
 }
 
+pub(crate) async fn resumo_saude(state: &AppState) -> Result<serde_json::Value, AppError> {
+    let catalogo = listar_catalogo(&state.pool).await?;
+    let dir = if catalogo.is_empty() {
+        None
+    } else {
+        Some(diretorio_backup(state)?)
+    };
+    let ultimo = catalogo
+        .into_iter()
+        .filter(|b| {
+            b.integridade_ok
+                && dir
+                    .as_ref()
+                    .is_some_and(|dir| dir.join(&b.nome_arquivo).is_file())
+        })
+        .max_by_key(|b| b.id);
+    Ok(
+        serde_json::json!({"ultimo_validado":ultimo,"configuracao":carregar_configuracao(&state.pool).await?}),
+    )
+}
+pub(crate) async fn verificar_ultimo_backup(
+    state: &AppState,
+) -> Result<serde_json::Value, AppError> {
+    let _operacao =
+        state.backup_runtime.operacao.try_lock().map_err(|_| {
+            AppError::Conflict("já existe uma operação de backup em andamento".into())
+        })?;
+    let info = listar_catalogo(&state.pool)
+        .await?
+        .into_iter()
+        .max_by_key(|b| b.id)
+        .ok_or_else(|| AppError::nao_encontrado("backup"))?;
+    let path = diretorio_backup(state)?.join(&info.nome_arquivo);
+    if std::path::Path::new(&info.nome_arquivo)
+        .file_name()
+        .and_then(|s| s.to_str())
+        != Some(info.nome_arquivo.as_str())
+    {
+        return Err(AppError::BadRequest("nome de backup inválido".into()));
+    }
+    let hash = info.sha256.clone();
+    let checked = tokio::task::spawn_blocking(move || {
+        validar_banco(&path)
+            .and_then(|_| hash_arquivo(&path))
+            .map(|atual| atual == hash)
+    })
+    .await
+    .map_err(|_| AppError::interno("falha ao verificar backup"))?;
+    let (ok, erro) = match checked {
+        Ok(true) => (true, None),
+        Ok(false) => (
+            false,
+            Some("O conteúdo não corresponde ao checksum registrado".to_string()),
+        ),
+        Err(e) => (false, Some(e.to_string())),
+    };
+    sqlx::query("UPDATE backup_registro SET integridade_ok=? WHERE id=?")
+        .bind(ok)
+        .bind(info.id)
+        .execute(&state.pool)
+        .await?;
+    Ok(
+        serde_json::json!({"id":info.id,"integridade_ok":ok,"erro":erro,"verificado_em":Utc::now().to_rfc3339()}),
+    )
+}
+
 #[cfg(test)]
 mod tests {
     use super::{
@@ -1410,6 +1499,7 @@ mod tests {
         let state = AppState {
             pool: pool.clone(),
             config,
+            auth_runtime: crate::handlers::auth::AuthRuntime::default(),
             backup_runtime: BackupRuntime::default(),
         };
         sqlx::query("INSERT INTO pessoa (nome, classificacao_risco, toxicidade, risco_justificativa, risco_revisado_em) VALUES ('Antes', 'MANIPULATIVO', 0.3, 'Contexto preservado', '2026-09-17')")

@@ -1,3 +1,9 @@
+use std::{
+    collections::HashMap,
+    sync::{Arc, Mutex},
+    time::{Duration as StdDuration, Instant},
+};
+
 use argon2::{
     Argon2, PasswordHash, PasswordHasher, PasswordVerifier,
     password_hash::{SaltString, rand_core::OsRng},
@@ -5,7 +11,7 @@ use argon2::{
 use axum::{
     Extension, Json, Router,
     body::{Body, Bytes},
-    extract::State,
+    extract::{DefaultBodyLimit, State},
     http::{HeaderValue, StatusCode, header},
     response::{IntoResponse, Response},
     routing::{get, post, put},
@@ -13,6 +19,8 @@ use axum::{
 
 use chrono::{Duration, Utc};
 use jsonwebtoken::{EncodingKey, Header, encode};
+use sqlx::SqlitePool;
+use tokio::sync::{OwnedSemaphorePermit, Semaphore};
 use uuid::Uuid;
 
 use crate::{
@@ -25,20 +33,118 @@ use crate::{
 };
 
 const MAX_ICONE_ADMIN_BYTES: usize = 2 * 1024 * 1024;
+const MAX_CORPO_LOGIN_BYTES: usize = 16 * 1024;
+const MAX_TENTATIVAS_POR_LOGIN: u32 = 10;
+const MAX_TENTATIVAS_GLOBAIS: u32 = 120;
+const MAX_VERIFICACOES_SIMULTANEAS: usize = 4;
+const JANELA_TENTATIVAS: StdDuration = StdDuration::from_secs(60);
+// PHC válido com o mesmo custo do Argon2::default(). O resultado da verificação
+// jamais autentica um usuário ausente; evita pular o trabalho de derivação.
+const HASH_USUARIO_AUSENTE: &str = "$argon2id$v=19$m=19456,t=2,p=1$c2VndXJhbmNhLWxvZ2luLXYx$AAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+
+#[derive(Clone)]
+pub struct AuthRuntime {
+    tentativas: Arc<Mutex<Tentativas>>,
+    verificacoes: Arc<Semaphore>,
+}
+
+impl Default for AuthRuntime {
+    fn default() -> Self {
+        Self {
+            tentativas: Arc::new(Mutex::new(Tentativas::default())),
+            verificacoes: Arc::new(Semaphore::new(MAX_VERIFICACOES_SIMULTANEAS)),
+        }
+    }
+}
+
+#[derive(Default)]
+struct Tentativas {
+    global: Option<JanelaTentativas>,
+    por_login: HashMap<String, JanelaTentativas>,
+}
+
+struct JanelaTentativas {
+    inicio: Instant,
+    quantidade: u32,
+}
+
+impl JanelaTentativas {
+    fn restante(&self, agora: Instant) -> u64 {
+        JANELA_TENTATIVAS
+            .saturating_sub(agora.saturating_duration_since(self.inicio))
+            .as_secs()
+            .saturating_add(1)
+    }
+}
+
+impl Tentativas {
+    fn registrar(&mut self, login: &str, agora: Instant) -> Result<(), AppError> {
+        self.por_login
+            .retain(|_, janela| agora.saturating_duration_since(janela.inicio) < JANELA_TENTATIVAS);
+        let global = self.global.get_or_insert(JanelaTentativas {
+            inicio: agora,
+            quantidade: 0,
+        });
+        if agora.saturating_duration_since(global.inicio) >= JANELA_TENTATIVAS {
+            *global = JanelaTentativas {
+                inicio: agora,
+                quantidade: 0,
+            };
+        }
+        if global.quantidade >= MAX_TENTATIVAS_GLOBAIS {
+            return Err(AppError::TooManyRequests(global.restante(agora)));
+        }
+        global.quantidade += 1;
+        // O limite global também limita o crescimento deste mapa, inclusive
+        // quando os pedidos alternam nomes de usuários inexistentes.
+        let janela = self
+            .por_login
+            .entry(login.to_owned())
+            .or_insert(JanelaTentativas {
+                inicio: agora,
+                quantidade: 0,
+            });
+        if janela.quantidade >= MAX_TENTATIVAS_POR_LOGIN {
+            return Err(AppError::TooManyRequests(janela.restante(agora)));
+        }
+        janela.quantidade += 1;
+        Ok(())
+    }
+}
+
+impl AuthRuntime {
+    fn admitir(&self, login: &str) -> Result<OwnedSemaphorePermit, AppError> {
+        self.tentativas
+            .lock()
+            .map_err(|_| AppError::interno("falha no controle de tentativas"))?
+            .registrar(login, Instant::now())?;
+        self.verificacoes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| AppError::TooManyRequests(1))
+    }
+}
 
 pub fn rotas_publicas() -> Router<AppState> {
-    Router::new().route("/login", post(login))
+    Router::new().route(
+        "/login",
+        post(login).layer(DefaultBodyLimit::max(MAX_CORPO_LOGIN_BYTES)),
+    )
 }
 
 pub fn rotas_protegidas() -> Router<AppState> {
     Router::new()
         .route("/logout", post(logout))
         .route("/sessao", get(verificar_sessao))
-        .route("/credenciais", put(atualizar_credenciais))
+        .route(
+            "/credenciais",
+            put(atualizar_credenciais).layer(DefaultBodyLimit::max(MAX_CORPO_LOGIN_BYTES)),
+        )
         .route(
             "/icone",
             get(obter_icone_admin)
                 .put(atualizar_icone_admin)
+                .layer(DefaultBodyLimit::max(MAX_ICONE_ADMIN_BYTES))
                 .delete(excluir_icone_admin),
         )
 }
@@ -53,6 +159,12 @@ async fn login(
             "login e senha são obrigatórios".to_owned(),
         ));
     }
+    if login.chars().count() > 64 || input.senha.chars().count() > 1024 {
+        return Err(AppError::BadRequest(
+            "usuário ou senha excedem o tamanho permitido".to_owned(),
+        ));
+    }
+    let verificacao = state.auth_runtime.admitir(login)?;
 
     let usuario = sqlx::query_as::<_, Usuario>(
         "SELECT id, login, perfil, senha_hash, icone_admin_blob, icone_admin_mime_type, \
@@ -61,12 +173,17 @@ async fn login(
     )
     .bind(login)
     .fetch_optional(&state.pool)
-    .await?
-    .ok_or(AppError::Unauthorized)?;
+    .await?;
 
     let senha = input.senha;
-    let hash = usuario.senha_hash.clone();
+    let hash = usuario
+        .as_ref()
+        .map_or(HASH_USUARIO_AUSENTE, |u| u.senha_hash.as_str())
+        .to_owned();
     let senha_valida = tokio::task::spawn_blocking(move || {
+        // Mover a permissão para o trabalho bloqueante mantém o limite mesmo
+        // se o cliente abandonar a requisição durante o Argon2.
+        let _verificacao = verificacao;
         PasswordHash::new(&hash).ok().is_some_and(|hash| {
             Argon2::default()
                 .verify_password(senha.as_bytes(), &hash)
@@ -78,6 +195,7 @@ async fn login(
     if !senha_valida {
         return Err(AppError::Unauthorized);
     }
+    let usuario = usuario.ok_or(AppError::Unauthorized)?;
 
     let agora = Utc::now();
     let expira_em = agora + Duration::minutes(state.config.jwt_ttl_minutos);
@@ -96,18 +214,14 @@ async fn login(
     )
     .map_err(|_| AppError::interno("falha ao criar token de sessão"))?;
 
-    let mut tx = state.pool.begin().await?;
-    sqlx::query("DELETE FROM sessao WHERE expira_em <= ?")
-        .bind(agora.timestamp())
-        .execute(&mut *tx)
-        .await?;
-    sqlx::query("INSERT INTO sessao (id, usuario_id, expira_em) VALUES (?, ?, ?)")
-        .bind(&sessao_id)
-        .bind(usuario.id)
-        .bind(expira_em.timestamp())
-        .execute(&mut *tx)
-        .await?;
-    tx.commit().await?;
+    registrar_sessao(
+        &state.pool,
+        &usuario,
+        &sessao_id,
+        agora.timestamp(),
+        expira_em.timestamp(),
+    )
+    .await?;
 
     let resposta = LoginResponse {
         token: token.clone(),
@@ -136,6 +250,97 @@ async fn login(
         Json(resposta),
     )
         .into_response())
+}
+
+async fn registrar_sessao(
+    pool: &SqlitePool,
+    usuario: &Usuario,
+    id: &str,
+    agora: i64,
+    expira: i64,
+) -> Result<(), AppError> {
+    let mut tx = pool.begin_with("BEGIN IMMEDIATE").await?;
+    let inserida = sqlx::query("INSERT INTO sessao(id, usuario_id, expira_em) SELECT ?, id, ? FROM usuario WHERE id = ? AND login = ? AND senha_hash = ?")
+        .bind(id).bind(expira).bind(usuario.id).bind(&usuario.login).bind(&usuario.senha_hash).execute(&mut *tx).await?;
+    if inserida.rows_affected() != 1 {
+        return Err(AppError::Unauthorized);
+    }
+    sqlx::query("DELETE FROM sessao WHERE expira_em <= ?")
+        .bind(agora)
+        .execute(&mut *tx)
+        .await?;
+    tx.commit().await?;
+    Ok(())
+}
+
+#[cfg(test)]
+mod seguranca_tests {
+    use super::*;
+
+    #[test]
+    fn tentativas_expiram_e_concorrencia_fica_limitada() {
+        let runtime = AuthRuntime::default();
+        let permits: Vec<_> = (0..MAX_VERIFICACOES_SIMULTANEAS)
+            .map(|i| runtime.admitir(&format!("user{i}")).unwrap())
+            .collect();
+        assert!(matches!(
+            runtime.admitir("extra"),
+            Err(AppError::TooManyRequests(_))
+        ));
+        drop(permits);
+        assert!(runtime.admitir("extra").is_ok());
+        let mut tentativas = Tentativas::default();
+        let now = Instant::now();
+        for _ in 0..MAX_TENTATIVAS_POR_LOGIN {
+            tentativas.registrar("user", now).unwrap();
+        }
+        assert!(tentativas.registrar("user", now).is_err());
+        assert!(
+            tentativas
+                .registrar("user", now + JANELA_TENTATIVAS)
+                .is_ok()
+        );
+        assert!(PasswordHash::new(HASH_USUARIO_AUSENTE).is_ok());
+    }
+
+    #[tokio::test]
+    async fn senha_validada_antes_da_rotacao_nao_emite_sessao_depois() {
+        let mut config = crate::config::Config::from_env().unwrap();
+        config.database_url = "sqlite::memory:".into();
+        config.admin_login = Some("race-test".into());
+        config.admin_password = Some("senha-segura-teste".into());
+        let pool = crate::db::conectar(&config).await.unwrap();
+        let usuario: Usuario = sqlx::query_as("SELECT * FROM usuario WHERE login='race-test'")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        registrar_sessao(&pool, &usuario, "antes", 0, i64::MAX)
+            .await
+            .unwrap();
+        let mut tx = pool.begin_with("BEGIN IMMEDIATE").await.unwrap();
+        sqlx::query("UPDATE usuario SET senha_hash='hash-novo' WHERE id=?")
+            .bind(usuario.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        sqlx::query("DELETE FROM sessao WHERE usuario_id=?")
+            .bind(usuario.id)
+            .execute(&mut *tx)
+            .await
+            .unwrap();
+        tx.commit().await.unwrap();
+        assert!(matches!(
+            registrar_sessao(&pool, &usuario, "atrasada", 0, i64::MAX).await,
+            Err(AppError::Unauthorized)
+        ));
+        assert_eq!(
+            sqlx::query_scalar::<_, i64>("SELECT COUNT(*) FROM sessao")
+                .fetch_one(&pool)
+                .await
+                .unwrap(),
+            0
+        );
+    }
 }
 
 async fn logout(
@@ -190,9 +395,11 @@ async fn atualizar_credenciais(
     .await?
     .ok_or(AppError::Unauthorized)?;
 
+    let verificacao = state.auth_runtime.admitir(&usuario.login)?;
     let senha_atual = input.senha_atual;
     let hash_atual = usuario.senha_hash.clone();
     let senha_valida = tokio::task::spawn_blocking(move || {
+        let _verificacao = verificacao;
         PasswordHash::new(&hash_atual).ok().is_some_and(|hash| {
             Argon2::default()
                 .verify_password(senha_atual.as_bytes(), &hash)
@@ -217,8 +424,15 @@ async fn atualizar_credenciais(
     }
 
     let novo_hash = if let Some(nova_senha) = nova_senha {
+        let verificacao = state
+            .auth_runtime
+            .verificacoes
+            .clone()
+            .try_acquire_owned()
+            .map_err(|_| AppError::TooManyRequests(1))?;
         Some(
             tokio::task::spawn_blocking(move || {
+                let _verificacao = verificacao;
                 let salt = SaltString::generate(&mut OsRng);
                 Argon2::default()
                     .hash_password(nova_senha.as_bytes(), &salt)
@@ -232,20 +446,14 @@ async fn atualizar_credenciais(
         None
     };
 
-    let mut tx = state.pool.begin().await?;
-    if let Some(novo_hash) = novo_hash {
-        sqlx::query("UPDATE usuario SET login = ?, senha_hash = ? WHERE id = ?")
-            .bind(login)
-            .bind(novo_hash)
-            .bind(usuario.id)
-            .execute(&mut *tx)
-            .await?;
-    } else {
-        sqlx::query("UPDATE usuario SET login = ? WHERE id = ?")
-            .bind(login)
-            .bind(usuario.id)
-            .execute(&mut *tx)
-            .await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let atualizada = sqlx::query("UPDATE usuario SET login = ?, senha_hash = ? WHERE id = ? AND login = ? AND senha_hash = ?")
+        .bind(login).bind(novo_hash.as_deref().unwrap_or(&usuario.senha_hash)).bind(usuario.id)
+        .bind(&usuario.login).bind(&usuario.senha_hash).execute(&mut *tx).await?;
+    if atualizada.rows_affected() != 1 {
+        return Err(AppError::Conflict(
+            "as credenciais mudaram; entre novamente".into(),
+        ));
     }
     // Claims já emitidos carregam o login antigo; revogar todas as sessões também
     // encerra dispositivos que ainda conheçam a senha anterior.

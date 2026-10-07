@@ -7,7 +7,7 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
-Versão atual: **v0.6.5e**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
+Versão atual: **v0.6.6**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
 
 ## Funcionalidades
 
@@ -79,9 +79,10 @@ cd ..
 cargo run
 ```
 
-Para executar o teste de navegador, instale o Chromium e rode
-`npm run test:browser` dentro de `frontend`. Defina `CHROMIUM_PATH` quando o
-executável não estiver em `/usr/bin/chromium-browser`.
+Para executar o teste de navegador, instale o Chromium com
+`npx playwright install chromium` e rode `npm run test:browser` dentro de
+`frontend`. Defina `CHROMIUM_PATH` para usar um executável específico; sem essa
+variável, o teste usa o navegador gerenciado pelo Playwright.
 
 Abra `http://localhost:12000`. As migrações são aplicadas automaticamente e o
 usuário inicial é criado quando `ADMIN_LOGIN` e `ADMIN_PASSWORD` estão definidos.
@@ -101,13 +102,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.5e
+docker pull ghcr.io/facrf/agendarx:0.6.6
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.5e
+  ghcr.io/facrf/agendarx:0.6.6
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -138,7 +139,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.6.5e
+    image: ghcr.io/facrf/agendarx:0.6.6
     restart: unless-stopped
     ports:
       - "12000:12000"
@@ -238,6 +239,9 @@ Dockerfile. Todos os pacotes recebem checksum
 SHA-256. Consulte [Versões e arquiteturas](docs/RELEASES.md) para publicar e instalar.
 
 ## Documentação
+
+- [Plano de melhorias e validação](A_FAZER.md)
+- [Importação revisável e pesquisas acompanháveis](docs/MELHORIAS.md)
 
 - [Arquitetura e decisões técnicas](docs/ARQUITETURA.md)
 - [API REST](docs/API.md)

@@ -1,3 +1,4 @@
+import { EditHistory } from "../components/EditHistory";
 /* Developed with care by FACRF - https://github.com/facrf */
 import { useFormDraft } from "../hooks/useFormDraft";
 import { DraftNotice } from "../components/DraftNotice";
@@ -53,6 +54,7 @@ const CORES = ["#13716D", "#2563EB", "#7C3AED", "#DB2777", "#E7654F", "#D97706"]
 const TIPO_ARRASTE_TAREFA = "application/x-agendarx-tarefa";
 
 interface TarefaFormState {
+  versao?: number;
   titulo: string;
   descricao: string;
   data: string;
@@ -76,6 +78,7 @@ export function CalendarPage() {
   const [tarefas, setTarefas] = useState<TarefaCalendario[]>([]);
   const [pessoas, setPessoas] = useState<PessoaResumo[]>([]);
   const [carregando, setCarregando] = useState(true);
+  const [carregadoInicial, setCarregadoInicial] = useState(false);
   const [modalAberto, setModalAberto] = useState(false);
   const [tarefaEditando, setTarefaEditando] = useState<TarefaCalendario | null>(null);
   const [form, setForm] = useState<TarefaFormState>(() => novoFormulario(chaveData(hoje)));
@@ -106,6 +109,8 @@ export function CalendarPage() {
     enabled: modalAberto, meaningful: Boolean(form.titulo.trim() || form.descricao.trim()),
     validate: item => item.pessoasIds.every(id => typeof id === "number"), restore: setForm });
 
+  const taskRequest = useRef<{ id: number; controller: AbortController | null }>({ id: 0, controller: null });
+
   const diasDoCalendario = useMemo(() => montarDiasDoCalendario(mesAtual), [mesAtual]);
 
   const carregarArmazenamento = useCallback(async () => {
@@ -128,6 +133,11 @@ export function CalendarPage() {
   }, [notify]);
 
   const carregarTarefas = useCallback(async () => {
+    taskRequest.current.controller?.abort();
+    const controller = new AbortController();
+    const id = ++taskRequest.current.id;
+    taskRequest.current.controller = controller;
+    setCarregando(true);
     const primeiroDia = diasDoCalendario[0];
     const ultimoDia = adicionarDias(diasDoCalendario[diasDoCalendario.length - 1], 2);
     const margemInicial = adicionarDias(primeiroDia, -1);
@@ -144,17 +154,19 @@ export function CalendarPage() {
       )).toISOString(),
     });
     try {
-      const data = await api.get<TarefaCalendario[]>(`/api/calendario/tarefas?${params}`);
-      setTarefas(data);
+      const data = await api.get<TarefaCalendario[]>(`/api/calendario/tarefas?${params}`, { signal: controller.signal });
+      if (id === taskRequest.current.id && !controller.signal.aborted) setTarefas(data);
     } catch (error) {
-      notify(errorMessage(error), "erro");
+      if (id === taskRequest.current.id && !controller.signal.aborted) notify(errorMessage(error), "erro");
     } finally {
-      setCarregando(false);
+      if (id === taskRequest.current.id && !controller.signal.aborted) { setCarregando(false); setCarregadoInicial(true); }
     }
   }, [diasDoCalendario, notify]);
 
   useEffect(() => {
     void carregarTarefas();
+    const request = taskRequest.current;
+    return () => { request.controller?.abort(); };
   }, [carregarTarefas]);
 
   useEffect(() => {
@@ -309,7 +321,7 @@ export function CalendarPage() {
       const estavaEditando = Boolean(tarefaEditando);
       let tarefaSalva: TarefaCalendario;
       if (tarefaEditando) {
-        tarefaSalva = await api.put<TarefaCalendario>(`/api/calendario/tarefas/${tarefaEditando.id}`, payload);
+        tarefaSalva = await api.put<TarefaCalendario>(`/api/calendario/tarefas/${tarefaEditando.id}`, { ...payload, versao: form.versao ?? tarefaEditando.versao });
       } else {
         tarefaSalva = await api.post<TarefaCalendario>("/api/calendario/tarefas", payload);
       }
@@ -476,7 +488,7 @@ export function CalendarPage() {
     setTarefaMovendoId(id);
     setTarefas((atuais) => atuais.map((item) => item.id === id ? otimista : item));
     try {
-      const atualizada = await api.patch<TarefaCalendario>(`/api/calendario/tarefas/${id}/data`, novasDatas);
+      const atualizada = await api.patch<TarefaCalendario>(`/api/calendario/tarefas/${id}/data`, { ...novasDatas, versao: tarefas.find(t => t.id === id)?.versao });
       setTarefas((atuais) => atuais.map((item) => item.id === id ? atualizada : item));
       setTarefaEditando((atual) => atual?.id === id ? atualizada : atual);
       if (tarefaEditando?.id === id) void carregarHistorico(id);
@@ -498,7 +510,7 @@ export function CalendarPage() {
     setTarefaStatusId(tarefa.id);
     setTarefas((atuais) => atuais.map((item) => item.id === tarefa.id ? otimista : item));
     try {
-      const atualizada = await api.patch<TarefaCalendario>(`/api/calendario/tarefas/${tarefa.id}/status`, { status: novoStatus });
+      const atualizada = await api.patch<TarefaCalendario>(`/api/calendario/tarefas/${tarefa.id}/status`, { status: novoStatus, versao: tarefa.versao });
       setTarefas((atuais) => atuais.map((item) => item.id === tarefa.id ? atualizada : item));
       setTarefaEditando((atual) => atual?.id === tarefa.id ? atualizada : atual);
       notify(novoStatus === "CONCLUIDA" ? "Tarefa concluída" : "Tarefa reaberta");
@@ -537,7 +549,7 @@ export function CalendarPage() {
   const concluidas = tarefasVisiveis.filter((tarefa) => tarefa.status === "CONCLUIDA").length;
   const vinculadas = new Set(tarefasVisiveis.flatMap((tarefa) => tarefa.pessoas.map((pessoa) => pessoa.id))).size;
 
-  if (carregando) return <Spinner label="Organizando o calendário" />;
+  if (carregando && !carregadoInicial) return <Spinner label="Organizando o calendário" />;
 
   return (
     <div>
@@ -547,6 +559,8 @@ export function CalendarPage() {
         description="Agende tarefas, organize prioridades e mantenha as pessoas relacionadas no contexto de cada compromisso."
         action={<Button type="button" onClick={() => abrirNova()}><Plus className="size-4" /> Nova tarefa</Button>}
       />
+
+      {carregando && <p role="status" className="mb-3 text-sm text-teal-800">Atualizando tarefas…</p>}
 
       <section className="mb-6 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
         <Resumo icon={<Clock3 />} valor={pendentes} rotulo="tarefas pendentes no mês" />
@@ -809,6 +823,7 @@ export function CalendarPage() {
             {form.pessoasIds.length > 0 && <p className="mt-2 text-xs font-medium text-teal-700">{form.pessoasIds.length} pessoa(s) vinculada(s)</p>}
           </fieldset>
 
+          {tarefaEditando && <EditHistory tipo="tarefa" id={tarefaEditando.id} />}
           {tarefaEditando && (
             <details className="rounded-2xl border border-slate-200 bg-slate-50">
               <summary className="flex cursor-pointer list-none items-center gap-2 px-4 py-3 text-sm font-semibold text-slate-700"><History className="size-4 text-teal-700" /> Histórico da tarefa <span className="chip ml-auto">{historico.length}</span></summary>
@@ -818,6 +833,7 @@ export function CalendarPage() {
             </details>
           )}
 
+          {tarefaEditando?.lembrete_minutos !== null && tarefaEditando && tarefaEditando.status !== "CONCLUIDA" && <Button type="button" variant="secondary" onClick={async () => { try { await api.post(`/api/preferencias/lembretes/${tarefaEditando.id}/adiar`, { minutos: 15, versao: form.versao ?? tarefaEditando.versao }); notify("Lembrete adiado por 15 minutos"); } catch (e) { notify(errorMessage(e), "erro"); } }}>Adiar lembrete por 15 minutos</Button>}
           <div className="flex flex-col-reverse gap-3 border-t border-slate-100 pt-5 sm:flex-row sm:items-center sm:justify-between">
             <div>{tarefaEditando && <Button type="button" variant="danger" disabled={salvando} onClick={() => void excluir()}><Trash2 className="size-4" /> Excluir tarefa</Button>}</div>
             <div className="flex justify-end gap-2">
@@ -908,6 +924,7 @@ function formularioDaTarefa(tarefa: TarefaCalendario): TarefaFormState {
   const inicio = new Date(tarefa.inicio_em);
   const fim = tarefa.fim_em ? new Date(tarefa.fim_em) : null;
   return {
+    versao: tarefa.versao,
     titulo: tarefa.titulo,
     descricao: tarefa.descricao || "",
     data: tarefa.dia_inteiro ? tarefa.inicio_em.slice(0, 10) : chaveData(inicio),

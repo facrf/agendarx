@@ -37,8 +37,10 @@ Pessoas também aceitam `risco_justificativa` (até 5000 caracteres) e
 autor e valores anteriores/novos. Ambas exigem uma sessão autenticada.
 
 Uploads respeitam `MAX_UPLOAD_BYTES` (padrão: 26.214.400 bytes / 25 MiB).
-Os limites HTTP e dos extratores são alinhados, com 1 MiB adicional para o
-envelope multipart. O limite individual continua validado em cada handler.
+Os limites HTTP e dos extratores são alinhados, com 64 KiB adicionais para o
+envelope multipart. A leitura incremental interrompe o arquivo ao exceder o teto,
+antes de acumular todo o conteúdo. Ícones têm limite próprio de 2 MiB; o login
+aceita até 16 KiB. Restauração mantém seu limite independente.
 Um proxy reverso também precisa aceitar esse tamanho de requisição.
 Fotos e anexos usam `Cache-Control: private, no-store` para evitar cópias antigas
 e persistência de mídia privada no cache do navegador.
@@ -73,7 +75,9 @@ e persistência de mídia privada no cache do navegador.
 | Identidade | `GET /api/identidade/icone` | Ícone público usado pela interface e favicon |
 | Identidade | `GET /api/configuracoes/identidade` | Estado da identidade visual |
 | Identidade | `PUT, DELETE /api/configuracoes/icone` | Trocar/restaurar ícone em bytes brutos |
-| Intercâmbio | `POST /api/configuracoes/contatos/importar` | Importar CSV ou vCard no campo multipart `arquivo` |
+| Intercâmbio | `POST /api/configuracoes/contatos/importar` ou `/contatos/importar/previa` | Preparar prévia CSV/vCard; não grava pessoas |
+| Intercâmbio | `POST /api/configuracoes/contatos/importacoes/{token}/confirmar` | Aplicar decisões por registro |
+| Intercâmbio | `DELETE /api/configuracoes/contatos/importacoes/{token}` | Descartar prévia |
 | Intercâmbio | `GET /api/configuracoes/contatos/exportar/{formato}` | Exportar toda a agenda em `csv` ou `vcf` |
 | Pessoas | `GET, POST /api/pessoas` | Listar/pesquisar (`?busca=`) e criar pessoas |
 | Pessoas | `GET, PUT, DELETE /api/pessoas/{id}` | Consultar/editar e mover pessoa para a lixeira |
@@ -116,7 +120,10 @@ e persistência de mídia privada no cache do navegador.
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
-| OSINT | `POST /api/osint/varrer/{pessoa_id}` | Executar busca e arquivamento |
+| OSINT | `POST /api/osint/varrer/{pessoa_id}` | Enfileirar pesquisa; 202 com trabalho e progresso |
+| OSINT | `GET /api/osint/trabalhos/pessoa/{pessoa_id}` | Últimos dez trabalhos da conta para esta pessoa |
+| OSINT | `POST /api/osint/trabalhos/{id}/cancelar` | Cancelar trabalho da própria conta; 204 |
+| OSINT | `POST /api/osint/trabalhos/{id}/retomar` | Retomar trabalho interrompido, cancelado ou com erro; 204 |
 | OSINT | `GET /api/osint/historico/{pessoa_id}` | Pesquisar e paginar a linha do tempo de achados |
 | OSINT | `DELETE /api/osint/historico/item/{id}` | Remover um achado da linha do tempo; o PDF do dossiê é preservado |
 
@@ -371,3 +378,120 @@ retornam 400; acesso não administrativo à auditoria retorna 403.
 
 Rascunhos são locais ao navegador e não acrescentam rotas à API. Consulte
 [uso do painel, busca e rascunhos](PRODUTIVIDADE.md) para os detalhes da interface.
+
+## Prévia de importação e confirmação
+
+Selecionar um arquivo apenas prepara a prévia. Tanto `/contatos/importar` quanto
+`/contatos/importar/previa` exigem administrador e retornam `token`, `expira_em`
+(timestamp Unix), `registros`, `registros_ignorados` e `avisos`. Cada registro tem
+`indice` (base zero), `contato` (`nome`, `categoria`, `campos`), `coincidencias`
+(`pessoa_id`, `nome`), `repetidos_no_arquivo` e `acao_sugerida`. A comparação usa
+email sem diferença de maiúsculas e telefone sem formatação; números brasileiros
+com DDI 55 são comparados à forma nacional. Registros com coincidências começam
+em **ignorar**. Há uma prévia por conta, válida por 30 minutos.
+
+Confirme enviando uma decisão para cada registro:
+
+```json
+{"decisoes":[{"indice":0,"acao":"atualizar","pessoa_id":12},{"indice":1,"acao":"criar"},{"indice":2,"acao":"ignorar"}]}
+```
+
+Atualizar só permite uma pessoa indicada nas coincidências, acrescenta meios ainda
+não cadastrados e preenche categoria vazia; preserva nome, descrição, foto e os
+contatos existentes. Criar sempre insere uma pessoa, inclusive quando a decisão
+explícita for criar uma coincidência. A operação é transacional e revalida as
+coincidências; mudanças que invalidem a prévia retornam 409. O token é consumido
+apenas após sucesso. A resposta informa pessoas criadas/atualizadas, meios
+acrescentados, registros ignorados e avisos. A rota antiga **não importa mais
+imediatamente**; clientes devem confirmar a prévia.
+
+## Trabalhos de pesquisa pública
+
+`POST /api/osint/varrer/{pessoa_id}` retorna imediatamente 202 com `id`, `pessoa_id`,
+`estado`, `total`, `processados`, `resultado`, `erro`, `criado_em` e `atualizado_em`.
+As consultas são uma cópia dos parâmetros ativos no momento da criação.
+Estados: `fila`, `executando`, `concluido`, `cancelado`, `interrompido` e `erro`.
+Um worker processa uma pesquisa por vez; a fila aceita até 100 pesquisas no total
+ou 20 por conta, e só uma pesquisa ativa por pessoa/conta.
+
+O progresso é persistido após cada parâmetro. Cancelar mantém os achados já
+arquivados; retomar continua do último parâmetro concluído, repetindo se necessário
+um parâmetro parcial e deduplicando por URL. Por isso, as métricas de um parâmetro
+interrompido antes do checkpoint podem não incluir achados já gravados. Reiniciar
+interrompe trabalhos em execução; restaurar backup interrompe também a fila e
+invalida tentativas e prévias de importação anteriores. A retomada é explícita.
+As rotas antigas de varredura **não retornam mais um resumo síncrono**; consulte o
+trabalho para acompanhar e obter `resultado` após a conclusão.
+
+## Login e reconhecimento de lembretes
+
+O login aceita dez tentativas por nome de usuário em uma janela de 60 segundos,
+com teto global de 120 tentativas por processo e quatro verificações de senha
+simultâneas. Rejeições retornam 429 com `Retry-After` em segundos. As tentativas
+incluem sucessos. O controle é local ao processo e reinicia com o serviço.
+Usuários inexistentes também passam por Argon2. A emissão da sessão revalida
+atomicamente as credenciais, e a troca de senha/login revoga as sessões na mesma
+transação. Corpo acima de 16 KiB retorna 413.
+
+Para dispensar um lembrete sem suprimir um reagendamento concorrente, envie
+`inicio_em`, `lembrete_minutos` e `data_atualizacao` recebidos na listagem. Uma
+versão diferente retorna 409. O corpo continua opcional para clientes antigos.
+
+
+## Versões de edição e histórico
+
+Pessoas, vínculos, tarefas e tarefas resumidas do painel retornam `versao`, inteiro
+monotônico. Envie `If-Match: 12` (ou `If-Match: "12"`) ao atualizar o cadastro,
+contato, vínculo, tarefa, data ou status. O frontend envia a versão que acompanhou
+os dados carregados. A comparação e a escrita ocorrem na mesma transação
+`BEGIN IMMEDIATE`; versão divergente retorna 409 sem gravar a edição ou revisão.
+Cabeçalho inválido retorna 400. Clientes legados sem `If-Match` continuam aceitos,
+mas devem adotar o cabeçalho para receber proteção contra sobrescrita concorrente.
+
+| Método | Rota | Comportamento |
+| --- | --- | --- |
+| GET | `/api/revisoes/{tipo}/{id}` | `{versao,itens}` com até 100 revisões recentes |
+| POST | `/api/revisoes/{tipo}/{id}/{revisao}/restaurar` | Corpo `{versao}`; preserva estado atual e aplica a revisão |
+
+`tipo` aceita `pessoa`, `vinculo` e `tarefa`. Revisões incluem `id`, `autor_login`,
+`versao_anterior`, `anterior_json` e `criado_em`. O JSON anterior contém os campos
+do cadastro e suas associações editáveis. Arquivos e fotos não são restaurados.
+Tarefas só são acessíveis pela conta proprietária, inclusive no histórico.
+Referências a pessoas removidas ou mescladas e revisões anteriores à mesclagem
+retornam 409 ao restaurar. Registros e revisões inexistentes retornam 404.
+
+## Mesclagem (administrador)
+
+- `GET /api/mesclagem/previa?origem=1&destino=2`: retorna snapshots dos cadastros,
+  `versao_origem`, `versao_destino` e contagens de anexos/vínculos na origem.
+- `POST /api/mesclagem/confirmar`: corpo
+  `{origem,destino,versao_origem,versao_destino,usar_origem:["nome"]}`.
+  `usar_origem` aceita `nome`, `descricao`, `categoria_id`, `pessoa_juridica`,
+  `foto_principal` e `risco`. Campos não escolhidos preservam o destino.
+- Sucesso retorna `{pessoa_id}`. A transação revalida ambas as versões e transfere
+  associações, arquivando vínculos colapsados e dados anteriores no dossiê.
+  Versão alterada retorna 409; pessoa ausente ou inativa retorna 404; conta sem
+  perfil administrador retorna 403. A mesma origem não pode ser confirmada novamente.
+
+## Preferências e adiamento
+
+- `GET /api/preferencias/lembretes`: preferências da conta autenticada.
+- `PUT /api/preferencias/lembretes`: `{silencioso_inicio:"22:00",silencioso_fim:"07:00"}`;
+  dois valores nulos desativam. Exige HH:MM, ambos informados e distintos.
+  Horário silencioso é aplicado pelo observador do frontend no relógio local.
+- `POST /api/preferencias/lembretes/{id}/adiar`: `{minutos:15,versao:12}`;
+  aceita 5, 15, 30, 60 ou 1440 e retorna `{adiado_ate}`. Verifica propriedade e
+  versão da tarefa; o resultado fica persistido e filtra a listagem de lembretes.
+- Tarefas retornam `lembrete_adiado_ate`. O reconhecimento de lembrete deve incluir
+  também `versao` e esse valor (ou null) junto com início, antecedência e atualização; assim,
+  um reconhecimento anterior ao adiamento recebe 409 e não o suprime.
+
+## Saúde (administrador)
+
+- `GET /api/saude`: `{armazenamento,backup,pesquisas_por_estado,falhas_pesquisa}`.
+  `backup` inclui `ultimo_validado` e `configuracao`; estados são pares
+  `[estado,quantidade]` e falhas recentes são `[id,pessoa_id,nome,erro,atualizado_em]`.
+- `POST /api/saude/backup/verificar`: verifica o backup mais recente e retorna
+  `{id,integridade_ok,erro,verificado_em}`; atualiza a validade no catálogo.
+  Sem backup retorna 404; operação de backup concorrente retorna 409.
+  Ambas as rotas retornam 403 para contas sem perfil administrador.

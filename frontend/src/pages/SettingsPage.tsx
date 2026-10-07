@@ -1,3 +1,6 @@
+import { SystemHealth } from "../components/SystemHealth";
+import { ReminderPreferences } from "../components/ReminderPreferences";
+import { ContactMerge } from "../components/ContactMerge";
 /* Developed with care by FACRF - https://github.com/facrf */
 import { PsychosocialSettings } from "../components/PsychosocialSettings";
 import {
@@ -53,7 +56,10 @@ export function SettingsPage() {
         {admin && <BrandingManager />}
         <AdminCredentialsManager />
         <TaskNotificationManager />
+        <ReminderPreferences />
         {admin && <UserManager />}
+        {admin && <SystemHealth />}
+        {admin && <ContactMerge />}
         {admin && <StorageDiagnostics />}
         {admin && <BackupManager />}
         {admin && <TrashAndAuditManager />}

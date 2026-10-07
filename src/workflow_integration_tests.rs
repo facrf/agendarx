@@ -6,7 +6,7 @@ use chrono::{Duration, SecondsFormat, Utc};
 use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 
-async fn fixture() -> (TestApi, sqlx::SqlitePool, String, String, i64, i64) {
+pub(crate) async fn fixture() -> (TestApi, sqlx::SqlitePool, String, String, i64, i64) {
     let mut config = Config::from_env().unwrap();
     config.database_url = "sqlite::memory:".into();
     config.admin_login = Some("admin-fluxos".into());
@@ -17,6 +17,7 @@ async fn fixture() -> (TestApi, sqlx::SqlitePool, String, String, i64, i64) {
     let app = construir_app(AppState {
         pool: pool.clone(),
         config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
         backup_runtime: BackupRuntime::default(),
     });
     let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });

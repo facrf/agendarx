@@ -1,0 +1,26 @@
+/* Developed with care by FACRF - https://github.com/facrf */
+import { useEffect, useState } from "react";
+import { api, apiUrl, errorMessage } from "../services/api";
+import type { PessoaResumo } from "../types/api";
+import { Button } from "./ui";
+interface Snapshot {nome:string;descricao:string|null;categoria_nome:string|null;pessoa_juridica:boolean;tem_foto:boolean;classificacao_risco:string;toxicidade:number}
+interface Preview { origem: Snapshot; destino: Snapshot; versao_origem:number;versao_destino:number;anexos:number;vinculos:number }
+function value(p:Snapshot,key:string){switch(key){case "nome":return p.nome;case "descricao":return p.descricao||"vazia";case "categoria_id":return p.categoria_nome||"sem categoria";case "pessoa_juridica":return p.pessoa_juridica?"Jurídica":"Física";case "foto_principal":return p.tem_foto?"Foto disponível acima":"Sem foto";default:return `${p.classificacao_risco} · ${p.toxicidade}`}}
+const fields=[['nome','Nome'],['descricao','Descrição'],['categoria_id','Categoria'],['pessoa_juridica','Pessoa física/jurídica'],['foto_principal','Foto principal'],['risco','Avaliação de risco']] as const;
+export function ContactMerge() {
+ const [people,setPeople]=useState<PessoaResumo[]>([]);const [source,setSource]=useState("");const [target,setTarget]=useState("");const [preview,setPreview]=useState<Preview>();const [selected,setSelected]=useState<string[]>([]);const [busy,setBusy]=useState(false);const [message,setMessage]=useState("");
+ const load=()=>api.get<PessoaResumo[]>("/api/pessoas").then(setPeople).catch(e=>setMessage(errorMessage(e)));
+ useEffect(()=>{void load();},[]);
+ const change=(side:"source"|"target",value:string)=>{if(side==="source")setSource(value);else setTarget(value);setPreview(undefined);setSelected([])};
+ return <section className="panel p-5"><h2 className="font-display text-xl font-semibold">Mesclar contatos duplicados</h2><p className="my-3 text-sm">A pessoa de origem será reunida ao destino. Contatos, arquivos, etiquetas, favoritos, tarefas e vínculos serão transferidos. Esta operação não pode ser desfeita pelo histórico de edições.</p>
+ <label className="field-label" htmlFor="merge-source">Pessoa de origem</label><select id="merge-source" className="field" disabled={busy} value={source} onChange={e=>change("source",e.target.value)}><option value="">Selecione</option>{people.map(p=><option key={p.id} value={p.id}>{p.nome} (#{p.id})</option>)}</select>
+ <label className="field-label mt-3" htmlFor="merge-target">Pessoa de destino</label><select id="merge-target" className="field" disabled={busy} value={target} onChange={e=>change("target",e.target.value)}><option value="">Selecione</option>{people.filter(p=>String(p.id)!==source).map(p=><option key={p.id} value={p.id}>{p.nome} (#{p.id})</option>)}</select>
+ <Button className="mt-3" variant="secondary" disabled={busy||!source||!target||source===target} onClick={async()=>{setBusy(true);setMessage("");try{setPreview(await api.get<Preview>(`/api/mesclagem/previa?origem=${source}&destino=${target}`));}catch(e){setMessage(errorMessage(e))}finally{setBusy(false)}}}>Revisar mesclagem</Button>
+ {preview&&<div className="mt-4 rounded-xl border p-3"><p className="font-semibold">{preview.origem.nome} → {preview.destino.nome}</p><p className="text-sm">{preview.anexos} arquivos e {preview.vinculos} vínculos na origem. Vínculos repetidos ou consigo mesmo serão arquivados no dossiê do destino, com seus arquivos e notas. As duas fotos serão preservadas como anexos.</p><p className="my-2 text-sm">Por padrão, os campos abaixo mantêm os dados do destino. Marque os que devem usar o valor da origem.</p>
+ <div className="my-3 flex gap-4">{preview.origem.tem_foto&&<figure><img className="size-24 rounded-lg object-cover" src={apiUrl(`/api/dossie/pessoas/${source}/foto`)} alt="Foto da origem"/><figcaption>Origem</figcaption></figure>}{preview.destino.tem_foto&&<figure><img className="size-24 rounded-lg object-cover" src={apiUrl(`/api/dossie/pessoas/${target}/foto`)} alt="Foto do destino"/><figcaption>Destino</figcaption></figure>}</div>
+ {fields.map(([key,label])=><label key={key} className="my-2 flex gap-2"><input type="checkbox" disabled={busy} checked={selected.includes(key)} onChange={e=>setSelected(s=>e.target.checked?[...s,key]:s.filter(f=>f!==key))}/><span>Usar {label.toLowerCase()} da origem<span className="block whitespace-pre-wrap text-xs text-slate-600">Origem: {value(preview.origem,key)}<br/>Destino: {value(preview.destino,key)}</span></span></label>)}
+ <p className="whitespace-pre-wrap text-sm">Descrição da origem: {preview.origem.descricao||"vazia"}<br/>Descrição do destino: {preview.destino.descricao||"vazia"}</p>
+ <Button className="mt-3" loading={busy} onClick={async()=>{if(!window.confirm(`Confirmar a mesclagem de ${preview.origem.nome} em ${preview.destino.nome}?`))return;setBusy(true);try{await api.post("/api/mesclagem/confirmar",{origem:Number(source),destino:Number(target),versao_origem:preview.versao_origem,versao_destino:preview.versao_destino,usar_origem:selected});setPreview(undefined);setSource("");setTarget("");await load();setMessage("Contatos mesclados com sucesso");}catch(e){setMessage(errorMessage(e))}finally{setBusy(false)}}}>Confirmar mesclagem</Button></div>}
+ {message&&<p role="status" className="mt-3">{message}</p>}
+ </section>;
+}

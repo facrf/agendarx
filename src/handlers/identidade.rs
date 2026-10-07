@@ -15,7 +15,12 @@ const ICONE_PADRAO: &str = r##"<svg xmlns="http://www.w3.org/2000/svg" viewBox="
 pub fn rotas_protegidas() -> Router<AppState> {
     Router::new()
         .route("/identidade", get(obter_identidade))
-        .route("/icone", put(atualizar_icone).delete(excluir_icone))
+        .route(
+            "/icone",
+            put(atualizar_icone)
+                .delete(excluir_icone)
+                .layer(axum::extract::DefaultBodyLimit::max(MAX_ICON_BYTES)),
+        )
 }
 
 pub fn rotas_publicas() -> Router<AppState> {

@@ -67,15 +67,16 @@ export function PersonFormPage() {
   const [erroCarregamento, setErroCarregamento] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [progressoFoto, setProgressoFoto] = useState<number | null>(null);
+  const [versao, setVersao] = useState<number | undefined>();
   const [pessoaSalvaId, setPessoaSalvaId] = useState<number | null>(null);
 
   const formDraft = useFormDraft({
     name: `pessoa:${pessoaId ?? "nova"}`, enabled: !carregando && !carregandoEtiquetas && !erroCarregamento,
     meaningful: Boolean(nome.trim() || descricao.trim() || contatos.length),
-    value: { nome, descricao, pessoaJuridica, classificacaoRisco, toxicidade, riscoJustificativa, riscoRevisadoEm, categoriaId, contatos, etiquetasIds, removerFoto, pessoaSalvaId, agenda: agenda.draft },
+    value: { versao, nome, descricao, pessoaJuridica, classificacaoRisco, toxicidade, riscoJustificativa, riscoRevisadoEm, categoriaId, contatos, etiquetasIds, removerFoto, pessoaSalvaId, agenda: agenda.draft },
     validate: item => item.contatos.every(c => typeof c.tipo_contato_id === "number" && typeof c.valor === "string") && item.etiquetasIds.every(id => typeof id === "number"),
     restore: item => {
-      setNome(item.nome); setDescricao(item.descricao); setPessoaJuridica(item.pessoaJuridica);
+      setVersao(item.versao); setNome(item.nome); setDescricao(item.descricao); setPessoaJuridica(item.pessoaJuridica);
       setClassificacaoRisco(item.classificacaoRisco); setToxicidade(item.toxicidade);
       setRiscoJustificativa(item.riscoJustificativa); setRiscoRevisadoEm(item.riscoRevisadoEm);
       setCategoriaId(item.categoriaId); setContatos(item.contatos); setEtiquetasIds(item.etiquetasIds);
@@ -99,6 +100,7 @@ export function PersonFormPage() {
         setCategorias(categoriasData);
         setTipos(tiposData);
         if (pessoa) {
+          setVersao(pessoa.versao);
           setNome(pessoa.nome);
           setDescricao(pessoa.descricao || "");
           setPessoaJuridica(pessoa.pessoa_juridica);
@@ -203,9 +205,11 @@ export function PersonFormPage() {
         });
         destinoId = criada.id;
         setPessoaSalvaId(criada.id);
+        setVersao(criada.versao);
         setContatos(criada.contatos.map((contato) => ({ ...contato })));
       } else {
         const atualizada = await api.put<PessoaDetalhe>(`/api/pessoas/${destinoId}`, {
+          versao,
           nome: nome.trim(),
           categoria_id: categoriaId,
           descricao: descricao.trim() || null,
@@ -216,6 +220,7 @@ export function PersonFormPage() {
           risco_revisado_em: riscoRevisadoEm,
           contatos: contatos.map(({ id, tipo_contato_id, valor }) => ({ id, tipo_contato_id, valor: valor.trim() })),
         });
+        setVersao(atualizada.versao);
         setContatos(atualizada.contatos.map((contato) => ({ ...contato })));
       }
 

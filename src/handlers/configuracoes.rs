@@ -115,7 +115,7 @@ async fn criar_usuario(
     Ok((StatusCode::CREATED, Json(usuario)))
 }
 
-async fn obter_diagnostico_armazenamento(
+pub(super) async fn obter_diagnostico_armazenamento(
     State(state): State<AppState>,
 ) -> Result<Json<DiagnosticoArmazenamentoResponse>, AppError> {
     let (dossie_bytes, dossie_total): (i64, i64) =

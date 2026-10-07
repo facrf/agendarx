@@ -13,6 +13,9 @@ export class ApiError extends Error {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
+  if ((options.method === "PUT" || options.method === "PATCH") && typeof options.body === "string") {
+    try { const data = JSON.parse(options.body); if (typeof data?.versao === "number") headers.set("if-match", String(data.versao)); } catch { /* Non-JSON uploads do not carry a record version. */ }
+  }
   if (options.body && !(options.body instanceof FormData) && !headers.has("content-type")) {
     headers.set("content-type", "application/json");
   }
@@ -37,13 +40,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
     throw new ApiError(response.status, message);
   }
 
+  const revision = path.match(/^\/api\/revisoes\/(pessoa|vinculo|tarefa)\/(\d+)\/\d+\/restaurar$/);
+  const updatedPath = revision ? `/api/${revision[1] === "pessoa" ? "pessoas" : revision[1] === "vinculo" ? "vinculos" : "calendario/tarefas"}/${revision[2]}` : path;
   const data = response.status === 204 ? undefined : await response.json();
   if (options.method && !["GET", "HEAD"].includes(options.method)) {
     clearApiCache();
-    window.dispatchEvent(new CustomEvent("agendarx:data-updated", { detail: { path, method: options.method } }));
+    window.dispatchEvent(new CustomEvent("agendarx:data-updated", { detail: { path: updatedPath, method: options.method } }));
   }
   if (options.method && !["GET", "HEAD"].includes(options.method)
-    && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(path) || /^\/api\/vinculos\/lixeira\/\d+(\/restaurar)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
+    && (/^\/api\/(pessoas|vinculos)(\/\d+)?$/.test(updatedPath) || path === "/api/mesclagem/confirmar" || /^\/api\/vinculos\/lixeira\/\d+(\/restaurar)?$/.test(path) || path === "/api/configuracoes/hp-psicossocial" || /^\/api\/produtividade\/lixeira\/\d+(\/restaurar)?$/.test(path))) {
     window.dispatchEvent(new Event("agendarx:psychosocial-updated"));
     try { localStorage.setItem("agendarx:psychosocial-update", `${Date.now()}:${Math.random()}`); } catch { /* A atualização da aba atual permanece disponível. */ }
   }

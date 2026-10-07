@@ -63,7 +63,10 @@ o processo.
 
 ## Autenticação
 
-Senhas são derivadas com Argon2. No login, a aplicação cria um JWT e uma sessão no
+Senhas são derivadas com Argon2. Login tem limite de corpo, tentativas por conta
+e por processo e concorrência de derivação. Contas inexistentes usam hash fictício
+com o mesmo custo. Inserção de sessão e atualização de credenciais conferem
+atomicamente o hash/login esperado para impedir corridas com troca de senha. No login, a aplicação cria um JWT e uma sessão no
 SQLite. O cliente recebe um cookie `HttpOnly` com `SameSite=Strict`; clientes de API
 também podem usar `Authorization: Bearer`. O logout remove a sessão persistida e
 revoga o token antes da expiração. A troca de login ou senha exige a senha atual,
@@ -75,7 +78,8 @@ do ícone público usado pela marca e pelo favicon.
 
 ## Arquivos e mídia
 
-Uploads respeitam `MAX_UPLOAD_BYTES`; anexos de tarefas também respeitam cotas por
+Uploads usam leitura incremental com teto por arquivo e limite HTTP sem depender
+da cota acumulada do usuário. Uploads respeitam `MAX_UPLOAD_BYTES`; anexos de tarefas também respeitam cotas por
 tarefa e por usuário. A API detecta o tipo do conteúdo, armazena o BLOB e
 disponibiliza streaming inline ou download. O streaming aceita um intervalo
 HTTP `Range`, permitindo reprodução de áudio e vídeo e visualização de mídia pelo
@@ -100,8 +104,10 @@ vazios e que Chromium ou Firefox abram o arquivo em outra aba no Linux.
 
 Recorrências diárias, semanais e mensais são expandidas dentro da transação de
 criação. A primeira ocorrência conserva o status informado e as posteriores começam
-pendentes. Os lembretes são consultados pelo cliente autenticado a cada minuto e
-dispensados depois da exibição. O aviso interno funciona enquanto a aplicação está
+pendentes. Os lembretes vencidos são filtrados no SQL antes da paginação, consultados pelo
+cliente autenticado a cada minuto e dispensados depois da exibição. O reconhecimento
+inclui a versão do evento; falhas são repetidas sem duplicar o aviso exibido.
+A deduplicação é local à conta e inclui início, configuração e atualização. O aviso interno funciona enquanto a aplicação está
 aberta; a notificação do sistema é opcional e exige permissão do navegador nas
 configurações. Não há push em segundo plano com a aplicação fechada.
 
@@ -179,3 +185,51 @@ lista de vínculos do snapshot e agrupa notificações de atualização.
 formulário e data. A recuperação exige ação do usuário; arquivos permanecem no
 fluxo de upload existente. A API de posições mantém a organização por conta e
 layout, sem substituir automaticamente a organização inicial do grafo.
+
+## Importação revisável e fila de pesquisas
+
+As migrações 22 e 23 acrescentam prévias de importação e trabalhos de pesquisa.
+Prévias pertencem a uma conta e expiram em 30 minutos. A confirmação revalida as
+coincidências por email/telefone e aplica todas as decisões em `BEGIN IMMEDIATE`.
+Atualizar mantém os dados existentes e acrescenta contatos ausentes.
+
+Um worker OSINT único acompanha trabalhos persistidos, com snapshot dos parâmetros,
+checkpoint por parâmetro e token por tentativa. Cancelamento e retomada invalidam
+tokens anteriores. As consultas de rede ocorrem fora do bloqueio de manutenção;
+cada gravação valida estado, token e geração do banco sob leitura do mesmo bloqueio
+usado na restauração. O restore incrementa a geração sob exclusão mútua, interrompe
+trabalhos e descarta prévias. Respostas de rede antigas não podem repopular o banco.
+A retomada pode repetir o parâmetro parcial; a deduplicação por URL preserva arquivos.
+
+Os modais compartilhados mantêm uma pilha, bloqueiam rolagem enquanto houver um
+modal, tornam as camadas inferiores inertes e gerenciam foco inicial, Tab/Shift+Tab,
+Escape e retorno ao acionador. O calendário mantém a interface disponível durante
+atualização e cancela requisições de meses anteriores, ignorando respostas obsoletas.
+
+A CI e as publicações usam o workflow reutilizável `quality.yml`: formatação,
+Clippy, testes Rust, lint, build e regressões de navegador. A publicação manual de
+imagens dos pacotes também exige esses testes na tag escolhida.
+
+
+## Revisões, mesclagem e preferências
+
+A migração 24 acrescenta versões monotônicas a pessoas, vínculos e tarefas,
+revisões de edição, marcadores de mesclagem e preferências de lembretes. Triggers
+invalidam versões ao alterar campos ou contatos e associações de tarefas. O
+cabeçalho `If-Match` é comparado sob `BEGIN IMMEDIATE`, junto à gravação do snapshot
+anterior. Restaurar cria uma nova revisão, valida referências e mantém arquivos.
+Histórico de tarefa reaproveita a verificação de propriedade do recurso.
+
+A mesclagem revalida duas versões sob uma única transação. Os registros anteriores
+ficam no relatório do dossiê e em `mesclagem_registro`; a origem é arquivada e o
+destino mantém um limite de revisões restauráveis. Vínculos colapsados viram
+arquivos e notas no dossiê. Trabalhos ativos são interrompidos no mesmo commit.
+
+O adiamento usa `lembrete_adiado_ate`, separado da versão de edição. O observador
+consulta preferências por conta a cada ciclo, aplica o intervalo no horário local
+e inclui o adiamento na chave da notificação e no reconhecimento. Isso evita que
+um reconhecimento em voo dispense um aviso recém-adiado.
+
+O painel de saúde exige perfil administrador e reúne dados locais. A verificação
+de backup usa a exclusão mútua das operações de backup e valida checksum/integridade
+em `spawn_blocking`, sem carregar o arquivo inteiro em memória.

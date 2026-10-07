@@ -55,6 +55,12 @@ const PROVIDERS: Array<{
   { valor: "OPENALEX", rotulo: "OpenAlex", descricao: "Literatura e citações acadêmicas." },
 ];
 
+interface TrabalhoPesquisa {
+  id: string; pessoa_id: number; estado: "fila" | "executando" | "concluido" | "cancelado" | "interrompido" | "erro";
+  total: number; processados: number; resultado: VarreduraPublicaResponse; erro: string | null;
+}
+const rotulosTrabalho = { fila: "Na fila", executando: "Consultando fontes", concluido: "Concluída", cancelado: "Cancelada", interrompido: "Interrompida", erro: "Falhou" };
+
 type QuantidadePorPagina = 0 | 10 | 50 | 100;
 
 function providerLabel(provider: FontePesquisaPublica): string {
@@ -77,6 +83,9 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
   const [carregando, setCarregando] = useState(true);
   const [carregandoHistorico, setCarregandoHistorico] = useState(true);
   const [salvando, setSalvando] = useState(false);
+  const [trabalhos, setTrabalhos] = useState<TrabalhoPesquisa[]>([]);
+  const [erroProgresso, setErroProgresso] = useState("");
+  const concluidoAnterior = useRef("");
   const [varrendo, setVarrendo] = useState(false);
   const [resultado, setResultado] = useState<VarreduraPublicaResponse | null>(null);
   const [pdfAberto, setPdfAberto] = useState<HistoricoBuscaPublica | null>(null);
@@ -214,30 +223,46 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
     }
   };
 
+  useEffect(() => {
+    let ativo = true;
+    let timer: number;
+    const controller = new AbortController();
+    setTrabalhos([]); setResultado(null); concluidoAnterior.current = "";
+    const atualizar = async () => {
+      try {
+        const jobs = await api.get<TrabalhoPesquisa[]>(`/api/osint/trabalhos/pessoa/${pessoaId}`, { signal: controller.signal });
+        if (!ativo) return;
+        setTrabalhos(jobs); setErroProgresso("");
+        const latest = jobs[0];
+        if (latest?.estado === "concluido") {
+          setResultado(latest.resultado);
+          if (concluidoAnterior.current !== latest.id) { concluidoAnterior.current = latest.id; await carregarHistorico(); }
+        }
+      } catch (error) { if (ativo) setErroProgresso(errorMessage(error)); }
+      finally { if (ativo) timer = window.setTimeout(atualizar, 2000); }
+    };
+    void atualizar();
+    return () => { ativo = false; controller.abort(); window.clearTimeout(timer); };
+  }, [pessoaId, carregarHistorico]);
+
   const executarVarredura = async () => {
-    setVarrendo(true);
-    setResultado(null);
+    setVarrendo(true); setResultado(null);
     try {
-      const resumo = await api.post<VarreduraPublicaResponse>(
-        `/api/osint/varrer/${pessoaId}`,
-      );
-      setResultado(resumo);
-      if (pagina === 1) await carregarHistorico();
-      else setPagina(1);
-      if (resumo.situacao === "inconclusiva") {
-        notify("Varredura inconclusiva: consulte as fontes indisponíveis", "erro");
-      } else if (resumo.novos_achados > 0) {
-        notify(`${resumo.novos_achados} novo(s) achado(s) arquivado(s)`);
-      } else if (resumo.situacao === "parcial") {
-        notify("Varredura parcial concluída sem novos achados");
-      } else {
-        notify("Varredura concluída sem novos achados");
-      }
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    } finally {
-      setVarrendo(false);
-    }
+      const trabalho = await api.post<TrabalhoPesquisa>(`/api/osint/varrer/${pessoaId}`);
+      setTrabalhos(atuais => [trabalho, ...atuais.filter(j => j.id !== trabalho.id)].slice(0, 10));
+      notify("Pesquisa adicionada à fila");
+    } catch (error) { notify(errorMessage(error), "erro"); }
+    finally { setVarrendo(false); }
+  };
+  const alterarTrabalho = async (id: string, acao: "cancelar" | "retomar") => {
+    setVarrendo(true);
+    try {
+      await api.post(`/api/osint/trabalhos/${id}/${acao}`);
+      const jobs = await api.get<TrabalhoPesquisa[]>(`/api/osint/trabalhos/pessoa/${pessoaId}`);
+      setTrabalhos(jobs);
+      notify(acao === "cancelar" ? "Pesquisa cancelada; achados já arquivados foram preservados" : "Pesquisa retomada");
+    } catch (error) { notify(errorMessage(error), "erro"); }
+    finally { setVarrendo(false); }
   };
 
   const excluirAchado = async (achado: HistoricoBuscaPublica) => {
@@ -286,7 +311,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
           <Button
             type="button"
             loading={varrendo}
-            disabled={ativos === 0}
+            disabled={ativos === 0 || trabalhos.some(j => ["fila", "executando"].includes(j.estado))}
             onClick={() => void executarVarredura()}
           >
             <Radar className="size-4" />
@@ -295,6 +320,18 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
         </div>
       </section>
 
+      {erroProgresso && <p role="alert" className="rounded-xl bg-amber-50 p-3 text-sm">Não foi possível atualizar o progresso: {erroProgresso}. Tentaremos novamente.</p>}
+      {trabalhos.length > 0 && <section className="panel p-5" aria-label="Trabalhos de pesquisa">
+        <h3 className="font-semibold">Progresso das pesquisas</h3>
+        <p className="mt-1 text-sm text-slate-500">Você pode sair desta página e voltar para acompanhar. Pesquisas interrompidas podem ser retomadas.</p>
+        {trabalhos.map(job => <article key={job.id} className="mt-3 rounded-xl border p-3">
+          <p role="status">{rotulosTrabalho[job.estado]} · {job.processados} de {job.total} parâmetros</p>
+          <progress className="my-2 w-full" aria-label="Parâmetros processados" value={job.processados} max={job.total} />
+          {job.erro && <p className="mb-2 text-sm text-amber-800">{job.erro}</p>}
+          {["fila", "executando"].includes(job.estado) && <Button disabled={varrendo} variant="secondary" onClick={() => void alterarTrabalho(job.id, "cancelar")}>Cancelar pesquisa</Button>}
+          {["erro", "interrompido", "cancelado"].includes(job.estado) && <Button disabled={varrendo || trabalhos.some(j => ["fila", "executando"].includes(j.estado))} variant="secondary" onClick={() => void alterarTrabalho(job.id, "retomar")}>Retomar pesquisa</Button>}
+        </article>)}
+      </section>}
       {resultado && <ResumoVarredura resultado={resultado} />}
 
       <div className="grid gap-6 xl:grid-cols-[22rem_1fr]">

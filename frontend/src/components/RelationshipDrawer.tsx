@@ -1,3 +1,4 @@
+import { EditHistory } from "./EditHistory";
 /* Developed with care by FACRF - https://github.com/facrf */
 import { useFormDraft } from "../hooks/useFormDraft";
 import { DraftNotice } from "./DraftNotice";
@@ -65,6 +66,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
       return;
     }
     setForm({
+      versao: edge.versao,
       pessoa_origem_id: edge.source,
       pessoa_destino_id: edge.target,
       tipo_vinculo: edge.label,
@@ -102,6 +104,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
         tipo_vinculo: form.tipo_vinculo.trim(),
         descricao: form.descricao?.trim() || null,
       });
+      setForm(current => ({ ...current, versao: updated.versao }));
       const uploads = await Promise.allSettled(
         pendingFiles.map((file) => {
           const data = new FormData();
@@ -156,6 +159,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
     formDraft.clear();
     agenda.reset();
     setForm({
+      versao: edge.versao,
       pessoa_origem_id: edge.source,
       pessoa_destino_id: edge.target,
       tipo_vinculo: edge.label,
@@ -191,6 +195,7 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
         </header>
 
         <div className="flex-1 overflow-y-auto p-5 sm:p-6">
+          <EditHistory tipo="vinculo" id={edge.id} />
           {editing ? (
             <form className="space-y-5" onSubmit={save}>
               <DraftNotice draft={formDraft} />

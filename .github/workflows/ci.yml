@@ -15,51 +15,6 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  backend:
-    name: Rust
-    if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-latest
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Preparar Rust estável
-        run: |
-          rustup toolchain install stable --profile minimal --component rustfmt,clippy
-          rustup default stable
-
-      - name: Verificar formatação
-        run: cargo fmt --all -- --check
-
-      - name: Executar Clippy
-        run: cargo clippy --locked --all-targets -- -D warnings
-
-      - name: Executar testes
-        run: cargo test --locked
-
-  frontend:
-    name: React
-    if: ${{ github.server_url == 'https://github.com' }}
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: frontend
-    steps:
-      - name: Obter o código
-        uses: actions/checkout@d23441a48e516b6c34aea4fa41551a30e30af803 # v6
-
-      - name: Preparar Node.js
-        uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7
-        with:
-          node-version: 24
-          cache: npm
-          cache-dependency-path: frontend/package-lock.json
-
-      - name: Instalar dependências
-        run: npm ci
-
-      - name: Executar lint
-        run: npm run lint
-
-      - name: Compilar frontend
-        run: npm run build
+  qualidade:
+    name: Qualidade
+    uses: ./.github/workflows/quality.yml

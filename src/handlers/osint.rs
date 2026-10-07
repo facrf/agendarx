@@ -15,6 +15,8 @@ use sqlx::{QueryBuilder, Sqlite};
 use tokio::net::lookup_host;
 
 mod providers;
+mod trabalhos;
+pub use trabalhos::{iniciar_rotina, interromper_trabalhos};
 
 use providers::{PublicSearchProviders, SearchProvider};
 
@@ -48,7 +50,10 @@ pub fn rotas() -> Router<AppState> {
             "/parametros/item/{id}",
             axum::routing::put(atualizar_parametro).delete(excluir_parametro),
         )
-        .route("/varrer/{pessoa_id}", post(varrer))
+        .route("/varrer/{pessoa_id}", post(trabalhos::criar))
+        .route("/trabalhos/pessoa/{pessoa_id}", get(trabalhos::listar))
+        .route("/trabalhos/{id}/cancelar", post(trabalhos::cancelar))
+        .route("/trabalhos/{id}/retomar", post(trabalhos::retomar))
         .route("/historico/{pessoa_id}", get(listar_historico))
         .route(
             "/historico/item/{id}",
@@ -266,33 +271,14 @@ fn resposta_historico(item: HistoricoBuscaPublica) -> HistoricoBuscaResponse {
     }
 }
 
-async fn varrer(
-    State(state): State<AppState>,
-    Path(pessoa_id): Path<i64>,
-) -> Result<Json<VarreduraResponse>, AppError> {
+async fn executar_parametros(
+    state: AppState,
+    pessoa_id: i64,
+    parametros: Vec<ParametroBusca>,
+    contexto: &trabalhos::Contexto,
+    providers: &mut PublicSearchProviders,
+) -> Result<(VarreduraResponse, HashSet<String>), AppError> {
     let inicio_varredura = Instant::now();
-    garantir_pessoa(&state, pessoa_id).await?;
-    let parametros = sqlx::query_as::<_, ParametroBusca>(
-        "SELECT id, pessoa_id, tipo, valor, provider, ativo FROM parametro_busca \
-         WHERE pessoa_id = ? AND ativo = 1 ORDER BY id",
-    )
-    .bind(pessoa_id)
-    .fetch_all(&state.pool)
-    .await?;
-
-    if parametros.is_empty() {
-        return Err(AppError::BadRequest(
-            "adicione e ative ao menos um parâmetro antes da varredura".to_owned(),
-        ));
-    }
-    if parametros.len() > MAX_PARAMETROS_ATIVOS {
-        return Err(AppError::BadRequest(format!(
-            "a varredura aceita no máximo {MAX_PARAMETROS_ATIVOS} parâmetros ativos"
-        )));
-    }
-
-    let mut providers = PublicSearchProviders::new(&state.config).map_err(AppError::interno)?;
-
     let mut resposta = VarreduraResponse {
         situacao: "concluida".to_owned(),
         parametros_processados: parametros.len(),
@@ -326,7 +312,9 @@ async fn varrer(
                 continue;
             }
         };
-        let execution = providers.search(provider, &parametro).await;
+        let execution = contexto
+            .aguardar(&state, providers.search(provider, &parametro))
+            .await?;
         for source in &execution.unavailable_sources {
             fontes_indisponiveis.insert(source.clone());
         }
@@ -368,6 +356,7 @@ async fn varrer(
             if url_texto.is_empty() || url_texto.len() > 4096 {
                 continue;
             }
+            let leitura = contexto.validar(&state).await?;
             let ja_existe: bool = sqlx::query_scalar(
                 "SELECT EXISTS(SELECT 1 FROM historico_busca_publica \
                  WHERE pessoa_id = ? AND url_origem = ?)",
@@ -376,6 +365,7 @@ async fn varrer(
             .bind(url_texto)
             .fetch_one(&state.pool)
             .await?;
+            drop(leitura);
             if ja_existe {
                 continue;
             }
@@ -391,7 +381,17 @@ async fn varrer(
             };
             let mut pdf = None;
             if url.path().to_ascii_lowercase().ends_with(".pdf") {
-                match baixar_pdf(&state, &url).await {
+                match contexto
+                    .aguardar(
+                        &state,
+                        tokio::time::timeout(
+                            Duration::from_secs(state.config.osint_timeout_seconds),
+                            baixar_pdf(&state, &url),
+                        ),
+                    )
+                    .await?
+                    .unwrap_or_else(|_| Err("tempo limite do download excedido".into()))
+                {
                     Ok(arquivo) => pdf = Some(arquivo),
                     Err(erro) => resposta.avisos.push(format!(
                         "PDF não arquivado em {}: {erro}",
@@ -401,6 +401,7 @@ async fn varrer(
             }
 
             let parametro_utilizado = format!("{}: {}", parametro.tipo, parametro.valor);
+            let _leitura = contexto.validar(&state).await?;
             let (novo, pdf_salvo) = registrar_achado(
                 &state,
                 NovoAchado {
@@ -443,7 +444,7 @@ async fn varrer(
         "varredura OSINT concluída"
     );
 
-    Ok(Json(resposta))
+    Ok((resposta, fontes_indisponiveis))
 }
 
 struct NovoAchado<'a> {

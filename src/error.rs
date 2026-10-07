@@ -18,6 +18,8 @@ pub enum AppError {
     NotFound(String),
     #[error("{0}")]
     Conflict(String),
+    #[error("muitas tentativas; aguarde antes de tentar novamente")]
+    TooManyRequests(u64),
     #[error("arquivo excede o limite permitido")]
     PayloadTooLarge,
     #[error("{0}")]
@@ -47,12 +49,18 @@ impl AppError {
 
 impl IntoResponse for AppError {
     fn into_response(self) -> Response {
+        let retry_after = if let Self::TooManyRequests(seconds) = &self {
+            Some(*seconds)
+        } else {
+            None
+        };
         let status = match self {
             Self::BadRequest(_) => StatusCode::BAD_REQUEST,
             Self::Unauthorized => StatusCode::UNAUTHORIZED,
             Self::Forbidden => StatusCode::FORBIDDEN,
             Self::NotFound(_) => StatusCode::NOT_FOUND,
             Self::Conflict(_) => StatusCode::CONFLICT,
+            Self::TooManyRequests(_) => StatusCode::TOO_MANY_REQUESTS,
             Self::PayloadTooLarge => StatusCode::PAYLOAD_TOO_LARGE,
             Self::ServiceUnavailable(_) => StatusCode::SERVICE_UNAVAILABLE,
             Self::Internal(_) => StatusCode::INTERNAL_SERVER_ERROR,
@@ -60,13 +68,21 @@ impl IntoResponse for AppError {
         if status.is_server_error() {
             tracing::error!(erro = %self, detalhes = ?self, "requisição falhou");
         }
-        (
+        let mut response = (
             status,
             Json(ErrorBody {
                 erro: self.to_string(),
             }),
         )
-            .into_response()
+            .into_response();
+        if let Some(seconds) = retry_after {
+            response.headers_mut().insert(
+                axum::http::header::RETRY_AFTER,
+                axum::http::HeaderValue::from_str(&seconds.to_string())
+                    .expect("numeric retry-after"),
+            );
+        }
+        response
     }
 }
 

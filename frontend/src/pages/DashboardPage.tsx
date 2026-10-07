@@ -31,7 +31,7 @@ export function DashboardPage() {
   }, []);
   const complete = async (task: TarefaPainel) => {
     setChanging(task.id);
-    try { await api.patch(`/api/calendario/tarefas/${task.id}/status`, { status: "CONCLUIDA" }); }
+    try { await api.patch(`/api/calendario/tarefas/${task.id}/status`, { status: "CONCLUIDA", versao: task.versao }); }
     catch (e) { setError(errorMessage(e)); }
     finally { setChanging(null); }
   };

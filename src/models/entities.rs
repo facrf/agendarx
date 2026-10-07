@@ -18,6 +18,7 @@ pub struct Usuario {
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct TarefaCalendarioRow {
     pub id: i64,
+    pub versao: i64,
     pub usuario_id: i64,
     pub titulo: String,
     pub descricao: Option<String>,
@@ -31,6 +32,7 @@ pub struct TarefaCalendarioRow {
     pub recorrencia: String,
     pub recorrencia_fim_em: Option<String>,
     pub lembrete_minutos: Option<i64>,
+    pub lembrete_adiado_ate: Option<String>,
     pub lembrete_dispensado_em: Option<String>,
     pub data_criacao: String,
     pub data_atualizacao: String,
@@ -97,6 +99,7 @@ pub struct AnexoDossie {
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct PessoaVinculo {
     pub id: i64,
+    pub versao: i64,
     pub pessoa_origem_id: i64,
     pub pessoa_destino_id: i64,
     pub tipo_vinculo: String,
@@ -116,7 +119,7 @@ pub struct AnexoVinculo {
     pub data_upload: String,
 }
 
-#[derive(Debug, Clone, Serialize, FromRow)]
+#[derive(Debug, Clone, Serialize, serde::Deserialize, FromRow)]
 pub struct ParametroBusca {
     pub id: i64,
     pub pessoa_id: i64,

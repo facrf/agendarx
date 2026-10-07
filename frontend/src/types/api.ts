@@ -44,6 +44,7 @@ export interface ContatoPayload {
 }
 
 export interface PessoaResumo {
+  versao?: number;
   id: number;
   nome: string;
   categoria_id: number | null;
@@ -111,6 +112,7 @@ export interface AnexoDossie {
 }
 
 export interface PessoaVinculo {
+  versao?: number;
   id: number;
   pessoa_origem_id: number;
   pessoa_destino_id: number;
@@ -132,6 +134,7 @@ export interface AnexoVinculo {
 }
 
 export interface VinculoPayload {
+  versao?: number;
   pessoa_origem_id: number;
   pessoa_destino_id: number;
   tipo_vinculo: string;
@@ -157,6 +160,7 @@ export interface GrafoContato {
 }
 
 export interface GrafoEdge {
+  versao?: number;
   id: number;
   source: number;
   target: number;
@@ -290,6 +294,8 @@ export interface PessoaTarefaResumo {
 }
 
 export interface TarefaCalendario {
+  lembrete_adiado_ate?: string | null;
+  versao?: number;
   id: number;
   titulo: string;
   descricao: string | null;
@@ -451,7 +457,8 @@ export interface VarreduraPublicaResponse {
 export interface Pagina<T> { itens: T[]; total: number; pagina: number; por_pagina: number; total_paginas: number }
 export interface PessoasPagina extends Pagina<PessoaResumo> { total_com_foto: number }
 export interface BuscaResultado { tipo: string; recurso_id: number; titulo: string; resumo: string; url: string }
-export interface TarefaPainel { id: number; titulo: string; inicio_em: string; fim_em: string | null; dia_inteiro: boolean; status: StatusTarefa; prioridade: PrioridadeTarefa }
+export interface TarefaPainel {
+  versao?: number; id: number; titulo: string; inicio_em: string; fim_em: string | null; dia_inteiro: boolean; status: StatusTarefa; prioridade: PrioridadeTarefa }
 export interface PainelResumo { hoje: TarefaPainel[]; atrasadas: TarefaPainel[]; proximas: TarefaPainel[]; total_hoje: number; total_atrasadas: number; total_proximas: number }
 export interface PosicaoGrafo { pessoa_id: number; x: number; y: number }
 export interface AuditoriaDetalhe extends AuditoriaItem { metodo: string; duracao_ms: number | null; resumo: string }

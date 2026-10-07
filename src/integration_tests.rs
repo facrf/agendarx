@@ -75,6 +75,7 @@ async fn rotas_api_inexistentes_retornam_json_e_preservam_frontend() {
     let app = construir_app(AppState {
         pool,
         config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
         backup_runtime: BackupRuntime::default(),
     });
     let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
@@ -146,6 +147,7 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
     let app = construir_app(AppState {
         pool: pool.clone(),
         config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
         backup_runtime: BackupRuntime::default(),
     });
     let task = tokio::spawn(async move {

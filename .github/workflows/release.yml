@@ -13,6 +13,10 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  qualidade:
+    name: Qualidade
+    uses: ./.github/workflows/quality.yml
+
   validar-versao:
     name: Validar versão
     if: ${{ github.server_url == 'https://github.com' }}
@@ -52,7 +56,7 @@ jobs:
   frontend:
     name: Compilar frontend
     if: ${{ github.server_url == 'https://github.com' }}
-    needs: validar-versao
+    needs: [validar-versao, qualidade]
     runs-on: ubuntu-latest
     steps:
       - name: Obter o código

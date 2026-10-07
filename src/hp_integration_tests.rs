@@ -15,6 +15,7 @@ async fn hp_previa_revisoes_historico_e_atomicidade() {
     let app = construir_app(AppState {
         pool: pool.clone(),
         config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
         backup_runtime: BackupRuntime::default(),
     });
     let task = tokio::spawn(async move {
@@ -341,6 +342,7 @@ async fn hp_snapshot_cadastro_configuracao_permissoes_e_lixeira() {
     let app = construir_app(AppState {
         pool: pool.clone(),
         config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
         backup_runtime: BackupRuntime::default(),
     });
     let task = tokio::spawn(async move {

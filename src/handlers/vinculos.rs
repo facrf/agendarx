@@ -117,7 +117,7 @@ async fn enviar_anexo(
         }
         let nome_arquivo = campo.file_name().unwrap_or("arquivo.bin").to_owned();
         let mime_informado = campo.content_type().map(str::to_owned);
-        let conteudo = campo.bytes().await.map_err(AppError::from)?;
+        let conteudo = super::upload::ler_campo(campo, state.config.max_upload_bytes).await?;
         arquivo = Some((nome_arquivo, mime_informado, conteudo));
         break;
     }
@@ -143,7 +143,16 @@ async fn enviar_anexo(
         None
     };
     let tamanho_bytes = conteudo.len() as i64;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let ativo: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa_vinculo WHERE id=? AND excluido_em IS NULL)",
+    )
+    .bind(vinculo_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !ativo {
+        return Err(AppError::nao_encontrado("vínculo ativo"));
+    }
     let anexo = sqlx::query_as::<_, AnexoVinculoLinha>(
         "INSERT INTO anexo_vinculo \
             (vinculo_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes) \
@@ -312,7 +321,7 @@ async fn listar_vinculos(
     State(state): State<AppState>,
 ) -> Result<Json<Vec<PessoaVinculo>>, AppError> {
     let vinculos = sqlx::query_as::<_, PessoaVinculo>(
-        "SELECT id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
+        "SELECT id, versao, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
          FROM pessoa_vinculo WHERE excluido_em IS NULL ORDER BY data_criacao DESC, id DESC",
     )
     .fetch_all(&state.pool)
@@ -333,13 +342,23 @@ async fn criar_vinculo(
     Json(input): Json<VinculoInput>,
 ) -> Result<(StatusCode, Json<PessoaVinculo>), AppError> {
     validar_vinculo(&input)?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let ativas: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pessoa WHERE id IN (?,?) AND excluida_em IS NULL")
+            .bind(input.pessoa_origem_id)
+            .bind(input.pessoa_destino_id)
+            .fetch_one(&mut *tx)
+            .await?;
+    if ativas != 2 {
+        return Err(AppError::nao_encontrado("duas pessoas ativas"));
+    }
     let na_lixeira: bool = sqlx::query_scalar(
         "SELECT EXISTS(SELECT 1 FROM pessoa_vinculo WHERE pessoa_origem_id = ? AND pessoa_destino_id = ? AND tipo_vinculo = ? AND excluido_em IS NOT NULL)",
     )
     .bind(input.pessoa_origem_id)
     .bind(input.pessoa_destino_id)
     .bind(input.tipo_vinculo.trim())
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
     if na_lixeira {
         return Err(AppError::Conflict(
@@ -350,37 +369,44 @@ async fn criar_vinculo(
         "INSERT INTO pessoa_vinculo \
             (pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao) \
          VALUES (?, ?, ?, ?) \
-         RETURNING id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao",
+         RETURNING id, versao, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao",
     )
     .bind(input.pessoa_origem_id)
     .bind(input.pessoa_destino_id)
     .bind(input.tipo_vinculo.trim())
     .bind(normalizar_descricao(input.descricao))
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(vinculo)))
 }
 
 async fn atualizar_vinculo(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<VinculoInput>,
 ) -> Result<Json<PessoaVinculo>, AppError> {
     validar_vinculo(&input)?;
-    let vinculo = sqlx::query_as::<_, PessoaVinculo>(
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "vinculo", id, &sessao, &headers).await?;
+    let _vinculo = sqlx::query_as::<_, PessoaVinculo>(
         "UPDATE pessoa_vinculo SET \
             pessoa_origem_id = ?, pessoa_destino_id = ?, tipo_vinculo = ?, descricao = ? \
          WHERE id = ? AND excluido_em IS NULL \
-         RETURNING id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao",
+         RETURNING id, versao, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao",
     )
     .bind(input.pessoa_origem_id)
     .bind(input.pessoa_destino_id)
     .bind(input.tipo_vinculo.trim())
     .bind(normalizar_descricao(input.descricao))
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("vínculo"))?;
+    let vinculo=sqlx::query_as::<_,PessoaVinculo>("SELECT id,versao,pessoa_origem_id,pessoa_destino_id,tipo_vinculo,descricao,data_criacao FROM pessoa_vinculo WHERE id=?").bind(id).fetch_one(&mut *tx).await?;
+    tx.commit().await?;
     Ok(Json(vinculo))
 }
 
@@ -521,7 +547,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
         })
         .collect::<Result<Vec<_>, AppError>>()?;
     let edges = sqlx::query_as::<_, GrafoEdge>(
-        "SELECT id, pessoa_origem_id AS source, pessoa_destino_id AS target, \
+        "SELECT id, versao, pessoa_origem_id AS source, pessoa_destino_id AS target, \
                 tipo_vinculo AS label, descricao, data_criacao \
          FROM pessoa_vinculo WHERE excluido_em IS NULL AND pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
     )
@@ -557,7 +583,7 @@ struct GrafoContatoLinha {
 
 async fn buscar_vinculo(state: &AppState, id: i64) -> Result<PessoaVinculo, AppError> {
     sqlx::query_as::<_, PessoaVinculo>(
-        "SELECT id, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
+        "SELECT id, versao, pessoa_origem_id, pessoa_destino_id, tipo_vinculo, descricao, data_criacao \
          FROM pessoa_vinculo WHERE id = ? AND excluido_em IS NULL",
     )
     .bind(id)

@@ -1,7 +1,9 @@
 use std::collections::HashMap;
 
+mod previa;
+
 use axum::{
-    Json, Router,
+    Router,
     body::Body,
     extract::{Multipart, Path, State},
     http::{HeaderValue, StatusCode, header},
@@ -9,28 +11,37 @@ use axum::{
     routing::{get, post},
 };
 
-use crate::{AppState, error::AppError, models::ImportacaoContatosResponse};
+use crate::{AppState, error::AppError};
 
 const MAX_PESSOAS_IMPORTACAO: usize = 10_000;
 const MAX_CONTATOS_POR_PESSOA: usize = 100;
 
 pub fn rotas() -> Router<AppState> {
     Router::new()
-        .route("/contatos/importar", post(importar_contatos))
+        .route("/contatos/importar", post(previa::preparar))
+        .route("/contatos/importar/previa", post(previa::preparar))
+        .route(
+            "/contatos/importacoes/{token}/confirmar",
+            post(previa::confirmar),
+        )
+        .route(
+            "/contatos/importacoes/{token}",
+            axum::routing::delete(previa::descartar),
+        )
         .route("/contatos/exportar/{formato}", get(exportar_contatos))
 }
 
-async fn importar_contatos(
+async fn ler_importacao(
     State(state): State<AppState>,
     mut multipart: Multipart,
-) -> Result<Json<ImportacaoContatosResponse>, AppError> {
+) -> Result<(Vec<ContatoImportado>, usize, Vec<String>), AppError> {
     let mut arquivo = None;
     while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
         if campo.name() != Some("arquivo") {
             continue;
         }
         let nome = campo.file_name().unwrap_or("contatos.csv").to_owned();
-        let conteudo = campo.bytes().await.map_err(AppError::from)?;
+        let conteudo = super::upload::ler_campo(campo, state.config.max_upload_bytes).await?;
         arquivo = Some((nome, conteudo));
         break;
     }
@@ -73,14 +84,7 @@ async fn importar_contatos(
         )));
     }
 
-    let (pessoas_importadas, contatos_importados) =
-        persistir_contatos(&state, pessoas, &mut avisos).await?;
-    Ok(Json(ImportacaoContatosResponse {
-        pessoas_importadas,
-        contatos_importados,
-        registros_ignorados,
-        avisos,
-    }))
+    Ok((pessoas, registros_ignorados, avisos))
 }
 
 async fn exportar_contatos(
@@ -92,9 +96,9 @@ async fn exportar_contatos(
                 t.nome_tipo AS tipo, co.valor \
          FROM pessoa p \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
-         WHERE p.excluida_em IS NULL \
          LEFT JOIN contato co ON co.pessoa_id = p.id \
          LEFT JOIN tipo_meio_contato t ON t.id = co.tipo_contato_id \
+         WHERE p.excluida_em IS NULL \
          ORDER BY p.nome COLLATE NOCASE, p.id, co.id",
     )
     .fetch_all(&state.pool)
@@ -118,20 +122,19 @@ async fn exportar_contatos(
 }
 
 async fn persistir_contatos(
-    state: &AppState,
-    pessoas: Vec<ContatoImportado>,
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    pessoas: Vec<(ContatoImportado, Option<i64>)>,
     avisos: &mut Vec<String>,
 ) -> Result<(usize, usize), AppError> {
-    let mut tx = state.pool.begin().await?;
     let tipos_existentes = sqlx::query_as::<_, (i64, String)>(
         "SELECT id, nome_tipo FROM tipo_meio_contato ORDER BY id",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     let categorias_existentes = sqlx::query_as::<_, (i64, String)>(
         "SELECT id, nome_categoria FROM categoria_pessoa ORDER BY id",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut **tx)
     .await?;
     let mut tipos: HashMap<String, i64> = tipos_existentes
         .into_iter()
@@ -144,7 +147,7 @@ async fn persistir_contatos(
 
     let mut pessoas_importadas = 0;
     let mut contatos_importados = 0;
-    for mut pessoa in pessoas {
+    for (mut pessoa, destino) in pessoas {
         pessoa.nome = pessoa.nome.trim().chars().take(255).collect();
         if pessoa.nome.is_empty() {
             continue;
@@ -172,7 +175,7 @@ async fn persistir_contatos(
                     "INSERT INTO categoria_pessoa (nome_categoria, cor_hex) VALUES (?, '#64748B') RETURNING id",
                 )
                 .bind(&nome_categoria)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
                 categorias.insert(chave, id);
                 Some(id)
@@ -181,13 +184,22 @@ async fn persistir_contatos(
             None
         };
 
-        let pessoa_id: i64 = sqlx::query_scalar(
-            "INSERT INTO pessoa (nome, categoria_id) VALUES (?, ?) RETURNING id",
-        )
-        .bind(&pessoa.nome)
-        .bind(categoria_id)
-        .fetch_one(&mut *tx)
-        .await?;
+        let pessoa_id = if let Some(id) = destino {
+            let atualizada = sqlx::query("UPDATE pessoa SET categoria_id = COALESCE(categoria_id, ?) WHERE id = ? AND excluida_em IS NULL")
+                .bind(categoria_id).bind(id).execute(&mut **tx).await?;
+            if atualizada.rows_affected() != 1 {
+                return Err(AppError::Conflict(
+                    "o contato mudou; envie o arquivo novamente".into(),
+                ));
+            }
+            id
+        } else {
+            sqlx::query_scalar("INSERT INTO pessoa(nome,categoria_id) VALUES(?,?) RETURNING id")
+                .bind(&pessoa.nome)
+                .bind(categoria_id)
+                .fetch_one(&mut **tx)
+                .await?
+        };
         pessoas_importadas += 1;
 
         for campo in pessoa.campos {
@@ -204,22 +216,31 @@ async fn persistir_contatos(
                     "INSERT INTO tipo_meio_contato (nome_tipo) VALUES (?) RETURNING id",
                 )
                 .bind(&nome_tipo)
-                .fetch_one(&mut *tx)
+                .fetch_one(&mut **tx)
                 .await?;
                 tipos.insert(chave, id);
                 id
             };
+            let existentes: Vec<(String, String)> = sqlx::query_as("SELECT t.nome_tipo, c.valor FROM contato c JOIN tipo_meio_contato t ON t.id=c.tipo_contato_id WHERE c.pessoa_id=?")
+                .bind(pessoa_id).fetch_all(&mut **tx).await?;
+            let nova_chave = previa::chave_contato(&nome_tipo, &valor);
+            if existentes.iter().any(|(tipo, existente)| {
+                (chave_texto(tipo) == chave_texto(&nome_tipo) && existente.trim() == valor)
+                    || (nova_chave.is_some()
+                        && previa::chave_contato(tipo, existente) == nova_chave)
+            }) {
+                continue;
+            }
             sqlx::query("INSERT INTO contato (pessoa_id, tipo_contato_id, valor) VALUES (?, ?, ?)")
                 .bind(pessoa_id)
                 .bind(tipo_id)
                 .bind(valor)
-                .execute(&mut *tx)
+                .execute(&mut **tx)
                 .await?;
             contatos_importados += 1;
         }
     }
 
-    tx.commit().await?;
     Ok((pessoas_importadas, contatos_importados))
 }
 
@@ -839,14 +860,14 @@ fn slug_vcard(valor: &str) -> String {
     }
 }
 
-#[derive(Default, Debug)]
+#[derive(Default, Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct ContatoImportado {
     nome: String,
     categoria: Option<String>,
     campos: Vec<CampoImportado>,
 }
 
-#[derive(Debug)]
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
 struct CampoImportado {
     tipo: String,
     valor: String,

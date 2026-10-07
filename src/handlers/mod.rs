@@ -14,3 +14,10 @@ pub mod painel;
 pub mod pessoas;
 pub mod produtividade;
 pub mod vinculos;
+
+pub(crate) mod upload;
+
+pub mod mesclagem;
+pub mod preferencias;
+pub mod revisoes;
+pub mod saude;

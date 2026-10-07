@@ -6,6 +6,37 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
+_Aguardando próximas mudanças._
+
+## [0.6.6] - 2026-10-07
+
+### Adicionado
+
+- Histórico e restauração de versões de pessoas, tarefas e vínculos, com controle
+  de edição concorrente por versão e preservação dos rascunhos após conflito.
+- Mesclagem de contatos com prévia, escolha de campos e arquivo de notas/fotos/vínculos.
+- Horários silenciosos por conta e adiamento persistente de lembretes.
+- Painel de saúde com armazenamento, falhas de pesquisa e verificação de backup.
+- Prévia de importação com coincidências por email/telefone, ações por registro,
+  confirmação transacional e preservação de dados ao atualizar contatos.
+- Trabalhos persistentes de pesquisa pública com progresso, cancelamento e retomada.
+- Workflow de qualidade compartilhado por CI e publicação, incluindo Chromium.
+- Plano e acompanhamento em `A_FAZER.md`.
+
+### Corrigido
+
+- Consulta SQL de exportação CSV/vCard com JOINs antes do filtro de lixeira.
+- Limites de tentativas, concorrência e corpo do login; emissão de sessões protegida
+  contra alteração concorrente de credenciais.
+- Uploads interrompidos no teto por arquivo; limite de anexos validado na transação.
+- Respostas antigas do calendário descartadas e lembretes com reconhecimento de versão.
+- Foco e navegação por teclado em modais, inclusive sobrepostos.
+
+### Alterado
+
+- Importação retorna prévia, exigindo confirmação; varredura retorna 202 com trabalho
+  consultável. Clientes de API devem seguir os contratos em `docs/API.md`.
+
 ## [0.6.5e] - 2026-10-06
 
 ### Adicionado
@@ -390,6 +421,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.6]: https://github.com/facrf/agendarx/compare/v0.6.5e...v0.6.6
 [0.6.5e]: https://github.com/facrf/agendarx/compare/v0.6.5d...v0.6.5e
 [0.6.5d]: https://github.com/facrf/agendarx/compare/v0.6.5c...v0.6.5d
 [0.6.5c]: https://github.com/facrf/agendarx/compare/v0.6.5b...v0.6.5c

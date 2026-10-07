@@ -1,6 +1,6 @@
 import { LoaderCircle, UserRound, X } from "lucide-react";
 import { createPortal } from "react-dom";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useEffectEvent, useRef, useState } from "react";
 import type {
   ButtonHTMLAttributes,
   CSSProperties,
@@ -128,6 +128,29 @@ export function PageHeader({ eyebrow, title, description, action }: {
   );
 }
 
+const modalStack: Array<{ dialog: HTMLElement; layer: HTMLElement }> = [];
+const originalInert = new Map<HTMLElement, boolean>();
+let originalOverflow = "";
+function syncModalLayers() {
+  const top = modalStack.at(-1);
+  if (!top) {
+    for (const [element, inert] of originalInert) element.inert = inert;
+    originalInert.clear();
+    document.body.style.overflow = originalOverflow;
+    return;
+  }
+  for (const child of Array.from(document.body.children)) {
+    if (!(child instanceof HTMLElement)) continue;
+    if (!originalInert.has(child)) originalInert.set(child, child.inert);
+    child.inert = child !== top.layer;
+  }
+  document.body.style.overflow = "hidden";
+}
+function focusableElements(dialog: HTMLElement) {
+  return Array.from(dialog.querySelectorAll<HTMLElement>('a[href],button,input,select,textarea,[tabindex]'))
+    .filter(element => element.tabIndex >= 0 && !element.matches(':disabled,[hidden]') && element.getClientRects().length > 0);
+}
+
 export function Modal({ open, onClose, title, children, className, bodyClassName }: PropsWithChildren<{
   open: boolean;
   onClose: () => void;
@@ -136,25 +159,49 @@ export function Modal({ open, onClose, title, children, className, bodyClassName
   bodyClassName?: string;
 }>) {
   const dialogRef = useRef<HTMLElement>(null);
+  const closeModal = useEffectEvent(onClose);
   useEffect(() => {
-    if (!open) return;
+    const dialog = dialogRef.current;
+    const layer = dialog?.parentElement;
+    if (!open || !dialog || !layer) return;
+    const previousFocus = document.activeElement instanceof HTMLElement ? document.activeElement : null;
+    if (!modalStack.length) originalOverflow = document.body.style.overflow;
+    const entry = { dialog, layer };
+    modalStack.push(entry);
+    syncModalLayers();
+    (focusableElements(dialog)[0] ?? dialog).focus();
     const handler = (event: KeyboardEvent) => {
-      const dialogs = document.querySelectorAll('[role="dialog"][aria-modal="true"]');
-      if (event.key === "Escape" && dialogs.item(dialogs.length - 1) === dialogRef.current) onClose();
+      if (modalStack.at(-1) !== entry) return;
+      if (event.key === "Escape") { event.preventDefault(); event.stopImmediatePropagation(); closeModal(); }
+      if (event.key === "Tab") {
+        const elements = focusableElements(dialog);
+        const index = elements.indexOf(document.activeElement as HTMLElement);
+        event.preventDefault();
+        if (!elements.length) dialog.focus();
+        else elements[index === -1 ? (event.shiftKey ? elements.length - 1 : 0) : (index + (event.shiftKey ? -1 : 1) + elements.length) % elements.length].focus();
+      }
     };
-    window.addEventListener("keydown", handler);
-    document.body.style.overflow = "hidden";
+    const containFocus = (event: FocusEvent) => {
+      if (modalStack.at(-1) === entry && !dialog.contains(event.target as Node)) (focusableElements(dialog)[0] ?? dialog).focus();
+    };
+    window.addEventListener("keydown", handler, true);
+    window.addEventListener("focusin", containFocus);
     return () => {
-      window.removeEventListener("keydown", handler);
-      document.body.style.overflow = "";
+      window.removeEventListener("keydown", handler, true);
+      window.removeEventListener("focusin", containFocus);
+      modalStack.splice(modalStack.indexOf(entry), 1);
+      syncModalLayers();
+      if (previousFocus?.isConnected && !previousFocus.closest('[inert]')) previousFocus.focus();
+      else if (modalStack.at(-1)) modalStack.at(-1)!.dialog.focus();
     };
-  }, [open, onClose]);
+  }, [open]);
 
   if (!open) return null;
   return createPortal(
     <div className="fixed inset-0 z-50 flex items-center justify-center overflow-y-auto bg-slate-950/55 p-2 backdrop-blur-sm sm:p-4" onMouseDown={onClose}>
       <section
         ref={dialogRef}
+        tabIndex={-1}
         role="dialog"
         aria-modal="true"
         aria-label={title}

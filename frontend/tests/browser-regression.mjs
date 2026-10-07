@@ -16,7 +16,7 @@ const server = createServer(async (req, res) => {
   } catch { res.statusCode = 404; res.end(); }
 });
 await new Promise(resolve => server.listen(4179, '127.0.0.1', resolve));
-const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || '/usr/bin/chromium-browser', args: ['--no-sandbox', '--disable-dev-shm-usage'] });
+const browser = await chromium.launch({ executablePath: process.env.CHROMIUM_PATH || undefined, args: ['--no-sandbox', '--disable-dev-shm-usage'] });
 const context = await browser.newContext({ viewport: { width: 1440, height: 1000 } });
 const page = await context.newPage();
 page.setDefaultTimeout(30_000);
@@ -26,7 +26,7 @@ const hpConfig = { versao: 1, ativo: true, toxicidade_min: 0.1, toxicidade_max: 
 const indicators = { hp: 1, hp_percentual: 100, hp_base: 1, hp_min: 0.05, penalidade_propria: 0, penalidade_direta: 0, penalidade_residual: 0, aura_nome: 'Crítico', aura_cor_hex: '#EF4444', aura_pulsante: true, vitalidade_nome: 'Preservada', vitalidade_cor_hex: '#22C55E', calculo_ativo: true, configuracao_versao: 1, contribuicoes: [] };
 let currentHp = 1;
 const metrics = () => ({ ...indicators, hp: currentHp, hp_percentual: currentHp * 100, penalidade_direta: 1 - currentHp, vitalidade_nome: currentHp < 0.25 ? 'Impactada' : 'Preservada', vitalidade_cor_hex: currentHp < 0.25 ? '#EF4444' : '#22C55E' });
-const base = { classificacao_risco: 'MANIPULATIVO', toxicidade: 0.4, psicossocial: indicators, categoria_id: 1, nome_categoria: 'Amigos', cor_hex: '#112233', tem_foto: false, pessoa_juridica: false, data_cadastro: '2026-09-14', descricao: '# Perfil\n\n**Importante**', contatos: [], etiquetas: '', favorito: false };
+const base = { versao: 1, classificacao_risco: 'MANIPULATIVO', toxicidade: 0.4, psicossocial: indicators, categoria_id: 1, nome_categoria: 'Amigos', cor_hex: '#112233', tem_foto: false, pessoa_juridica: false, data_cadastro: '2026-09-14', descricao: '# Perfil\n\n**Importante**', contatos: [], etiquetas: '', favorito: false };
 const people = [{ ...base, id: 1, nome: 'Ana' }, { ...base, id: 2, nome: 'Zeca' }, { ...base, id: 3, nome: 'Empresa', pessoa_juridica: true }];
 const attachments = [1, 2].map(id => ({ id, pessoa_id: 1, nome_arquivo: `foto${id}.png`, mime_type: 'image/png', tamanho_bytes: 100, data_upload: '2026-09-14', url_stream: `/api/dossie/anexos/${id}/stream`, url_download: `/api/dossie/anexos/${id}/download` }));
 const notes = {};
@@ -43,6 +43,13 @@ let previewPosts = 0;
 let logoutPosts = 0;
 let groupFixture = false;
 let newFlowFixtures = false, dashboardDone = false;
+let calendarFixtures = false, calendarRequests = 0, releaseCalendarResponse;
+let previewUploads = 0, importConfirmations = 0, chosenImportDecisions;
+let jobFixture = null;
+let reminderFixture = null, reminderAcks = 0;
+let quietPreference = { silencioso_inicio: null, silencioso_fim: null };
+let reliabilityFixtures = false, conflictPerson = false, lastVersionHeader, restoredRevisions = 0, mergePosts = 0, mergeDecision, snoozePosts = 0;
+const sampleTask = (title = 'Tarefa com anexo', date = new Date().toISOString()) => ({ id: 301, versao: 1, titulo: title, descricao: '', inicio_em: date, fim_em: null, dia_inteiro: false, status: 'PENDENTE', prioridade: 'NORMAL', cor_hex: '#0F766E', recorrencia: 'NENHUMA', recorrencia_fim_em: null, lembrete_minutos: null, pessoas: [], anexos: [{ ...attachments[0], tarefa_id: 301 }], total_ocorrencias: 1, data_atualizacao: '2026-10-07T00:00:00Z' });
 const savedPositions = new Map();
 const searchFixtures = [
  { tipo: 'pessoa', recurso_id: 1, titulo: 'Ana', resumo: 'Contato de teste', url: '/pessoas/1' },
@@ -55,7 +62,18 @@ const riskRecord = person => ({ classificacao_risco: person.classificacao_risco,
 await page.context().route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
   let data = [];
-  if (path === '/api/auth/logout') { logoutPosts++; data = {}; }
+  if (path === '/api/preferencias/lembretes') {
+    if (req.method() === 'PUT') quietPreference = req.postDataJSON();
+    data = quietPreference;
+  }
+  else if (/^\/api\/preferencias\/lembretes\/\d+\/adiar$/.test(path)) { snoozePosts++; assert.equal(req.postDataJSON().minutos, 15); data = { adiado_ate: new Date(Date.now() + 900000).toISOString() }; }
+  else if (path === '/api/saude') data = { armazenamento: { banco_bytes: 1024, midia_total_bytes: 2048, anexos_total: 3 }, backup: { ultimo_validado: { nome_arquivo: 'backup-validado.db', data_criacao: '2026-10-07T12:00:00Z' }, configuracao: { ultimo_erro: null, ultima_tentativa_em: null } }, pesquisas_por_estado: [['fila', 1]], falhas_pesquisa: [] };
+  else if (path === '/api/saude/backup/verificar') data = { integridade_ok: true, erro: null };
+  else if (/^\/api\/revisoes\/pessoa\/1\/1\/restaurar$/.test(path)) { restoredRevisions++; people[0].nome = 'Ana restaurada'; data = { versao: 11 }; }
+  else if (path.startsWith('/api/revisoes/')) data = { versao: 10, itens: reliabilityFixtures ? [{ id: 1, autor_login: 'teste', criado_em: '2026-10-07T12:00:00Z', versao_anterior: 9, anterior_json: JSON.stringify({ nome: 'Ana restaurada', descricao: 'Descrição anterior', contatos: [] }) }] : [] };
+  else if (path === '/api/mesclagem/previa') data = { origem: { ...people[1], categoria_nome: 'Amigos' }, destino: { ...people[0], categoria_nome: 'Amigos' }, versao_origem: 3, versao_destino: 11, anexos: 1, vinculos: 2 };
+  else if (path === '/api/mesclagem/confirmar') { mergePosts++; mergeDecision = req.postDataJSON(); data = { pessoa_id: 1 }; }
+  else if (path === '/api/auth/logout') { logoutPosts++; data = {}; }
   else if (path.endsWith('/sessao')) data = { usuario: { id: 1, login: 'teste', perfil: 'admin' } };
   else if (path.endsWith('/categorias')) data = [{ id: 1, nome_categoria: 'Amigos', cor_hex: '#112233' }];
   else if (path === '/api/configuracoes/backups/configuracao') data = { ativo: false, horario: '03:00', manter_diarios: 7, manter_semanais: 4, manter_mensais: 12, max_upload_bytes: 1000000 };
@@ -107,6 +125,8 @@ await page.context().route('**/api/**', async route => {
   } else if (/^\/api\/pessoas\/\d+$/.test(path)) {
     const person = people.find(p => p.id === Number(path.split('/').at(-1))) ?? { ...people[0] };
     if (req.method() === 'PUT') {
+      lastVersionHeader = req.headers()['if-match'];
+      if (conflictPerson) return route.fulfill({ status: 409, json: { erro: 'Este registro foi alterado desde que você abriu a edição. Seus dados não foram salvos.' } });
       const anterior = riskRecord(person);
       Object.assign(person, req.postDataJSON());
       const novo = riskRecord(person);
@@ -115,6 +135,38 @@ await page.context().route('**/api/**', async route => {
     }
     data = { ...person, risco_registro: riskRecord(person), psicossocial: { ...metrics(), ...(savedSnapshot?.[person.id] ?? {}) } };
   }
+  else if (calendarFixtures && path === '/api/calendario/tarefas' && req.method() === 'GET') {
+    const sequence = ++calendarRequests;
+    const first = new Date(new URL(req.url()).searchParams.get('inicio'));
+    const date = new Date(first.getTime() + 15 * 86400000).toISOString();
+    if (sequence === 2) await new Promise(resolve => { releaseCalendarResponse = resolve; });
+    data = [sampleTask(`Resposta calendário ${sequence}`, date)];
+  }
+  else if (calendarFixtures && path === '/api/calendario/tarefas/301') data = sampleTask();
+  else if (path === '/api/configuracoes/contatos/importar/previa') {
+    previewUploads++;
+    data = { token: 'preview-test', expira_em: Date.now()/1000 + 1800, registros_ignorados: 0, avisos: [], registros: [
+      { indice: 0, contato: { nome: 'Ana da importação', categoria: null, campos: [{ tipo: 'E-mail', valor: 'ana@example.com' }] }, coincidencias: [{ pessoa_id: 1, nome: 'Ana' }], repetidos_no_arquivo: [], acao_sugerida: 'ignorar' },
+      { indice: 1, contato: { nome: 'Nova da importação', categoria: null, campos: [] }, coincidencias: [], repetidos_no_arquivo: [], acao_sugerida: 'criar' },
+    ] };
+  }
+  else if (path === '/api/configuracoes/contatos/importacoes/preview-test/confirmar') {
+    importConfirmations++; chosenImportDecisions = req.postDataJSON().decisoes;
+    data = { pessoas_importadas: 1, pessoas_atualizadas: 1, contatos_importados: 1, registros_ignorados: 0, avisos: [] };
+  }
+  else if (path === '/api/calendario/lembretes') data = reminderFixture ? [reminderFixture] : [];
+  else if (path === '/api/calendario/lembretes/401/dispensar') {
+    reminderAcks++;
+    if (reminderAcks === 1) return route.fulfill({ status: 503, json: { erro: 'Falha transitória de teste' } });
+    reminderFixture = null; return route.fulfill({ status: 204 });
+  }
+  else if (path === '/api/osint/trabalhos/pessoa/1') data = jobFixture ? [jobFixture] : [];
+  else if (path === '/api/osint/varrer/1') {
+    jobFixture = { id: 'job-test', pessoa_id: 1, estado: 'fila', total: 2, processados: 0, resultado: { situacao: 'concluida', parametros_processados: 0, parametros_inconclusivos: 0, resultados_encontrados: 0, novos_achados: 0, pdfs_arquivados: 0, fontes_indisponiveis: 0, avisos: [] }, erro: null };
+    return route.fulfill({ status: 202, json: jobFixture });
+  }
+  else if (path === '/api/osint/trabalhos/job-test/cancelar') { jobFixture.estado = 'cancelado'; return route.fulfill({ status: 204 }); }
+  else if (path === '/api/osint/trabalhos/job-test/retomar') { jobFixture.estado = 'fila'; return route.fulfill({ status: 204 }); }
   else if (path === '/api/calendario/tarefas' && req.method() === 'POST') {
     if (failEvent) return route.fulfill({ status: 503, json: { erro: 'Agenda indisponível' } });
     const event = { ...req.postDataJSON(), id: events.length + 1, pessoas: [], anexos: [] }; events.push(event); data = event;
@@ -177,6 +229,7 @@ const expectPersonCentered = async (id, depth = 2) => {
   }, { id, depth });
 };
 try {
+  if (process.env.BROWSER_ONLY_IMPROVEMENTS !== '1') {
   await page.goto('http://127.0.0.1:4179/pessoas');
   await page.getByRole('heading', { name: /Pessoas físicas · Amigos/ }).waitFor();
   await page.getByLabel('Tipo de pessoa').selectOption('juridica');
@@ -369,18 +422,19 @@ try {
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 4);
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').style('opacity') === '0.2');
   await page.waitForFunction(() => document.querySelector('[data-person-id="99"]')?.style.opacity === '0.2');
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-99').emit('tap'));
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('node-99').emit('tap'); });
   await expectPersonCentered(99);
   assert.equal(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length), 1);
-  const isolatedBounds = await page.evaluate(() => ({ ...document.querySelector('[role=application]')._cyreg.cy.$id('node-99').boundingBox() }));
+  await page.waitForFunction(() => { const node = document.querySelector('[role=application]')._cyreg.cy.$id('node-99'); return node.width() === 78 && node.height() === 78; });
+  const isolatedBounds = await page.evaluate(() => (() => { const node = document.querySelector('[role=application]')._cyreg.cy.$id('node-99'); return { position: { ...node.position() }, width: node.width(), height: node.height() }; })());
   for (let attempt = 0; attempt < 3; attempt++) await page.getByRole('button', { name: 'Enquadrar mapa', exact: true }).click();
-  assert.deepEqual(await page.evaluate(() => ({ ...document.querySelector('[role=application]')._cyreg.cy.$id('node-99').boundingBox() })), isolatedBounds);
+  assert.deepEqual(await page.evaluate(() => (() => { const node = document.querySelector('[role=application]')._cyreg.cy.$id('node-99'); return { position: { ...node.position() }, width: node.width(), height: node.height() }; })()), isolatedBounds);
   await page.keyboard.press('Escape');
   assert.ok(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.zoom() <= 2));
   await page.getByRole('button', { name: 'Limpar foco', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes(':selected').empty()
     && document.querySelector('[role=application]')._cyreg.cy.elements('.is-dimmed').empty());
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('node-1').emit('tap'));
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('node-1').emit('tap'); });
   await page.waitForFunction(() => document.querySelector('[role=application]')._cyreg.cy.nodes().length === 3);
   await page.keyboard.press('Escape');
   await page.getByLabel('Mostrar apenas conexões', { exact: true }).uncheck();
@@ -570,7 +624,7 @@ try {
   await page.setViewportSize({ width: 1440, height: 1000 });
   await page.goto('http://127.0.0.1:4179/grafo');
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 2);
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'); });
   const relationshipDrawer = page.getByRole('dialog', { name: 'Detalhes do vínculo' });
   await relationshipDrawer.waitFor();
   page.once('dialog', dialog => dialog.dismiss());
@@ -601,7 +655,7 @@ try {
   await page.getByRole('button', { name: 'Salvar organização', exact: true }).click();
   await page.getByText('Organização salva para sua conta neste layout', { exact: true }).waitFor();
   const positionsBefore = await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(n => ({ pessoa_id: Number(n.data('nodeId')), ...n.position() })));
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().positions(() => ({ x: 8000, y: 8000 })));
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.nodes().positions(() => ({ x: 8000, y: 8000 })); });
   await page.getByRole('button', { name: 'Carregar organização', exact: true }).click();
   await page.getByText('Organização recuperada', { exact: true }).waitFor();
   assert.deepEqual(await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.nodes().map(n => ({ pessoa_id: Number(n.data('nodeId')), ...n.position() }))), positionsBefore);
@@ -658,12 +712,13 @@ try {
   await page.keyboard.press('Escape');
 
 
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  // Do not return Cytoscape collections: serializing them walks the entire graph/renderer.
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'); });
   const draftDrawer = page.getByRole('dialog', { name: 'Detalhes do vínculo' });
   await draftDrawer.getByRole('button', { name: 'Editar', exact: true }).click();
   await draftDrawer.getByLabel('Histórico e descrição (Markdown)', { exact: true }).fill('Contexto recuperável do vínculo');
   await page.keyboard.press('Escape');
-  await page.evaluate(() => document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'));
+  await page.evaluate(() => { document.querySelector('[role=application]')._cyreg.cy.$id('edge-1').emit('tap'); });
   await draftDrawer.getByRole('button', { name: 'Editar', exact: true }).click();
   await draftDrawer.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
   assert.equal(await draftDrawer.getByLabel('Histórico e descrição (Markdown)', { exact: true }).inputValue(), 'Contexto recuperável do vínculo');
@@ -679,6 +734,127 @@ try {
   await page.getByText('15 ms', { exact: true }).waitFor();
   await page.getByRole('link', { name: 'Abrir recurso', exact: true }).waitFor();
 
+  }
+  console.log("Browser: calendário, modais, importação e pesquisas");
+  calendarFixtures = true;
+  await page.goto('http://127.0.0.1:4179/calendario');
+  await page.getByText('Resposta calendário 1', { exact: true }).first().waitFor();
+  await page.getByRole('button', { name: 'Próximo mês', exact: true }).click();
+  await page.waitForFunction(() => document.body.textContent.includes('Atualizando tarefas'));
+  await page.getByRole('button', { name: 'Próximo mês', exact: true }).click();
+  await page.getByText('Resposta calendário 3', { exact: true }).first().waitFor();
+  assert.equal(typeof releaseCalendarResponse, 'function'); releaseCalendarResponse();
+  await page.waitForTimeout(150);
+  assert.equal(await page.getByText('Resposta calendário 2', { exact: true }).count(), 0);
+  await page.goto('http://127.0.0.1:4179/calendario?tarefa=301');
+  const taskDialog = page.getByRole('dialog', { name: 'Editar tarefa', exact: true });
+  await taskDialog.waitFor();
+  await taskDialog.getByLabel('Título', { exact: true }).fill('Rascunho protegido em modal aninhado');
+  const previewTrigger = taskDialog.getByRole('button', { name: /foto1.png/ }).first();
+  await previewTrigger.click();
+  const innerDialog = page.getByRole('dialog', { name: 'foto1.png', exact: true });
+  await innerDialog.waitFor();
+  for (let i = 0; i < 25; i++) {
+    await page.keyboard.press(i % 2 ? 'Shift+Tab' : 'Tab');
+    assert.equal(await innerDialog.evaluate(element => element.contains(document.activeElement)), true);
+  }
+  await page.keyboard.press('Escape');
+  await innerDialog.waitFor({ state: 'hidden' });
+  await taskDialog.waitFor();
+  assert.equal(await taskDialog.getByLabel('Título', { exact: true }).inputValue(), 'Rascunho protegido em modal aninhado');
+  assert.equal(await previewTrigger.evaluate(element => element === document.activeElement), true);
+  assert.equal(await page.evaluate(() => document.body.style.overflow), 'hidden');
+  await page.keyboard.press('Escape');
+  assert.equal(await page.evaluate(() => document.body.style.overflow), '');
+  await page.goto('http://127.0.0.1:4179/configuracoes');
+  await page.getByLabel('Arquivo de contatos', { exact: true }).setInputFiles({ name: 'agenda.csv', mimeType: 'text/csv', buffer: Buffer.from('Name,Email\nAna,ana@example.com') });
+  await page.getByRole('heading', { name: '2 contatos para revisar', exact: true }).waitFor();
+  assert.equal(previewUploads, 1); assert.equal(importConfirmations, 0);
+  await page.getByLabel('Ação para Ana da importação', { exact: true }).selectOption('atualizar');
+  await page.getByRole('button', { name: 'Confirmar importação (2)', exact: true }).click();
+  await page.getByText(/1 pessoas criadas, 1 atualizadas/).waitFor();
+  assert.equal(importConfirmations, 1);
+  assert.deepEqual(chosenImportDecisions, [{ indice: 0, acao: 'atualizar', pessoa_id: 1 }, { indice: 1, acao: 'criar' }]);
+  if (!parameters.some(p => p.ativo)) parameters.push({ id: 900, pessoa_id: 1, tipo: 'TERMO', valor: 'Pesquisa', provider: 'SEARXNG', ativo: true });
+  await page.goto('http://127.0.0.1:4179/pessoas/1?aba=osint');
+  await page.getByRole('heading', { name: 'Pesquisa em fontes públicas', exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Iniciar varredura', exact: true }).click();
+  await page.getByText('Na fila · 0 de 2 parâmetros', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Cancelar pesquisa', exact: true }).click();
+  await page.getByText('Cancelada · 0 de 2 parâmetros', { exact: true }).waitFor();
+  await page.reload();
+  await page.getByRole('button', { name: 'Retomar pesquisa', exact: true }).click();
+  await page.getByText('Na fila · 0 de 2 parâmetros', { exact: true }).waitFor();
+
+  console.log("Browser: lembretes e falha transitória");
+  await page.clock.install();
+  reminderFixture = { ...sampleTask('Reagendamento verificável'), id: 401, lembrete_minutos: 0, data_atualizacao: 'primeira-versao' };
+  await page.goto('http://127.0.0.1:4179/');
+  await page.clock.fastForward(2000);
+  await page.waitForFunction(() => document.body.textContent.includes('Lembrete: Reagendamento verificável'));
+  assert.equal(reminderAcks, 1);
+  await page.clock.fastForward(61000);
+  await page.waitForTimeout(50);
+  assert.equal(reminderAcks, 2);
+  reminderFixture = { ...sampleTask('Reagendamento verificável'), id: 401, lembrete_minutos: 0, data_atualizacao: 'nova-versao', inicio_em: new Date(Date.now() + 3600000).toISOString() };
+  await page.clock.fastForward(61000);
+  await page.waitForFunction(() => document.body.textContent.includes('Lembrete: Reagendamento verificável'));
+  assert.equal(reminderAcks, 3);
+
+  console.log('Browser: conflitos, histórico, mesclagem e saúde');
+  reliabilityFixtures = true;
+  people[0].versao = 10;
+  await page.goto('http://127.0.0.1:4179/pessoas/1/editar');
+  await page.getByLabel('Nome completo').fill('Rascunho em conflito');
+  conflictPerson = true;
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  await page.getByText('Este registro foi alterado desde que você abriu a edição. Seus dados não foram salvos.', { exact: true }).waitFor();
+  assert.equal(lastVersionHeader, '10');
+  assert.equal(await page.getByLabel('Nome completo').inputValue(), 'Rascunho em conflito');
+  conflictPerson = false;
+  await page.goto('http://127.0.0.1:4179/pessoas/1');
+  await page.locator('summary').filter({ hasText: 'Versões anteriores e desfazer' }).click();
+  await page.getByText('Descrição anterior', { exact: true }).waitFor();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Restaurar esta versão', exact: true }).click();
+  await page.getByRole('heading', { name: 'Ana restaurada', exact: true }).waitFor();
+  assert.equal(restoredRevisions, 1);
+  await page.goto('http://127.0.0.1:4179/configuracoes');
+  await page.getByRole('heading', { name: 'Saúde do sistema', exact: true }).waitFor();
+  await page.getByText('backup-validado.db', { exact: true }).waitFor();
+  await page.getByRole('button', { name: 'Verificar último backup', exact: true }).click();
+  await page.getByText('Backup verificado: integridade e checksum válidos', { exact: true }).waitFor();
+  await page.getByLabel('Pessoa de origem', { exact: true }).selectOption('2');
+  await page.getByLabel('Pessoa de destino', { exact: true }).selectOption('1');
+  await page.getByRole('button', { name: 'Revisar mesclagem', exact: true }).click();
+  await page.getByRole('button', { name: 'Confirmar mesclagem', exact: true }).waitFor();
+  assert.equal(mergePosts, 0);
+  await page.getByRole('checkbox', { name: /Usar nome da origem/ }).check();
+  page.once('dialog', dialog => dialog.accept());
+  await page.getByRole('button', { name: 'Confirmar mesclagem', exact: true }).click();
+  await page.getByText('Contatos mesclados com sucesso', { exact: true }).waitFor();
+  assert.equal(mergePosts, 1); assert.deepEqual(mergeDecision.usar_origem, ['nome']);
+  const localHour = await page.evaluate(() => new Date().getHours());
+  await page.getByLabel('Início do horário silencioso').fill(`${String(localHour).padStart(2, '0')}:00`);
+  await page.getByLabel('Fim do horário silencioso').fill(`${String((localHour + 1) % 24).padStart(2, '0')}:00`);
+  await page.getByRole('button', { name: 'Salvar horário silencioso', exact: true }).click();
+  await page.getByText('Preferência salva', { exact: true }).waitFor();
+  reminderFixture = { ...sampleTask('Aviso adiado'), id: 401, versao: 1, lembrete_minutos: 0, data_atualizacao: 'adiamento' };
+  await page.clock.fastForward(61000);
+  await page.waitForTimeout(100);
+  assert.equal(reminderAcks, 3);
+  assert.equal(await page.getByText(/Lembrete: Aviso adiado/).count(), 0);
+  await page.getByLabel('Início do horário silencioso').fill('');
+  await page.getByLabel('Fim do horário silencioso').fill('');
+  await page.getByRole('button', { name: 'Salvar horário silencioso', exact: true }).click();
+  await page.waitForTimeout(100);
+  await page.clock.fastForward(61000);
+  await page.getByText(/Lembrete: Aviso adiado/).waitFor();
+  await page.getByRole('button', { name: 'Adiar por 15 minutos', exact: true }).click();
+  await page.getByText('Lembrete adiado por 15 minutos', { exact: true }).waitFor();
+  assert.equal(snoozePosts, 1);
+  people[0].nome = 'Ana';
+
   const extraPeople = Array.from({ length: 40 }, (_, index) => ({ ...base, id: 200 + index, nome: `Contato ${String(index).padStart(2, '0')}` }));
   people.push(...extraPeople);
   await page.goto('http://127.0.0.1:4179/pessoas');
@@ -691,5 +867,5 @@ try {
   await page.waitForURL('**/login');
   assert.equal(logoutPosts, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: paginação, rascunhos de pessoas/tarefas, painel e conclusão, busca global e vínculo por URL, auditoria filtrada, salvamento de posições e zoom manual, regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
+  console.log('PASS: edição com versão e preservação de rascunho em conflito, consulta/restauração do histórico, prévia/decisão de mesclagem, saúde e verificação de backup, horário silencioso e adiamento, respostas antigas do calendário, foco/Tab/Escape em modais sobrepostos, prévia/decisões de importação, fila/cancelamento/retomada de pesquisas, lembretes e reconhecimento após falha, paginação, rascunhos de pessoas/tarefas, painel e conclusão, busca global e vínculo por URL, auditoria filtrada, salvamento de posições e zoom manual, regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

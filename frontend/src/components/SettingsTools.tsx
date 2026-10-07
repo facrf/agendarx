@@ -1,16 +1,13 @@
 import {
   BellOff,
   BellRing,
-  ContactRound,
   Download,
   DatabaseBackup,
   History,
   Eye,
   EyeOff,
-  FileArchive,
   ImageIcon,
   LockKeyhole,
-  RefreshCcw,
   Save,
   ShieldCheck,
   Trash2,
@@ -22,7 +19,7 @@ import type { ChangeEvent, FormEvent } from "react";
 import { useAuth } from "../contexts/AuthContext";
 import { useToast } from "../contexts/ToastContext";
 import { api, apiUrl, errorMessage } from "../services/api";
-import type { BackupConfiguracao, BackupInfo, IdentidadeVisual, ImportacaoContatosResultado, PessoaLixeira, RestauracaoPrevia } from "../types/api";
+import type { BackupConfiguracao, BackupInfo, IdentidadeVisual, PessoaLixeira, RestauracaoPrevia } from "../types/api";
 import { formatBytes, formatDate } from "../utils/format";
 import { AdminIcon } from "./AdminIcon";
 import { BrandIcon, refreshBranding } from "./BrandIcon";
@@ -185,7 +182,7 @@ export function TaskNotificationManager() {
           <p className="rounded-xl bg-slate-50 p-3 text-sm text-slate-500">Este navegador não oferece notificações do sistema. Os lembretes internos continuarão funcionando.</p>
         ) : (
           <>
-            <p className="text-sm leading-6 text-slate-600">Os avisos internos ficam sempre ativos. A permissão abaixo acrescenta uma notificação do sistema mesmo enquanto você estiver em outra aba.</p>
+            <p className="text-sm leading-6 text-slate-600">Os avisos internos respeitam o horário silencioso configurado. A permissão abaixo acrescenta uma notificação do sistema mesmo enquanto você estiver em outra aba.</p>
             <Button className="mt-4" type="button" variant={enabled ? "secondary" : "primary"} onClick={() => enabled ? disable() : void enable()}>
               {enabled ? <BellOff className="size-4" /> : <BellRing className="size-4" />}
               {enabled ? "Desativar no navegador" : "Ativar no navegador"}
@@ -418,68 +415,4 @@ function PasswordField({ id, value, onChange, visible, autoComplete, placeholder
   );
 }
 
-export function ContactTransferManager() {
-  const [importando, setImportando] = useState(false);
-  const [resultado, setResultado] = useState<ImportacaoContatosResultado | null>(null);
-  const inputRef = useRef<HTMLInputElement>(null);
-  const { notify } = useToast();
-
-  const importar = async (event: ChangeEvent<HTMLInputElement>) => {
-    const arquivo = event.target.files?.[0];
-    if (!arquivo) return;
-    const form = new FormData();
-    form.append("arquivo", arquivo);
-    setImportando(true);
-    setResultado(null);
-    try {
-      const resposta = await api.post<ImportacaoContatosResultado>(
-        "/api/configuracoes/contatos/importar",
-        form,
-      );
-      setResultado(resposta);
-      notify(`${resposta.pessoas_importadas} contato(s) importado(s)`);
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    } finally {
-      setImportando(false);
-      event.target.value = "";
-    }
-  };
-
-  return (
-    <section className="panel overflow-hidden xl:col-span-2">
-      <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
-        <div className="grid size-11 place-items-center rounded-2xl bg-emerald-50 text-emerald-700"><ContactRound className="size-5" /></div>
-        <div><h2 className="font-display text-xl font-semibold">Importar e exportar contatos</h2><p className="text-sm text-slate-500">Migre agendas sem depender de integrações externas.</p></div>
-      </header>
-      <div className="grid gap-5 p-5 sm:p-6 lg:grid-cols-2">
-        <div className="rounded-2xl border border-dashed border-teal-300 bg-teal-50/60 p-5">
-          <div className="flex items-start gap-3">
-            <Upload className="mt-0.5 size-5 shrink-0 text-teal-700" />
-            <div><h3 className="font-semibold text-slate-800">Importar agenda</h3><p className="mt-1 text-sm leading-6 text-slate-500">Aceita vCard/VCF, CSV do Google Contacts, Outlook e CSV genérico em UTF-8.</p></div>
-          </div>
-          <input ref={inputRef} className="sr-only" type="file" accept=".csv,.vcf,text/csv,text/vcard,text/x-vcard" onChange={importar} />
-          <Button className="mt-4" type="button" loading={importando} onClick={() => inputRef.current?.click()}><FileArchive className="size-4" /> Selecionar arquivo</Button>
-          {resultado && (
-            <div className="mt-4 rounded-xl border border-emerald-200 bg-white p-3 text-sm text-emerald-800">
-              <p className="font-semibold">{resultado.pessoas_importadas} pessoa(s) e {resultado.contatos_importados} meio(s) importados.</p>
-              {resultado.registros_ignorados > 0 && <p className="mt-1">{resultado.registros_ignorados} registro(s) sem nome foram ignorados.</p>}
-              {resultado.avisos.length > 0 && <ul className="mt-2 list-disc space-y-1 pl-5 text-xs text-amber-700">{resultado.avisos.map((aviso, index) => <li key={`${index}-${aviso}`}>{aviso}</li>)}</ul>}
-            </div>
-          )}
-        </div>
-
-        <div className="rounded-2xl border border-slate-200 bg-slate-50 p-5">
-          <div className="flex items-start gap-3">
-            <Download className="mt-0.5 size-5 shrink-0 text-sky-700" />
-            <div><h3 className="font-semibold text-slate-800">Exportar agenda</h3><p className="mt-1 text-sm leading-6 text-slate-500">CSV preserva categorias e tipos do AgendarX; vCard oferece maior compatibilidade com celulares e serviços de contatos.</p></div>
-          </div>
-          <div className="mt-4 flex flex-wrap gap-2">
-            <a className="btn btn-secondary" href={apiUrl("/api/configuracoes/contatos/exportar/csv")} download><Download className="size-4" /> Exportar CSV</a>
-            <a className="btn btn-secondary" href={apiUrl("/api/configuracoes/contatos/exportar/vcf")} download><RefreshCcw className="size-4" /> Exportar vCard</a>
-          </div>
-        </div>
-      </div>
-    </section>
-  );
-}
+export { ContactTransferManager } from "./ContactTransferManager";

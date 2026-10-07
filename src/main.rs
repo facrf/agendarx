@@ -1,3 +1,5 @@
+#[cfg(test)]
+mod confiabilidade_integration_tests;
 mod config;
 mod db;
 mod domain;
@@ -7,6 +9,8 @@ mod handlers;
 mod hp_integration_tests;
 #[cfg(test)]
 mod integration_tests;
+#[cfg(test)]
+mod melhorias_integration_tests;
 mod middleware;
 mod models;
 #[cfg(test)]
@@ -31,6 +35,7 @@ use crate::{config::Config, error::AppError};
 pub struct AppState {
     pub pool: SqlitePool,
     pub config: Config,
+    pub auth_runtime: handlers::auth::AuthRuntime,
     pub backup_runtime: handlers::backup::BackupRuntime,
 }
 
@@ -49,9 +54,11 @@ async fn main() -> Result<(), AppError> {
     let state = AppState {
         pool,
         config: config.clone(),
+        auth_runtime: handlers::auth::AuthRuntime::default(),
         backup_runtime: handlers::backup::BackupRuntime::default(),
     };
     handlers::backup::iniciar_rotina(state.clone());
+    handlers::osint::iniciar_rotina(state.clone()).await?;
 
     let app = construir_app(state);
     let listener = tokio::net::TcpListener::bind(config.endereco).await?;
@@ -65,17 +72,18 @@ async fn main() -> Result<(), AppError> {
 fn construir_app(state: AppState) -> Router {
     let config = &state.config;
     // Bytes e Multipart têm um limite próprio (2 MiB por padrão), além do tower-http.
-    // A margem cobre os delimitadores; handlers validam o tamanho real do arquivo.
-    let limite_corpo_requisicao = usize::try_from(config.task_storage_quota_bytes)
-        .unwrap_or(config.max_upload_bytes)
-        .max(config.max_upload_bytes)
-        .saturating_add(1024 * 1024);
+    // A margem cobre multipart; a leitura incremental aplica o teto por arquivo.
+    let limite_corpo_requisicao = config.max_upload_bytes.saturating_add(64 * 1024);
 
     let protegidas = Router::new()
         .nest("/api/auth", handlers::auth::rotas_protegidas())
         .nest("/api/configuracoes", handlers::configuracoes::rotas())
         .nest("/api/calendario", handlers::calendario::rotas())
         .nest("/api/pessoas", handlers::pessoas::rotas())
+        .nest("/api/revisoes", handlers::revisoes::rotas())
+        .nest("/api/mesclagem", handlers::mesclagem::rotas())
+        .nest("/api/preferencias", handlers::preferencias::rotas())
+        .nest("/api/saude", handlers::saude::rotas())
         .nest("/api/busca", handlers::busca::rotas())
         .nest("/api/painel", handlers::painel::rotas())
         .nest("/api/produtividade", handlers::produtividade::rotas())
@@ -97,7 +105,13 @@ fn construir_app(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health))
-        .nest("/api/auth", handlers::auth::rotas_publicas())
+        .nest(
+            "/api/auth",
+            handlers::auth::rotas_publicas().route_layer(from_fn_with_state(
+                state.clone(),
+                handlers::backup::aguardar_manutencao,
+            )),
+        )
         .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
         .layer(DefaultBodyLimit::max(limite_corpo_requisicao))

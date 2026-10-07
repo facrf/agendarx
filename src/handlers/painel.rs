@@ -18,6 +18,7 @@ struct Periodo {
 }
 #[derive(Serialize, sqlx::FromRow)]
 struct TarefaResumo {
+    versao: i64,
     id: i64,
     titulo: String,
     inicio_em: String,
@@ -85,7 +86,7 @@ async fn obter(
             _ => (amanha, depois),
         };
         let sql = format!(
-            "SELECT id,titulo,inicio_em,fim_em,dia_inteiro,status,prioridade FROM tarefa_calendario WHERE usuario_id=? AND status<>'CONCLUIDA' AND ({condicao}) ORDER BY inicio_em,id LIMIT 20"
+            "SELECT id,versao,titulo,inicio_em,fim_em,dia_inteiro,status,prioridade FROM tarefa_calendario WHERE usuario_id=? AND status<>'CONCLUIDA' AND ({condicao}) ORDER BY inicio_em,id LIMIT 20"
         );
         let count = format!(
             "SELECT COUNT(*) FROM tarefa_calendario WHERE usuario_id=? AND status<>'CONCLUIDA' AND ({condicao})"

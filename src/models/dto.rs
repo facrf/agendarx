@@ -76,7 +76,9 @@ pub struct PessoaTarefaResumo {
 
 #[derive(Debug, Serialize)]
 pub struct TarefaCalendarioResponse {
+    pub lembrete_adiado_ate: Option<String>,
     pub id: i64,
+    pub versao: i64,
     pub titulo: String,
     pub descricao: Option<String>,
     pub inicio_em: String,
@@ -213,6 +215,7 @@ pub struct ContatoInput {
 #[derive(Debug, Clone, Serialize, FromRow)]
 pub struct PessoaResumo {
     pub id: i64,
+    pub versao: i64,
     pub nome: String,
     pub categoria_id: Option<i64>,
     pub descricao: Option<String>,
@@ -282,14 +285,6 @@ pub struct IdentidadeVisualResponse {
 }
 
 #[derive(Debug, Serialize)]
-pub struct ImportacaoContatosResponse {
-    pub pessoas_importadas: usize,
-    pub contatos_importados: usize,
-    pub registros_ignorados: usize,
-    pub avisos: Vec<String>,
-}
-
-#[derive(Debug, Serialize)]
 pub struct GrafoResponse {
     pub nodes: Vec<GrafoNode>,
     pub edges: Vec<GrafoEdge>,
@@ -321,6 +316,7 @@ pub struct GrafoContato {
 #[derive(Debug, Serialize, FromRow)]
 pub struct GrafoEdge {
     pub id: i64,
+    pub versao: i64,
     pub source: i64,
     pub target: i64,
     pub label: String,
@@ -379,7 +375,7 @@ pub struct HistoricoBuscaPaginadoResponse {
     pub total_paginas: i64,
 }
 
-#[derive(Debug, Serialize)]
+#[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct VarreduraResponse {
     pub situacao: String,
     pub parametros_processados: usize,

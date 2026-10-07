@@ -289,6 +289,7 @@ export function GraphPage() {
       } else {
         saved = await api.post<PessoaVinculo>("/api/vinculos", payload);
       }
+      setForm(current => ({ ...current, versao: saved.versao }));
       await loadGraphData();
       const uploads = await Promise.allSettled(
         pendingRelationshipFiles.map((file) => {
@@ -330,6 +331,7 @@ export function GraphPage() {
     setShowRelationships(true);
     setEditingId(relationship.id);
     setForm({
+      versao: relationship.versao,
       pessoa_origem_id: relationship.pessoa_origem_id,
       pessoa_destino_id: relationship.pessoa_destino_id,
       tipo_vinculo: relationship.tipo_vinculo,
@@ -623,6 +625,7 @@ export function GraphPage() {
           await loadGraphData();
           setSelectedEdge({
             id: relationship.id,
+            versao: relationship.versao,
             source: relationship.pessoa_origem_id,
             target: relationship.pessoa_destino_id,
             label: relationship.tipo_vinculo,

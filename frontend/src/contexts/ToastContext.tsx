@@ -4,14 +4,16 @@ import type { PropsWithChildren } from "react";
 
 type ToastKind = "sucesso" | "erro" | "aviso";
 
+interface ToastAction { rotulo: string; executar: () => void }
 interface ToastItem {
+  acao?: ToastAction;
   id: number;
   mensagem: string;
   tipo: ToastKind;
 }
 
 interface ToastContextValue {
-  notify: (mensagem: string, tipo?: ToastKind) => void;
+  notify: (mensagem: string, tipo?: ToastKind, acao?: ToastAction) => void;
 }
 
 const ToastContext = createContext<ToastContextValue | null>(null);
@@ -24,10 +26,10 @@ export function ToastProvider({ children }: PropsWithChildren) {
   }, []);
 
   const notify = useCallback(
-    (mensagem: string, tipo: ToastKind = "sucesso") => {
+    (mensagem: string, tipo: ToastKind = "sucesso", acao?: ToastAction) => {
       const id = Date.now() + Math.random();
-      setToasts((atuais) => [...atuais, { id, mensagem, tipo }]);
-      window.setTimeout(() => remover(id), 4200);
+      setToasts((atuais) => [...atuais, { id, mensagem, tipo, acao }]);
+      window.setTimeout(() => remover(id), acao ? 20_000 : 4200);
     },
     [remover],
   );
@@ -56,7 +58,7 @@ export function ToastProvider({ children }: PropsWithChildren) {
             ) : (
               <CircleAlert className="mt-0.5 size-5 shrink-0" />
             )}
-            <span className="flex-1 text-sm font-medium">{toast.mensagem}</span>
+            <div className="flex-1 text-sm font-medium"><span>{toast.mensagem}</span>{toast.acao && <button type="button" className="mt-2 block underline" onClick={() => { toast.acao!.executar(); remover(toast.id); }}>{toast.acao.rotulo}</button>}</div>
             <button type="button" onClick={() => remover(toast.id)} aria-label="Fechar aviso">
               <X className="size-4" />
             </button>

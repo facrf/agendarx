@@ -1,7 +1,7 @@
 use axum::{
     Extension, Json, Router,
     extract::{Path, Query, State},
-    http::StatusCode,
+    http::{HeaderMap, StatusCode},
     routing::{get, post},
 };
 
@@ -48,7 +48,7 @@ struct PessoaFiltro {
     pagina: Option<i64>,
     por_pagina: Option<i64>,
 }
-const SELECT_PESSOAS: &str = "SELECT p.id,p.nome,p.categoria_id,p.descricao,c.nome_categoria,c.cor_hex,p.classificacao_risco,p.toxicidade,(p.foto_principal IS NOT NULL) AS tem_foto,p.pessoa_juridica,p.data_cadastro,COALESCE((SELECT group_concat(e.nome,char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),'') AS etiquetas,EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=";
+const SELECT_PESSOAS: &str = "SELECT p.id,p.versao,p.nome,p.categoria_id,p.descricao,c.nome_categoria,c.cor_hex,p.classificacao_risco,p.toxicidade,(p.foto_principal IS NOT NULL) AS tem_foto,p.pessoa_juridica,p.data_cadastro,COALESCE((SELECT group_concat(e.nome,char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),'') AS etiquetas,EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=";
 fn consulta_pessoas(
     prefixo: &str,
     filtro: &PessoaFiltro,
@@ -187,9 +187,8 @@ async fn criar_pessoa(
             .execute(&mut *tx)
             .await?;
     }
+    let pessoa = buscar_pessoa_detalhe_tx(&mut tx, pessoa_id, sessao.usuario.id).await?;
     tx.commit().await?;
-
-    let pessoa = buscar_pessoa_detalhe(&state, pessoa_id, sessao.usuario.id).await?;
     Ok((StatusCode::CREATED, Json(pessoa)))
 }
 
@@ -197,6 +196,7 @@ async fn atualizar_pessoa(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(id): Path<i64>,
+    headers: HeaderMap,
     Json(input): Json<PessoaUpdateInput>,
 ) -> Result<Json<PessoaDetalhe>, AppError> {
     validar_nome(&input.nome)?;
@@ -213,6 +213,7 @@ async fn atualizar_pessoa(
         }
     }
     let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "pessoa", id, &sessao, &headers).await?;
     let risco = super::hp_psicossocial::validar_cadastro(
         &mut tx,
         id,
@@ -279,10 +280,9 @@ async fn atualizar_pessoa(
             }
         }
     }
+    let pessoa = buscar_pessoa_detalhe_tx(&mut tx, id, sessao.usuario.id).await?;
     tx.commit().await?;
-    Ok(Json(
-        buscar_pessoa_detalhe(&state, id, sessao.usuario.id).await?,
-    ))
+    Ok(Json(pessoa))
 }
 
 async fn excluir_pessoa(
@@ -332,10 +332,14 @@ async fn obter_contato(
 
 async fn criar_contato(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    headers: HeaderMap,
     Path(pessoa_id): Path<i64>,
     Json(input): Json<ContatoInput>,
 ) -> Result<(StatusCode, Json<Contato>), AppError> {
     validar_contato(&input)?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    super::revisoes::iniciar(&mut tx, "pessoa", pessoa_id, &sessao, &headers).await?;
     let contato = sqlx::query_as::<_, Contato>(
         "INSERT INTO contato (pessoa_id, tipo_contato_id, valor) VALUES (?, ?, ?) \
          RETURNING id, pessoa_id, tipo_contato_id, valor",
@@ -343,17 +347,27 @@ async fn criar_contato(
     .bind(pessoa_id)
     .bind(input.tipo_contato_id)
     .bind(input.valor.trim())
-    .fetch_one(&state.pool)
+    .fetch_one(&mut *tx)
     .await?;
+    tx.commit().await?;
     Ok((StatusCode::CREATED, Json(contato)))
 }
 
 async fn atualizar_contato(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
     Json(input): Json<ContatoInput>,
 ) -> Result<Json<Contato>, AppError> {
     validar_contato(&input)?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let pessoa_id: i64 = sqlx::query_scalar("SELECT pessoa_id FROM contato WHERE id=?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::nao_encontrado("contato"))?;
+    super::revisoes::iniciar(&mut tx, "pessoa", pessoa_id, &sessao, &headers).await?;
     let contato = sqlx::query_as::<_, Contato>(
         "UPDATE contato SET tipo_contato_id = ?, valor = ? WHERE id = ? \
          RETURNING id, pessoa_id, tipo_contato_id, valor",
@@ -361,23 +375,34 @@ async fn atualizar_contato(
     .bind(input.tipo_contato_id)
     .bind(input.valor.trim())
     .bind(id)
-    .fetch_optional(&state.pool)
+    .fetch_optional(&mut *tx)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("contato"))?;
+    tx.commit().await?;
     Ok(Json(contato))
 }
 
 async fn excluir_contato(
     State(state): State<AppState>,
+    Extension(sessao): Extension<SessaoAutenticada>,
+    headers: HeaderMap,
     Path(id): Path<i64>,
 ) -> Result<StatusCode, AppError> {
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let pessoa_id: i64 = sqlx::query_scalar("SELECT pessoa_id FROM contato WHERE id=?")
+        .bind(id)
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::nao_encontrado("contato"))?;
+    super::revisoes::iniciar(&mut tx, "pessoa", pessoa_id, &sessao, &headers).await?;
     let resultado = sqlx::query("DELETE FROM contato WHERE id = ?")
         .bind(id)
-        .execute(&state.pool)
+        .execute(&mut *tx)
         .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("contato"));
     }
+    tx.commit().await?;
     Ok(StatusCode::NO_CONTENT)
 }
 
@@ -387,8 +412,17 @@ async fn buscar_pessoa_detalhe(
     usuario_id: i64,
 ) -> Result<PessoaDetalhe, AppError> {
     let mut tx = state.pool.begin().await?;
+    let detalhe = buscar_pessoa_detalhe_tx(&mut tx, id, usuario_id).await?;
+    tx.commit().await?;
+    Ok(detalhe)
+}
+async fn buscar_pessoa_detalhe_tx(
+    conn: &mut sqlx::SqliteConnection,
+    id: i64,
+    usuario_id: i64,
+) -> Result<PessoaDetalhe, AppError> {
     let pessoa = sqlx::query_as::<_, PessoaResumo>(
-        "SELECT p.id, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
+        "SELECT p.id, p.versao, p.nome, p.categoria_id, p.descricao, c.nome_categoria, c.cor_hex, p.classificacao_risco, p.toxicidade, \
                 (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica, p.data_cadastro, \
                 COALESCE((SELECT group_concat(e.nome, char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id), '') AS etiquetas, \
                 EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=?) AS favorito \
@@ -398,7 +432,7 @@ async fn buscar_pessoa_detalhe(
     )
     .bind(usuario_id)
     .bind(id)
-    .fetch_optional(&mut *tx)
+    .fetch_optional(&mut *conn)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("pessoa"))?;
     let contatos = sqlx::query_as::<_, Contato>(
@@ -406,14 +440,13 @@ async fn buscar_pessoa_detalhe(
          WHERE pessoa_id = ? ORDER BY id",
     )
     .bind(id)
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await?;
-    let (_, mut indicadores) = super::hp_psicossocial::calcular_snapshot(&mut tx).await?;
+    let (_, mut indicadores) = super::hp_psicossocial::calcular_snapshot(&mut *conn).await?;
     let psicossocial = indicadores
         .remove(&id)
         .ok_or_else(|| AppError::interno("perfil ausente do snapshot de HP"))?;
-    let risco_registro = super::hp_psicossocial::carregar_registro(&mut tx, id).await?;
-    tx.commit().await?;
+    let risco_registro = super::hp_psicossocial::carregar_registro(&mut *conn, id).await?;
     Ok(PessoaDetalhe {
         pessoa,
         contatos,

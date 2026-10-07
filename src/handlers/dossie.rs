@@ -97,7 +97,7 @@ async fn enviar_anexo(
         }
         let nome_arquivo = campo.file_name().unwrap_or("arquivo.bin").to_owned();
         let mime_informado = campo.content_type().map(str::to_owned);
-        let conteudo = campo.bytes().await.map_err(AppError::from)?;
+        let conteudo = super::upload::ler_campo(campo, state.config.max_upload_bytes).await?;
         arquivo = Some((nome_arquivo, mime_informado, conteudo));
         break;
     }
@@ -124,7 +124,16 @@ async fn enviar_anexo(
         None
     };
     let tamanho = conteudo.len() as i64;
-    let mut tx = state.pool.begin().await?;
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let ativa: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id=? AND excluida_em IS NULL)",
+    )
+    .bind(pessoa_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !ativa {
+        return Err(AppError::nao_encontrado("pessoa ativa"));
+    }
     let linha = sqlx::query_as::<_, AnexoLinha>(
         "INSERT INTO anexo_dossie \
             (pessoa_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes) \
@@ -267,7 +276,7 @@ async fn enviar_foto(
 ) -> Result<(StatusCode, Json<MensagemResponse>), AppError> {
     while let Some(campo) = multipart.next_field().await.map_err(AppError::from)? {
         if campo.name() == Some("arquivo") {
-            let conteudo = campo.bytes().await.map_err(AppError::from)?;
+            let conteudo = super::upload::ler_campo(campo, state.config.max_upload_bytes).await?;
             return atualizar_foto(State(state), Path(pessoa_id), conteudo).await;
         }
     }
@@ -300,11 +309,12 @@ async fn atualizar_foto(
         ));
     }
 
-    let resultado = sqlx::query("UPDATE pessoa SET foto_principal = ? WHERE id = ?")
-        .bind(conteudo.as_ref())
-        .bind(pessoa_id)
-        .execute(&state.pool)
-        .await?;
+    let resultado =
+        sqlx::query("UPDATE pessoa SET foto_principal = ? WHERE id = ? AND excluida_em IS NULL")
+            .bind(conteudo.as_ref())
+            .bind(pessoa_id)
+            .execute(&state.pool)
+            .await?;
     if resultado.rows_affected() == 0 {
         return Err(AppError::nao_encontrado("pessoa"));
     }

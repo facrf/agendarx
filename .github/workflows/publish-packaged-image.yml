@@ -23,7 +23,14 @@ concurrency:
   cancel-in-progress: false
 
 jobs:
+  qualidade:
+    name: Qualidade
+    uses: ./.github/workflows/quality.yml
+    with:
+      ref: ${{ inputs.tag }}
+
   publicar:
+    needs: qualidade
     name: Publicar imagem e Release
     if: ${{ github.server_url == 'https://github.com' }}
     runs-on: ubuntu-latest
