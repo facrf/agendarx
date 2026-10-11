@@ -6,6 +6,10 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
+_Aguardando próximas mudanças._
+
+## [0.6.7] - 2026-10-11
+
 ### Corrigido
 
 - Retentativas de cadastro após alteração de foto mantêm a versão atual sem ocultar
@@ -433,6 +437,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.7]: https://github.com/facrf/agendarx/compare/v0.6.6...v0.6.7
 [0.6.6]: https://github.com/facrf/agendarx/compare/v0.6.5e...v0.6.6
 [0.6.5e]: https://github.com/facrf/agendarx/compare/v0.6.5d...v0.6.5e
 [0.6.5d]: https://github.com/facrf/agendarx/compare/v0.6.5c...v0.6.5d
