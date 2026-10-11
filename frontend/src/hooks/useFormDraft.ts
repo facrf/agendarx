@@ -3,7 +3,7 @@ import { useAuth } from "../contexts/AuthContext";
 
 interface StoredDraft<T> { version: number; updated: number; value: T }
 function sameShape(value: unknown, sample: unknown): boolean {
-  if (sample === null) return value === null || ["number", "string", "boolean"].includes(typeof value);
+  if (sample === null) return value == null || ["number", "string", "boolean"].includes(typeof value);
   if (Array.isArray(sample)) return Array.isArray(value);
   if (typeof sample === "object") return value !== null && typeof value === "object"
     && Object.entries(sample as Record<string, unknown>).every(([key, item]) => sameShape((value as Record<string, unknown>)[key], item));
@@ -17,6 +17,8 @@ export function useFormDraft<T>({ name, value, enabled = true, meaningful = true
   const [pending, setPending] = useState<StoredDraft<T> | null>(null);
   const [savedAt, setSavedAt] = useState<number | null>(null);
   const [unavailable, setUnavailable] = useState(false);
+  const [clearRevision, setClearRevision] = useState(0);
+  const appliedClearRevision = useRef(0);
   const baseline = useRef("");
   const activeKey = useRef("");
   const serialized = JSON.stringify(value);
@@ -39,6 +41,13 @@ export function useFormDraft<T>({ name, value, enabled = true, meaningful = true
         if (raw) localStorage.removeItem(key);
       } catch { setUnavailable(true); }
     }
+    if (appliedClearRevision.current !== clearRevision) {
+      // clear() can run before batched form resets reach this effect. Adopt
+      // that render as the baseline so a completed save stays cleared.
+      appliedClearRevision.current = clearRevision;
+      baseline.current = serialized;
+      return;
+    }
     if (pending || baseline.current === serialized) return;
     if (!meaningful) {
       try { localStorage.removeItem(key); setSavedAt(null); baseline.current = serialized; }
@@ -50,10 +59,11 @@ export function useFormDraft<T>({ name, value, enabled = true, meaningful = true
       localStorage.setItem(key, JSON.stringify({ version: 1, updated, value }));
       setSavedAt(updated); baseline.current = serialized; setUnavailable(false);
     } catch { setUnavailable(true); }
-  }, [key, enabled, usuario, serialized, value, meaningful, pending, validate]);
+  }, [key, enabled, usuario, serialized, value, meaningful, pending, validate, clearRevision]);
   const clear = () => {
     try { localStorage.removeItem(key); } catch { setUnavailable(true); }
     setPending(null); setSavedAt(null); baseline.current = serialized;
+    setClearRevision(revision => revision + 1);
   };
   return { pending, savedAt, unavailable, clear,
     recover: () => { if (pending) { restore(pending.value); setPending(null); setSavedAt(pending.updated); } },

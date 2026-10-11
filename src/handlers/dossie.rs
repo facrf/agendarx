@@ -189,14 +189,7 @@ async fn stream_anexo(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let anexo = buscar_anexo(&state, id).await?;
-    Ok(servir_blob(
-        anexo.conteudo_blob,
-        &anexo.mime_type,
-        &anexo.nome_arquivo,
-        false,
-        headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
-    ))
+    servir_anexo_banco(&state.pool, OrigemAnexo::Dossie, id, &headers, false).await
 }
 
 async fn download_anexo(
@@ -204,14 +197,7 @@ async fn download_anexo(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let anexo = buscar_anexo(&state, id).await?;
-    Ok(servir_blob(
-        anexo.conteudo_blob,
-        &anexo.mime_type,
-        &anexo.nome_arquivo,
-        true,
-        headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
-    ))
+    servir_anexo_banco(&state.pool, OrigemAnexo::Dossie, id, &headers, true).await
 }
 
 async fn obter_miniatura(
@@ -426,27 +412,131 @@ pub(super) fn servir_blob(
 ) -> Response {
     let tamanho_total = dados.len();
     let intervalo = range.and_then(|valor| parse_range(valor, tamanho_total));
-
     if range.is_some() && intervalo.is_none() {
-        let mut response = Response::new(Body::empty());
-        *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
-        if let Ok(valor) = HeaderValue::from_str(&format!("bytes */{tamanho_total}")) {
-            response.headers_mut().insert(header::CONTENT_RANGE, valor);
-        }
-        return response;
+        return range_nao_satisfatorio(tamanho_total);
     }
+    let dados = Bytes::from(dados);
+    let corpo = intervalo.map_or_else(|| dados.clone(), |(inicio, fim)| dados.slice(inicio..=fim));
+    responder_blob(
+        corpo,
+        tamanho_total,
+        intervalo,
+        mime_type,
+        nome_arquivo,
+        download,
+    )
+}
 
-    let (inicio, fim, status) = intervalo
-        .map(|(inicio, fim)| (inicio, fim, StatusCode::PARTIAL_CONTENT))
-        .unwrap_or_else(|| (0, tamanho_total.saturating_sub(1), StatusCode::OK));
-    let corpo = if tamanho_total == 0 {
-        Vec::new()
-    } else {
-        dados[inicio..=fim].to_vec()
-    };
+#[derive(Clone, Copy)]
+pub(super) enum OrigemAnexo {
+    Dossie,
+    Vinculo,
+    Tarefa { usuario_id: i64 },
+}
 
+impl OrigemAnexo {
+    fn fonte(self) -> &'static str {
+        match self {
+            Self::Dossie => "anexo_dossie a WHERE a.id = ?",
+            Self::Vinculo => {
+                "anexo_vinculo a JOIN pessoa_vinculo v ON v.id = a.vinculo_id WHERE a.id = ? AND v.excluido_em IS NULL"
+            }
+            Self::Tarefa { .. } => {
+                "anexo_tarefa_calendario a JOIN tarefa_calendario t ON t.id = a.tarefa_id WHERE a.id = ? AND t.usuario_id = ?"
+            }
+        }
+    }
+}
+
+pub(super) async fn servir_anexo_banco(
+    pool: &sqlx::SqlitePool,
+    origem: OrigemAnexo,
+    id: i64,
+    headers: &HeaderMap,
+    download: bool,
+) -> Result<Response, AppError> {
+    // Keep metadata and bytes in the same SQLite snapshot, including ownership.
+    let mut tx = pool.begin().await?;
+    let sql = format!(
+        "SELECT a.mime_type, a.nome_arquivo, length(a.conteudo_blob) FROM {}",
+        origem.fonte()
+    );
+    let mut consulta = sqlx::query_as::<_, (String, String, i64)>(&sql).bind(id);
+    if let OrigemAnexo::Tarefa { usuario_id } = origem {
+        consulta = consulta.bind(usuario_id);
+    }
+    let (mime, nome, tamanho) = consulta
+        .fetch_optional(&mut *tx)
+        .await?
+        .ok_or_else(|| AppError::nao_encontrado("anexo"))?;
+    let tamanho =
+        usize::try_from(tamanho).map_err(|_| AppError::interno("tamanho de anexo inválido"))?;
+    let range = headers.get(header::RANGE).and_then(|v| v.to_str().ok());
+    let intervalo = range.and_then(|v| parse_range(v, tamanho));
+    if range.is_some() && intervalo.is_none() {
+        tx.commit().await?;
+        return Ok(range_nao_satisfatorio(tamanho));
+    }
+    let sql = format!(
+        "SELECT {} FROM {}",
+        if intervalo.is_some() {
+            "substr(a.conteudo_blob, ?, ?)"
+        } else {
+            "a.conteudo_blob"
+        },
+        origem.fonte()
+    );
+    let mut consulta = sqlx::query_scalar::<_, Vec<u8>>(&sql);
+    if let Some((inicio, fim)) = intervalo {
+        // SQLite BLOB substr uses a one-based byte offset.
+        consulta = consulta
+            .bind((inicio + 1) as i64)
+            .bind((fim - inicio + 1) as i64);
+    }
+    consulta = consulta.bind(id);
+    if let OrigemAnexo::Tarefa { usuario_id } = origem {
+        consulta = consulta.bind(usuario_id);
+    }
+    let dados = consulta.fetch_one(&mut *tx).await?;
+    tx.commit().await?;
+    Ok(responder_blob(
+        Bytes::from(dados),
+        tamanho,
+        intervalo,
+        &mime,
+        &nome,
+        download,
+    ))
+}
+
+fn range_nao_satisfatorio(tamanho_total: usize) -> Response {
+    let mut response = Response::new(Body::empty());
+    *response.status_mut() = StatusCode::RANGE_NOT_SATISFIABLE;
+    response.headers_mut().insert(
+        header::CACHE_CONTROL,
+        HeaderValue::from_static("private, no-store"),
+    );
+    if let Ok(valor) = HeaderValue::from_str(&format!("bytes */{tamanho_total}")) {
+        response.headers_mut().insert(header::CONTENT_RANGE, valor);
+    }
+    response
+}
+
+fn responder_blob(
+    corpo: Bytes,
+    tamanho_total: usize,
+    intervalo: Option<(usize, usize)>,
+    mime_type: &str,
+    nome_arquivo: &str,
+    download: bool,
+) -> Response {
+    let tamanho_corpo = corpo.len();
     let mut response = Response::new(Body::from(corpo));
-    *response.status_mut() = status;
+    *response.status_mut() = if intervalo.is_some() {
+        StatusCode::PARTIAL_CONTENT
+    } else {
+        StatusCode::OK
+    };
     let headers = response.headers_mut();
     headers.insert(
         header::CACHE_CONTROL,
@@ -468,10 +558,7 @@ pub(super) fn servir_blob(
     );
     headers.insert(
         header::CONTENT_LENGTH,
-        HeaderValue::from_str(
-            &(fim.saturating_sub(inicio) + usize::from(tamanho_total > 0)).to_string(),
-        )
-        .unwrap_or_else(|_| HeaderValue::from_static("0")),
+        HeaderValue::from_str(&tamanho_corpo.to_string()).expect("numeric content-length"),
     );
     let disposicao = if download { "attachment" } else { "inline" };
     let nome_seguro: String = nome_arquivo
@@ -487,7 +574,7 @@ pub(super) fn servir_blob(
     if let Ok(valor) = HeaderValue::from_str(&format!("{disposicao}; filename=\"{nome_seguro}\"")) {
         headers.insert(header::CONTENT_DISPOSITION, valor);
     }
-    if status == StatusCode::PARTIAL_CONTENT
+    if let Some((inicio, fim)) = intervalo
         && let Ok(valor) = HeaderValue::from_str(&format!("bytes {inicio}-{fim}/{tamanho_total}"))
     {
         headers.insert(header::CONTENT_RANGE, valor);
@@ -554,6 +641,112 @@ impl From<AnexoLinha> for AnexoResumo {
 #[cfg(test)]
 mod tests {
     use super::{normalizar_nome_arquivo, parse_range};
+
+    #[tokio::test]
+    async fn leitura_parcial_preserva_bytes_cabecalhos_e_propriedade() {
+        use super::{OrigemAnexo, servir_anexo_banco};
+        use axum::{
+            body::to_bytes,
+            http::{HeaderMap, HeaderValue, StatusCode, header},
+        };
+        let pool = sqlx::sqlite::SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::raw_sql("CREATE TABLE anexo_dossie(id INTEGER PRIMARY KEY, mime_type TEXT, nome_arquivo TEXT, conteudo_blob BLOB); CREATE TABLE pessoa_vinculo(id INTEGER PRIMARY KEY, excluido_em TEXT); CREATE TABLE anexo_vinculo(id INTEGER PRIMARY KEY, vinculo_id INTEGER, mime_type TEXT, nome_arquivo TEXT, conteudo_blob BLOB); CREATE TABLE tarefa_calendario(id INTEGER PRIMARY KEY, usuario_id INTEGER); CREATE TABLE anexo_tarefa_calendario(id INTEGER PRIMARY KEY, tarefa_id INTEGER, mime_type TEXT, nome_arquivo TEXT, conteudo_blob BLOB);").execute(&pool).await.unwrap();
+        let dados: Vec<u8> = (0..1024 * 1024).map(|v| (v % 251) as u8).collect();
+        for tabela in ["anexo_dossie", "anexo_vinculo", "anexo_tarefa_calendario"] {
+            let sql = format!(
+                "INSERT INTO {tabela}(id,mime_type,nome_arquivo,conteudo_blob) VALUES(1,'video/mp4','video.mp4',?)"
+            );
+            sqlx::query(&sql).bind(&dados).execute(&pool).await.unwrap();
+        }
+        sqlx::raw_sql("INSERT INTO pessoa_vinculo VALUES(1,NULL); UPDATE anexo_vinculo SET vinculo_id=1; INSERT INTO tarefa_calendario VALUES(1,7); UPDATE anexo_tarefa_calendario SET tarefa_id=1;").execute(&pool).await.unwrap();
+        for origem in [
+            OrigemAnexo::Dossie,
+            OrigemAnexo::Vinculo,
+            OrigemAnexo::Tarefa { usuario_id: 7 },
+        ] {
+            for (range, inicio, fim) in [
+                ("bytes=500000-500099", 500000, 500099),
+                ("bytes=-10", dados.len() - 10, dados.len() - 1),
+                ("bytes=1048570-", 1048570, dados.len() - 1),
+            ] {
+                let mut headers = HeaderMap::new();
+                headers.insert(header::RANGE, HeaderValue::from_static(range));
+                let resposta = servir_anexo_banco(&pool, origem, 1, &headers, false)
+                    .await
+                    .unwrap();
+                assert_eq!(resposta.status(), StatusCode::PARTIAL_CONTENT);
+                assert_eq!(
+                    resposta.headers()[header::CONTENT_RANGE],
+                    format!("bytes {inicio}-{fim}/{}", dados.len())
+                );
+                assert_eq!(
+                    resposta.headers()[header::CONTENT_LENGTH],
+                    (fim - inicio + 1).to_string()
+                );
+                assert_eq!(
+                    resposta.headers()[header::CACHE_CONTROL],
+                    "private, no-store"
+                );
+                assert_eq!(
+                    resposta.headers()[header::X_CONTENT_TYPE_OPTIONS],
+                    "nosniff"
+                );
+                assert_eq!(
+                    to_bytes(resposta.into_body(), 100).await.unwrap().as_ref(),
+                    &dados[inicio..=fim]
+                );
+            }
+            let resposta = servir_anexo_banco(&pool, origem, 1, &HeaderMap::new(), true)
+                .await
+                .unwrap();
+            assert_eq!(resposta.status(), StatusCode::OK);
+            assert_eq!(
+                resposta.headers()[header::CONTENT_DISPOSITION],
+                "attachment; filename=\"video.mp4\""
+            );
+            assert_eq!(
+                to_bytes(resposta.into_body(), dados.len())
+                    .await
+                    .unwrap()
+                    .as_ref(),
+                dados
+            );
+            let mut headers = HeaderMap::new();
+            headers.insert(header::RANGE, HeaderValue::from_static("bytes=1048576-"));
+            let resposta = servir_anexo_banco(&pool, origem, 1, &headers, false)
+                .await
+                .unwrap();
+            assert_eq!(resposta.status(), StatusCode::RANGE_NOT_SATISFIABLE);
+            assert_eq!(resposta.headers()[header::CONTENT_RANGE], "bytes */1048576");
+        }
+        assert!(matches!(
+            servir_anexo_banco(
+                &pool,
+                OrigemAnexo::Tarefa { usuario_id: 8 },
+                1,
+                &HeaderMap::new(),
+                false
+            )
+            .await,
+            Err(crate::error::AppError::NotFound(_))
+        ));
+        sqlx::query("UPDATE pessoa_vinculo SET excluido_em=CURRENT_TIMESTAMP")
+            .execute(&pool)
+            .await
+            .unwrap();
+        assert!(matches!(
+            servir_anexo_banco(&pool, OrigemAnexo::Vinculo, 1, &HeaderMap::new(), false).await,
+            Err(crate::error::AppError::NotFound(_))
+        ));
+        assert!(matches!(
+            servir_anexo_banco(&pool, OrigemAnexo::Dossie, 99, &HeaderMap::new(), false).await,
+            Err(crate::error::AppError::NotFound(_))
+        ));
+    }
 
     #[test]
     fn interpreta_ranges_http() {

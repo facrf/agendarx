@@ -262,7 +262,7 @@ async fn lembrete_vencido_apos_200_futuros_e_ack_antigo_nao_suprime_reagendament
 
 #[tokio::test]
 async fn uploads_concorrentes_respeitam_quantidade_e_limite_por_arquivo() {
-    let mut config = crate::config::Config::from_env().unwrap();
+    let mut config = crate::config::Config::para_testes().unwrap();
     config.database_url = "sqlite::memory:".into();
     config.max_upload_bytes = 1024;
     config.admin_login = Some("uploads-test".into());

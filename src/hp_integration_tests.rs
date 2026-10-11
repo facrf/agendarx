@@ -5,7 +5,7 @@ use serde_json::{Value, json};
 
 #[tokio::test]
 async fn hp_previa_revisoes_historico_e_atomicidade() {
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.database_url = "sqlite::memory:".into();
     config.admin_login = Some("admin-revisao".into());
     config.admin_password = Some("senha-admin-revisao".into());
@@ -332,7 +332,7 @@ async fn hp_previa_revisoes_historico_e_atomicidade() {
 
 #[tokio::test]
 async fn hp_snapshot_cadastro_configuracao_permissoes_e_lixeira() {
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.database_url = "sqlite::memory:".into();
     config.admin_login = Some("admin-hp".into());
     config.admin_password = Some("senha-admin-hp".into());

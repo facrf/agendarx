@@ -387,7 +387,7 @@ async fn painel_detecta_backup_corrompido_e_remove_da_lista_de_validos() {
     use std::io::Write;
     let dir = std::path::PathBuf::from(format!(".cache/health-test-{}", uuid::Uuid::new_v4()));
     std::fs::create_dir_all(&dir).unwrap();
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.database_url = format!("sqlite://{}?mode=rwc", dir.join("app.db").display());
     config.admin_login = Some("admin-saude".into());
     config.admin_password = Some("senha-saude-segura".into());

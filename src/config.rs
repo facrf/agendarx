@@ -29,22 +29,29 @@ pub struct Config {
 
 impl Config {
     pub fn from_env() -> Result<Self, AppError> {
+        Self::carregar(None)
+    }
+
+    #[cfg(test)]
+    pub(crate) fn para_testes() -> Result<Self, AppError> {
+        Self::carregar(Some(
+            "segredo-exclusivo-dos-testes-com-32-caracteres".into(),
+        ))
+    }
+
+    fn carregar(segredo_teste: Option<String>) -> Result<Self, AppError> {
         let _ = dotenvy::dotenv();
 
         let endereco = parse_env("SERVER_ADDR", "0.0.0.0:12000")?;
         let database_url = env::var("DATABASE_URL")
             .unwrap_or_else(|_| "sqlite://data/agendarx.db?mode=rwc".to_owned());
-        let jwt_secret = env::var("JWT_SECRET").unwrap_or_else(|_| {
-            tracing::warn!(
-                "JWT_SECRET ausente; usando segredo apenas para desenvolvimento. Configure-o em produção"
-            );
-            "desenvolvimento-altere-este-segredo-32-chars".to_owned()
-        });
-        if jwt_secret.len() < 32 {
-            return Err(AppError::configuracao(
-                "JWT_SECRET deve possuir pelo menos 32 caracteres",
-            ));
-        }
+        let jwt_secret = match segredo_teste {
+            Some(segredo) => segredo,
+            None => validar_segredo_jwt(
+                env::var("JWT_SECRET").ok(),
+                parse_bool_env("ALLOW_INSECURE_DEV_JWT", false)?,
+            )?,
+        };
 
         let admin_login = env::var("ADMIN_LOGIN")
             .ok()
@@ -183,5 +190,50 @@ fn parse_bool_env(nome: &str, padrao: bool) -> Result<bool, AppError> {
             ))),
         },
         Err(_) => Ok(padrao),
+    }
+}
+
+fn validar_segredo_jwt(
+    segredo: Option<String>,
+    permitir_desenvolvimento: bool,
+) -> Result<String, AppError> {
+    let segredo = match segredo {
+        Some(segredo) => segredo,
+        None if permitir_desenvolvimento => {
+            tracing::warn!(
+                "ALLOW_INSECURE_DEV_JWT ativo: usando segredo público apenas para desenvolvimento"
+            );
+            "desenvolvimento-altere-este-segredo-32-chars".to_owned()
+        }
+        None => {
+            return Err(AppError::configuracao(
+                "JWT_SECRET é obrigatório; configure um segredo com pelo menos 32 caracteres",
+            ));
+        }
+    };
+    if segredo.chars().count() < 32 {
+        return Err(AppError::configuracao(
+            "JWT_SECRET deve possuir pelo menos 32 caracteres",
+        ));
+    }
+    Ok(segredo)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validar_segredo_jwt;
+
+    #[test]
+    fn segredo_jwt_exige_configuracao_ou_opcao_explicita_de_desenvolvimento() {
+        assert!(validar_segredo_jwt(None, false).is_err());
+        assert!(validar_segredo_jwt(None, true).is_ok());
+        for permitir in [false, true] {
+            assert!(validar_segredo_jwt(Some("curto".into()), permitir).is_err());
+            assert!(validar_segredo_jwt(Some("á".repeat(31)), permitir).is_err());
+            assert_eq!(
+                validar_segredo_jwt(Some("a".repeat(32)), permitir).unwrap(),
+                "a".repeat(32)
+            );
+        }
     }
 }

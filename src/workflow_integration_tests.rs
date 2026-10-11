@@ -7,7 +7,7 @@ use reqwest::{Client, Method, StatusCode};
 use serde_json::{Value, json};
 
 pub(crate) async fn fixture() -> (TestApi, sqlx::SqlitePool, String, String, i64, i64) {
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.database_url = "sqlite::memory:".into();
     config.admin_login = Some("admin-fluxos".into());
     config.admin_password = Some("senha-fluxos-segura".into());

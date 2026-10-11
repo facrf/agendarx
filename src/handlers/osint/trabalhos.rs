@@ -306,7 +306,7 @@ mod tests {
         let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
         let url = format!("http://{}", listener.local_addr().unwrap());
         let server = tokio::spawn(async move { axum::serve(listener, mock).await.unwrap() });
-        let mut config = crate::config::Config::from_env().unwrap();
+        let mut config = crate::config::Config::para_testes().unwrap();
         config.database_url = "sqlite::memory:".into();
         config.admin_login = Some("worker".into());
         config.admin_password = Some("senha-worker-segura".into());

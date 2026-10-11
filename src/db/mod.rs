@@ -60,7 +60,10 @@ async fn criar_admin_inicial(pool: &SqlitePool, config: &Config) -> Result<(), A
         return Ok(());
     }
 
-    let senha = senha.clone();
+    crate::handlers::auth::validar_novo_login(login)
+        .map_err(|erro| AppError::configuracao(format!("ADMIN_LOGIN inválido: {erro}")))?;
+    let senha = crate::handlers::auth::validar_nova_senha(senha.clone())
+        .map_err(|erro| AppError::configuracao(format!("ADMIN_PASSWORD inválida: {erro}")))?;
     let senha_hash = tokio::task::spawn_blocking(move || {
         let salt = SaltString::generate(&mut OsRng);
         Argon2::default()
@@ -78,4 +81,48 @@ async fn criar_admin_inicial(pool: &SqlitePool, config: &Config) -> Result<(), A
         .await?;
     tracing::info!(login, "usuário administrador inicial criado");
     Ok(())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[tokio::test]
+    async fn bootstrap_valida_limites_antes_de_criar_usuario_e_preserva_contas_existentes() {
+        let pool = SqlitePoolOptions::new()
+            .max_connections(1)
+            .connect("sqlite::memory:")
+            .await
+            .unwrap();
+        sqlx::migrate!("./migrations").run(&pool).await.unwrap();
+        let mut config = Config::para_testes().unwrap();
+        for (login, senha) in [
+            ("x".repeat(65), "senha-segura".into()),
+            ("admin".into(), "x".repeat(1025)),
+            ("ab".into(), "senha-segura".into()),
+            ("admin\n".into(), "senha-segura".into()),
+            ("admin".into(), "curta".into()),
+        ] {
+            config.admin_login = Some(login);
+            config.admin_password = Some(senha);
+            assert!(criar_admin_inicial(&pool, &config).await.is_err());
+            let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usuario")
+                .fetch_one(&pool)
+                .await
+                .unwrap();
+            assert_eq!(total, 0);
+        }
+        config.admin_login = Some("á".repeat(64));
+        config.admin_password = Some("x".repeat(1024));
+        criar_admin_inicial(&pool, &config).await.unwrap();
+        // Environment credentials are irrelevant after bootstrap, even if invalid.
+        config.admin_login = Some("x".repeat(65));
+        config.admin_password = Some("curta".into());
+        criar_admin_inicial(&pool, &config).await.unwrap();
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM usuario")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(total, 1);
+    }
 }

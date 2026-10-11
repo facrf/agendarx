@@ -83,7 +83,10 @@ da cota acumulada do usuário. Uploads respeitam `MAX_UPLOAD_BYTES`; anexos de t
 tarefa e por usuário. A API detecta o tipo do conteúdo, armazena o BLOB e
 disponibiliza streaming inline ou download. O streaming aceita um intervalo
 HTTP `Range`, permitindo reprodução de áudio e vídeo e visualização de mídia pelo
-navegador. O frontend compartilha o mesmo visualizador entre dossiê, vínculos e tarefas,
+navegador. Em anexos de dossiês, vínculos e tarefas, os metadados e o trecho do
+BLOB são lidos no mesmo snapshot SQLite; `substr` busca apenas os bytes pedidos.
+Respostas completas e intervalos em memória usam `Bytes`, sem copiar o conteúdo
+para montar o corpo HTTP. O frontend compartilha o mesmo visualizador entre dossiê, vínculos e tarefas,
 com miniaturas WebP de até 512 px para imagens raster e visualização inline de
 imagens, áudio, vídeo, PDF e texto. As miniaturas ficam em tabelas de cache
 separadas, são criadas junto com novos uploads e geradas sob demanda para anexos

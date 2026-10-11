@@ -67,7 +67,7 @@ impl TestApi {
 
 #[tokio::test]
 async fn rotas_api_inexistentes_retornam_json_e_preservam_frontend() {
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.frontend_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
     let pool = sqlx::sqlite::SqlitePoolOptions::new()
         .connect_lazy("sqlite::memory:")
@@ -136,7 +136,7 @@ async fn rotas_api_inexistentes_retornam_json_e_preservam_frontend() {
 
 #[tokio::test]
 async fn uploads_persistencia_transacoes_e_permissoes() {
-    let mut config = Config::from_env().unwrap();
+    let mut config = Config::para_testes().unwrap();
     config.database_url = "sqlite::memory:".to_owned();
     config.admin_login = Some("admin-teste".to_owned());
     config.admin_password = Some("senha-teste-segura".to_owned());

@@ -35,6 +35,7 @@ const parameters = [];
 let failEvent = false;
 let attachmentPosts = 0;
 let photoPosts = 0, personPosts = 0, failPhoto = false;
+let createdPerson = null, enforcePersonVersions = false;
 let savedSnapshot = null;
 let nextSavedSnapshot = null;
 const riskHistory = {};
@@ -120,15 +121,16 @@ await page.context().route('**/api/**', async route => {
     data = { itens: items, total: items.length, pagina: 1, por_pagina: 30, total_paginas: 1 };
   }
   else if (path === '/api/pessoas') {
-    if (req.method() === 'POST') { personPosts++; data = { ...base, ...req.postDataJSON(), id: 4 }; }
+    if (req.method() === 'POST') { personPosts++; createdPerson = { ...base, ...req.postDataJSON(), id: 4 }; data = createdPerson; }
     else data = people;
   } else if (/^\/api\/pessoas\/\d+$/.test(path)) {
-    const person = people.find(p => p.id === Number(path.split('/').at(-1))) ?? { ...people[0] };
+    const person = people.find(p => p.id === Number(path.split('/').at(-1))) ?? createdPerson ?? { ...people[0] };
     if (req.method() === 'PUT') {
       lastVersionHeader = req.headers()['if-match'];
+      if (enforcePersonVersions && Number(lastVersionHeader) !== person.versao) return route.fulfill({ status: 409, json: { erro: 'Versão desatualizada no teste de recuperação' } });
       if (conflictPerson) return route.fulfill({ status: 409, json: { erro: 'Este registro foi alterado desde que você abriu a edição. Seus dados não foram salvos.' } });
       const anterior = riskRecord(person);
-      Object.assign(person, req.postDataJSON());
+      Object.assign(person, req.postDataJSON(), { versao: person.versao + 1 });
       const novo = riskRecord(person);
       if (JSON.stringify(anterior) !== JSON.stringify(novo)) (riskHistory[person.id] ??= []).unshift({ id: (riskHistory[person.id]?.length ?? 0) + 1, autor_login: 'teste', registrado_em: '2026-09-17 12:00:00', anterior, novo });
       if (nextSavedSnapshot) savedSnapshot = nextSavedSnapshot;
@@ -192,7 +194,15 @@ await page.context().route('**/api/**', async route => {
     photoPosts++;
     assert.ok(req.headers()['content-type'].startsWith('multipart/form-data;'));
     if (failPhoto) return route.abort('failed');
+    const person = people.find(p => p.id === Number(path.split('/')[4])) ?? createdPerson;
+    person.versao++; person.tem_foto = true;
     data = { mensagem: 'foto atualizada' };
+  } else if (path.endsWith('/foto') && req.method() === 'DELETE') {
+    const person = people.find(p => p.id === Number(path.split('/')[4])) ?? createdPerson;
+    person.versao++; person.tem_foto = false;
+    return route.fulfill({ status: 204 });
+  } else if (path.endsWith('/foto') && req.method() === 'GET') {
+    return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=', 'base64') });
   } else if (path.endsWith('/stream')) return route.fulfill({ contentType: 'image/png', body: Buffer.from('iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mP8/x8AAwMCAO+aJ1sAAAAASUVORK5CYII=', 'base64') });
   await route.fulfill({ json: data });
 });
@@ -863,6 +873,57 @@ try {
   await page.getByRole('heading', { name: 'Contato 27', exact: true }).waitFor();
   assert.equal(await page.getByRole('heading', { name: 'Ana', exact: true }).count(), 0);
   people.splice(3);
+  // A saved person's version and ID survive reload after a failed event.
+  enforcePersonVersions = true;
+  const createdBeforeRecovery = personPosts;
+  const photosBeforeRecovery = photoPosts;
+  await page.goto('http://127.0.0.1:4179/pessoas/nova');
+  await page.getByLabel('Nome completo').fill('Cadastro parcialmente salvo');
+  const recoveryImage = await page.evaluate(() => { const canvas = document.createElement('canvas'); canvas.width = 20; canvas.height = 20; canvas.getContext('2d').fillRect(0, 0, 20, 20); return canvas.toDataURL('image/png').split(',')[1]; });
+  await page.locator('input[type=file]').setInputFiles({ name: 'foto.png', mimeType: 'image/png', buffer: Buffer.from(recoveryImage, 'base64') });
+  await page.getByLabel('Criar evento na agenda (opcional)').check();
+  await page.getByLabel('Início', { exact: true }).fill('2026-10-21T09:30');
+  failEvent = true;
+  await page.getByRole('button', { name: 'Cadastrar pessoa', exact: true }).click();
+  await page.getByText(/Dados salvos, mas o evento não foi criado/).waitFor();
+  assert.equal(personPosts, createdBeforeRecovery + 1);
+  assert.equal(photoPosts, photosBeforeRecovery + 1);
+  const savedVersion = createdPerson.versao;
+  await page.waitForFunction(version => {
+    const draft = JSON.parse(localStorage.getItem('agendarx:draft:v1:1:pessoa:nova'));
+    return draft?.value.pessoaSalvaId === 4 && draft.value.versao === version;
+  }, savedVersion);
+  await page.reload();
+  await page.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await page.getByLabel('Nome completo').inputValue(), 'Cadastro parcialmente salvo');
+  failEvent = false;
+  await page.getByRole('button', { name: 'Cadastrar pessoa', exact: true }).click();
+  await page.waitForURL('**/pessoas/4');
+  assert.equal(lastVersionHeader, String(savedVersion));
+  assert.equal(personPosts, createdBeforeRecovery + 1);
+  assert.equal(photoPosts, photosBeforeRecovery + 1);
+  assert.equal(await page.evaluate(() => localStorage.getItem('agendarx:draft:v1:1:pessoa:nova')), null);
+
+  // Removing a photo also allows retry, while unrelated edits still conflict.
+  await page.goto('http://127.0.0.1:4179/pessoas/4/editar');
+  await page.getByRole('button', { name: 'Remover foto atual', exact: true }).click();
+  await page.getByLabel('Criar evento na agenda (opcional)').check();
+  await page.getByLabel('Início', { exact: true }).fill('2026-10-22T09:30');
+  failEvent = true;
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  await page.getByText(/Dados salvos, mas o evento não foi criado/).waitFor();
+  const deletedPhotoVersion = createdPerson.versao;
+  failEvent = false;
+  // Simulate another user's edit between attempts: the form must not overwrite it.
+  createdPerson.versao++;
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  await page.getByText('Versão desatualizada no teste de recuperação', { exact: true }).waitFor();
+  assert.equal(lastVersionHeader, String(deletedPhotoVersion));
+  createdPerson.versao = deletedPhotoVersion;
+  await page.getByRole('button', { name: 'Salvar alterações', exact: true }).click();
+  await page.waitForURL('**/pessoas/4');
+  assert.equal(createdPerson.tem_foto, false);
+  enforcePersonVersions = false;
   await page.getByRole('button', { name: 'Sair', exact: true }).click();
   await page.waitForURL('**/login');
   assert.equal(logoutPosts, 1);

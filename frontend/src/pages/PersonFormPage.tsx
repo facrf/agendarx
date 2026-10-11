@@ -67,16 +67,19 @@ export function PersonFormPage() {
   const [erroCarregamento, setErroCarregamento] = useState(false);
   const [salvando, setSalvando] = useState(false);
   const [progressoFoto, setProgressoFoto] = useState<number | null>(null);
-  const [versao, setVersao] = useState<number | undefined>();
+  const [versao, setVersao] = useState<number | null>(null);
   const [pessoaSalvaId, setPessoaSalvaId] = useState<number | null>(null);
 
   const formDraft = useFormDraft({
     name: `pessoa:${pessoaId ?? "nova"}`, enabled: !carregando && !carregandoEtiquetas && !erroCarregamento,
     meaningful: Boolean(nome.trim() || descricao.trim() || contatos.length),
     value: { versao, nome, descricao, pessoaJuridica, classificacaoRisco, toxicidade, riscoJustificativa, riscoRevisadoEm, categoriaId, contatos, etiquetasIds, removerFoto, pessoaSalvaId, agenda: agenda.draft },
-    validate: item => item.contatos.every(c => typeof c.tipo_contato_id === "number" && typeof c.valor === "string") && item.etiquetasIds.every(id => typeof id === "number"),
+    validate: item => (item.versao == null || Number.isSafeInteger(item.versao) && item.versao > 0)
+      && (item.pessoaSalvaId === null || Number.isSafeInteger(item.pessoaSalvaId) && item.pessoaSalvaId > 0)
+      && (item.pessoaSalvaId === null || item.versao != null)
+      && item.contatos.every(c => typeof c.tipo_contato_id === "number" && typeof c.valor === "string") && item.etiquetasIds.every(id => typeof id === "number"),
     restore: item => {
-      setVersao(item.versao); setNome(item.nome); setDescricao(item.descricao); setPessoaJuridica(item.pessoaJuridica);
+      setVersao(item.versao ?? null); setNome(item.nome); setDescricao(item.descricao); setPessoaJuridica(item.pessoaJuridica);
       setClassificacaoRisco(item.classificacaoRisco); setToxicidade(item.toxicidade);
       setRiscoJustificativa(item.riscoJustificativa); setRiscoRevisadoEm(item.riscoRevisadoEm);
       setCategoriaId(item.categoriaId); setContatos(item.contatos); setEtiquetasIds(item.etiquetasIds);
@@ -100,7 +103,7 @@ export function PersonFormPage() {
         setCategorias(categoriasData);
         setTipos(tiposData);
         if (pessoa) {
-          setVersao(pessoa.versao);
+          setVersao(pessoa.versao ?? null);
           setNome(pessoa.nome);
           setDescricao(pessoa.descricao || "");
           setPessoaJuridica(pessoa.pessoa_juridica);
@@ -205,7 +208,7 @@ export function PersonFormPage() {
         });
         destinoId = criada.id;
         setPessoaSalvaId(criada.id);
-        setVersao(criada.versao);
+        setVersao(criada.versao ?? null);
         setContatos(criada.contatos.map((contato) => ({ ...contato })));
       } else {
         const atualizada = await api.put<PessoaDetalhe>(`/api/pessoas/${destinoId}`, {
@@ -220,7 +223,7 @@ export function PersonFormPage() {
           risco_revisado_em: riscoRevisadoEm,
           contatos: contatos.map(({ id, tipo_contato_id, valor }) => ({ id, tipo_contato_id, valor: valor.trim() })),
         });
-        setVersao(atualizada.versao);
+        setVersao(atualizada.versao ?? null);
         setContatos(atualizada.contatos.map((contato) => ({ ...contato })));
       }
 
@@ -237,8 +240,14 @@ export function PersonFormPage() {
           form.append("arquivo", fotoPreparada, fotoPreparada.type === "image/webp" ? "foto.webp" : "foto.png");
           setProgressoFoto(0);
           await api.upload(`/api/dossie/pessoas/${destinoId}/foto`, form, setProgressoFoto);
+          // Each photo mutation increments versao once via versao_pessoa.
+          // Preserve conflicts from other edits instead of adopting their version.
+          setVersao(current => current === null ? null : current + 1);
         }
-        else if (removerFoto && temFoto) await api.delete(`/api/dossie/pessoas/${destinoId}/foto`);
+        else if (removerFoto && temFoto) {
+          await api.delete(`/api/dossie/pessoas/${destinoId}/foto`);
+          setVersao(current => current === null ? null : current + 1);
+        }
       } catch (error) {
         notify(`Dados da pessoa salvos, mas a foto não foi atualizada: ${errorMessage(error)}. Você pode tentar salvar novamente.`, "erro");
         return;

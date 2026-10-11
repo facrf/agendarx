@@ -4,7 +4,7 @@ use axum::{
     Extension, Json, Router,
     body::Bytes,
     extract::{Multipart, Path, Query, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::Response,
     routing::get,
 };
@@ -867,16 +867,14 @@ async fn servir_anexo(
     headers: HeaderMap,
     download: bool,
 ) -> Result<Response, AppError> {
-    let anexo = buscar_conteudo_anexo(state, usuario_id, id).await?;
-    Ok(super::dossie::servir_blob(
-        anexo.conteudo_blob,
-        &anexo.mime_type,
-        &anexo.nome_arquivo,
+    super::dossie::servir_anexo_banco(
+        &state.pool,
+        super::dossie::OrigemAnexo::Tarefa { usuario_id },
+        id,
+        &headers,
         download,
-        headers
-            .get(header::RANGE)
-            .and_then(|valor| valor.to_str().ok()),
-    ))
+    )
+    .await
 }
 
 async fn obter_miniatura(

@@ -1491,7 +1491,7 @@ mod tests {
     #[tokio::test]
     async fn snapshot_validado_preserva_todo_o_banco() {
         let id = uuid::Uuid::new_v4().simple().to_string();
-        let mut config = Config::from_env().unwrap();
+        let mut config = Config::para_testes().unwrap();
         config.database_url = format!("sqlite://.cache/backup-test-{id}.db?mode=rwc");
         config.admin_login = Some("admin-backup".into());
         config.admin_password = Some("senha-backup-segura".into());

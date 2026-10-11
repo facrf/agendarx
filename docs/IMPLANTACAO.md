@@ -7,11 +7,12 @@
 | `SERVER_ADDR` | `0.0.0.0:12000` | Endereço e porta HTTP |
 | `DATABASE_URL` | `sqlite://data/agendarx.db?mode=rwc` | Banco SQLite |
 | `FRONTEND_DIR` | `frontend/dist` | Diretório da SPA compilada |
-| `JWT_SECRET` | somente desenvolvimento | Segredo com pelo menos 32 caracteres |
+| `JWT_SECRET` | obrigatório | Segredo com pelo menos 32 caracteres |
+| `ALLOW_INSECURE_DEV_JWT` | `false` | Permite iniciar sem `JWT_SECRET` com um segredo público; use somente em desenvolvimento local |
 | `JWT_TTL_MINUTES` | `480` | Duração máxima da sessão |
 | `COOKIE_SECURE` | `false` | Envia cookie apenas por HTTPS quando `true` |
-| `ADMIN_LOGIN` | não definido | Login criado na primeira inicialização |
-| `ADMIN_PASSWORD` | não definido | Senha do usuário inicial |
+| `ADMIN_LOGIN` | não definido | Login inicial com 3 a 64 caracteres, sem caracteres de controle |
+| `ADMIN_PASSWORD` | não definido | Senha inicial com 8 a 1.024 caracteres |
 | `MAX_UPLOAD_BYTES` | `26214400` | Limite geral de upload, em bytes |
 | `TASK_STORAGE_PER_TASK_BYTES` | `104857600` | Cota total de anexos por tarefa, em bytes; não pode ser menor que o limite de upload |
 | `TASK_STORAGE_QUOTA_BYTES` | `1073741824` | Cota total dos anexos de tarefas por usuário, em bytes; não pode ser menor que a cota por tarefa |

@@ -6,7 +6,19 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
-_Aguardando próximas mudanças._
+### Corrigido
+
+- Retentativas de cadastro após alteração de foto mantêm a versão atual sem ocultar
+  edições concorrentes; rascunhos recuperados preservam o ID do cadastro parcial e
+  continuam apagados após uma gravação concluída.
+- Leituras com `Range` em anexos de dossiê, vínculos e tarefas consultam somente o
+  trecho solicitado e mantêm as verificações de propriedade e vínculo ativo.
+- O bootstrap rejeita credenciais administrativas fora dos limites aceitos pelo login.
+
+### Segurança
+
+- `JWT_SECRET` passa a ser obrigatório. `ALLOW_INSECURE_DEV_JWT=true` habilita o
+  segredo público apenas para desenvolvimento local.
 
 ## [0.6.6] - 2026-10-07
 

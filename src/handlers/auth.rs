@@ -305,7 +305,7 @@ mod seguranca_tests {
 
     #[tokio::test]
     async fn senha_validada_antes_da_rotacao_nao_emite_sessao_depois() {
-        let mut config = crate::config::Config::from_env().unwrap();
+        let mut config = crate::config::Config::para_testes().unwrap();
         config.database_url = "sqlite::memory:".into();
         config.admin_login = Some("race-test".into());
         config.admin_password = Some("senha-segura-teste".into());
@@ -566,7 +566,7 @@ async fn excluir_icone_admin(
     Ok(StatusCode::NO_CONTENT)
 }
 
-pub(super) fn validar_novo_login(login: &str) -> Result<(), AppError> {
+pub(crate) fn validar_novo_login(login: &str) -> Result<(), AppError> {
     let tamanho = login.chars().count();
     if !(3..=64).contains(&tamanho) {
         return Err(AppError::BadRequest(
@@ -581,7 +581,7 @@ pub(super) fn validar_novo_login(login: &str) -> Result<(), AppError> {
     Ok(())
 }
 
-pub(super) fn validar_nova_senha(senha: String) -> Result<String, AppError> {
+pub(crate) fn validar_nova_senha(senha: String) -> Result<String, AppError> {
     let tamanho = senha.chars().count();
     if !(8..=1024).contains(&tamanho) {
         return Err(AppError::BadRequest(

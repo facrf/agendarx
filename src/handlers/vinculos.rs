@@ -3,7 +3,7 @@ use std::collections::HashMap;
 use axum::{
     Extension, Json, Router,
     extract::{Multipart, Path, State},
-    http::{HeaderMap, StatusCode, header},
+    http::{HeaderMap, StatusCode},
     response::Response,
     routing::get,
 };
@@ -209,14 +209,14 @@ async fn stream_anexo(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let anexo = buscar_anexo(&state, id).await?;
-    Ok(super::dossie::servir_blob(
-        anexo.conteudo_blob,
-        &anexo.mime_type,
-        &anexo.nome_arquivo,
+    super::dossie::servir_anexo_banco(
+        &state.pool,
+        super::dossie::OrigemAnexo::Vinculo,
+        id,
+        &headers,
         false,
-        headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
-    ))
+    )
+    .await
 }
 
 async fn download_anexo(
@@ -224,14 +224,14 @@ async fn download_anexo(
     Path(id): Path<i64>,
     headers: HeaderMap,
 ) -> Result<Response, AppError> {
-    let anexo = buscar_anexo(&state, id).await?;
-    Ok(super::dossie::servir_blob(
-        anexo.conteudo_blob,
-        &anexo.mime_type,
-        &anexo.nome_arquivo,
+    super::dossie::servir_anexo_banco(
+        &state.pool,
+        super::dossie::OrigemAnexo::Vinculo,
+        id,
+        &headers,
         true,
-        headers.get(header::RANGE).and_then(|v| v.to_str().ok()),
-    ))
+    )
+    .await
 }
 
 async fn obter_miniatura(
