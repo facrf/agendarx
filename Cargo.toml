@@ -34,7 +34,7 @@ tower-http = { version = "0.6", features = ["compression-gzip", "fs", "limit", "
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter"] }
 uuid = { version = "1", features = ["v4"] }
-zip = { version = "4", default-features = false, features = ["deflate", "aes-crypto"] }
+zip = { version = "9", default-features = false, features = ["deflate", "aes-crypto"] }
 
 [profile.release]
 codegen-units = 1
