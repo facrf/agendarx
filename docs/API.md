@@ -79,7 +79,7 @@ e persistência de mídia privada no cache do navegador.
 | Intercâmbio | `POST /api/configuracoes/contatos/importacoes/{token}/confirmar` | Aplicar decisões por registro |
 | Intercâmbio | `DELETE /api/configuracoes/contatos/importacoes/{token}` | Descartar prévia |
 | Intercâmbio | `GET /api/configuracoes/contatos/exportar/{formato}` | Exportar toda a agenda em `csv` ou `vcf` |
-| Pessoas | `GET, POST /api/pessoas` | Listar/pesquisar (`?busca=`) e criar pessoas |
+| Pessoas | `GET, POST /api/pessoas` | Listar/pesquisar (`?busca=` nos dados da própria pessoa e seu dossiê) e criar pessoas |
 | Pessoas | `GET, PUT, DELETE /api/pessoas/{id}` | Consultar/editar e mover pessoa para a lixeira |
 | Contatos | `GET, POST /api/pessoas/{pessoa_id}/contatos` | Listar/criar contatos |
 | Contatos | `GET, PUT, DELETE /api/pessoas/contatos/{id}` | CRUD de contato |
@@ -351,7 +351,7 @@ e `por_pagina` (1 a 100, padrão 30), retornando:
 
 | Método e rota | Parâmetros e resposta |
 |---|---|
-| `GET /api/pessoas/paginadas` | `busca`, `categoria` (ID ou `sem`), `tipo` (`fisica` ou `juridica`), `favoritos` (`true`/`false`), paginação. Itens `PessoaResumo` e campo adicional `total_com_foto`, ambos considerando os filtros. |
+| `GET /api/pessoas/paginadas` | `busca`, `categoria` (ID ou `sem`), `tipo` (`fisica` ou `juridica`), `favoritos` (`true`/`false`), paginação. Itens `PessoaResumo` e campo adicional `total_com_foto`, ambos considerando os filtros. A busca considera cadastro, contatos, etiquetas e dossiê da própria pessoa; não inclui pessoas apenas por vínculos ou tarefas correspondentes. |
 | `GET /api/busca` | `busca` obrigatório, `tipo` opcional (`pessoa`, `tarefa`, `vinculo`, `anexo`), paginação. Cada item contém `tipo`, `recurso_id`, `titulo`, `resumo`, `url`. |
 | `GET /api/painel` | `inicio` e `fim` obrigatórios em RFC3339, delimitando o dia local; `dia` opcional em AAAA-MM-DD para a data local dos eventos de dia inteiro. Retorna listas `hoje`, `atrasadas`, `proximas` e contagens `total_hoje`, `total_atrasadas`, `total_proximas`. |
 | `GET /api/produtividade/auditoria/paginada` | Somente admin. `usuario` e `recurso` por trecho, `acao` (`CRIAR`, `ALTERAR`, `EXCLUIR`, `EXECUTAR`), `desde`/`ate` em AAAA-MM-DD UTC, `status` de 100 a 599, paginação. Inclui os campos originais e `metodo`, `duracao_ms`, `resumo`. |

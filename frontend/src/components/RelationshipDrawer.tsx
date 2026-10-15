@@ -22,26 +22,28 @@ import { Button } from "./ui";
 
 interface RelationshipDrawerProps {
   edge: GrafoEdge | null;
+  initialEditing?: boolean;
   nodes: GrafoNode[];
   onClose: () => void;
   onDelete: (edge: GrafoEdge) => Promise<void>;
   onUpdated: (relationship: PessoaVinculo) => void | Promise<void>;
 }
 
-export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }: RelationshipDrawerProps) {
+export function RelationshipDrawer({ edge, initialEditing = false, nodes, onClose, onDelete, onUpdated }: RelationshipDrawerProps) {
   const agenda = useLinkedEvent();
   const [attachments, setAttachments] = useState<AnexoVinculo[]>([]);
   const [pendingFiles, setPendingFiles] = useState<File[]>([]);
   const [attachmentError, setAttachmentError] = useState("");
   const [loadingAttachments, setLoadingAttachments] = useState(false);
-  const [editing, setEditing] = useState(false);
+  const [editing, setEditing] = useState(initialEditing);
   const [saving, setSaving] = useState(false);
   const [deleting, setDeleting] = useState(false);
   const [form, setForm] = useState<VinculoPayload>({
-    pessoa_origem_id: 0,
-    pessoa_destino_id: 0,
-    tipo_vinculo: "",
-    descricao: "",
+    versao: edge?.versao,
+    pessoa_origem_id: edge?.source ?? 0,
+    pessoa_destino_id: edge?.target ?? 0,
+    tipo_vinculo: edge?.label ?? "",
+    descricao: edge?.descricao ?? "",
   });
   const { notify } = useToast();
 
@@ -72,7 +74,6 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
       tipo_vinculo: edge.label,
       descricao: edge.descricao || "",
     });
-    setEditing(false);
     setPendingFiles([]);
     let active = true;
     setLoadingAttachments(true);
@@ -200,8 +201,8 @@ export function RelationshipDrawer({ edge, nodes, onClose, onDelete, onUpdated }
             <form className="space-y-5" onSubmit={save}>
               <DraftNotice draft={formDraft} />
               <div className="grid gap-3 sm:grid-cols-2">
-                <div><label className="field-label" htmlFor="drawer-source">Pessoa origem</label><select id="drawer-source" className="field" value={form.pessoa_origem_id || ""} onChange={(event) => setForm({ ...form, pessoa_origem_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
-                <div><label className="field-label" htmlFor="drawer-target">Pessoa destino</label><select id="drawer-target" className="field" value={form.pessoa_destino_id || ""} onChange={(event) => setForm({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
+                <div><label className="field-label" htmlFor="drawer-source">Pessoa origem</label><select id="drawer-source" className="field" value={form.pessoa_origem_id || ""} onChange={event => { const sourceId = Number(event.target.value); setForm({ ...form, pessoa_origem_id: sourceId, pessoa_destino_id: form.pessoa_destino_id === sourceId ? 0 : form.pessoa_destino_id }); }} required><option value="">Selecione…</option>{nodes.map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
+                <div><label className="field-label" htmlFor="drawer-target">Pessoa destino</label><select id="drawer-target" className="field" value={form.pessoa_destino_id || ""} onChange={(event) => setForm({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione…</option>{nodes.filter(node => node.id !== form.pessoa_origem_id).map((node) => <option key={node.id} value={node.id}>{node.label}</option>)}</select></div>
               </div>
               <div><label className="field-label" htmlFor="drawer-type">Tipo de vínculo</label><input id="drawer-type" className="field" value={form.tipo_vinculo} onChange={(event) => setForm({ ...form, tipo_vinculo: event.target.value })} maxLength={255} required /></div>
               <div><label className="field-label" htmlFor="drawer-description">Histórico e descrição (Markdown)</label><textarea id="drawer-description" className="field min-h-64 resize-y font-mono" value={form.descricao || ""} onChange={(event) => setForm({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação…" /></div>

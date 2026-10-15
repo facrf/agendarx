@@ -68,7 +68,7 @@ rascunhos. Se o navegador não permitir armazenamento ou a cota acabar, a tela
 informa que não conseguiu salvar o rascunho.
 
 No calendário, abra **Nova tarefa** ou a edição da ocorrência para recuperar o
-respectivo rascunho. No grafo, abra **Gerenciar vínculos** para acessar o formulário.
+respectivo rascunho. No grafo, abra **Criar ou editar vínculo** para acessar o formulário.
 
 ## Organização do grafo
 

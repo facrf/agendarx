@@ -1,7 +1,9 @@
+/* Developed with care by FACRF - https://github.com/facrf */
 import {
   ArrowRight,
   Camera,
   ContactRound,
+  GitFork,
   Plus,
   Search,
   SlidersHorizontal,
@@ -16,12 +18,14 @@ import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
 import { api, errorMessage } from "../services/api";
 import type { Categoria, PessoaResumo, PessoasPagina } from "../types/api";
+import { CreateRelationshipDialog } from "../components/RelationshipEditor";
 import { Pagination } from "../components/Pagination";
 import { formatDate } from "../utils/format";
 
 export function PeoplePage() {
   const { usuario } = useAuth();
   const preferenceKey = `agendarx:pessoas:${usuario?.id}`;
+  const [linkPerson, setLinkPerson] = useState<PessoaResumo | null>(null);
   const [pessoas, setPessoas] = useState<PessoaResumo[]>([]);
   const [categorias, setCategorias] = useState<Categoria[]>([]);
   const [busca, setBusca] = useState(() => readPreference(preferenceKey, "busca"));
@@ -110,11 +114,11 @@ export function PeoplePage() {
 
       <section className="panel mb-6 flex flex-col gap-3 p-3 lg:flex-row lg:flex-wrap">
         <label className="relative flex-1">
-          <span className="sr-only">Buscar por nome</span>
+          <span className="sr-only">Buscar pessoas</span>
           <Search className="pointer-events-none absolute left-3.5 top-1/2 size-4 -translate-y-1/2 text-slate-400" />
           <input
             className="field border-0 bg-slate-50 pl-10 shadow-none"
-            placeholder="Buscar em nomes, contatos, descrições, notas e arquivos..."
+            placeholder="Buscar nos dados da pessoa e em seu dossiê..."
             value={busca}
             onChange={(event) => { setBusca(event.target.value); setPagina(1); }}
           />
@@ -132,6 +136,7 @@ export function PeoplePage() {
         <button type="button" className="btn btn-ghost" onClick={() => { setBusca(""); setCategoria(""); setTipo(""); setSomenteFavoritos(false); setPagina(1); }}>Limpar filtros</button>
       </section>
 
+      <p className="mb-4 text-xs text-slate-500">A busca considera os dados e o dossiê de cada pessoa. Para pesquisar vínculos e tarefas, use a busca global.</p>
       {erro && <div className="mb-4 rounded-xl bg-amber-50 p-3" role="alert">Não foi possível carregar a lista. <button type="button" className="underline" onClick={() => setRevision(value => value + 1)}>Tentar novamente</button></div>}
       {carregando && <p className="mb-3 text-sm text-slate-500" role="status">Atualizando resultados…</p>}
       {!erro && resultado?.total === 0 && !busca && !categoria && !tipo && !somenteFavoritos ? (
@@ -151,10 +156,11 @@ export function PeoplePage() {
         <div className="space-y-8">
           {grupos.map((grupo) => <section key={grupo.key}>
             <h2 className="mb-3 text-lg font-semibold text-slate-700">{grupo.title} <span className="chip">{grupo.pessoas.length}</span></h2>
-            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{grupo.pessoas.map((pessoa) => <PersonCard key={pessoa.id} pessoa={pessoa} onFavorite={() => void alternarFavorito(pessoa)} />)}</div>
+            <div className="grid gap-4 sm:grid-cols-2 xl:grid-cols-3 2xl:grid-cols-4">{grupo.pessoas.map((pessoa) => <PersonCard key={pessoa.id} pessoa={pessoa} onFavorite={() => void alternarFavorito(pessoa)} onLink={() => setLinkPerson(pessoa)} />)}</div>
           </section>)}
         </div>
       )}
+      {linkPerson && <CreateRelationshipDialog key={linkPerson.id} person={linkPerson} onClose={() => setLinkPerson(null)} />}
       {resultado && <Pagination page={pagina} pages={resultado.total_paginas} total={resultado.total} size={tamanho} busy={carregando} onPage={setPagina} onSize={size => { setTamanho(size); setPagina(1); }} />}
     </div>
   );
@@ -176,7 +182,7 @@ function Stat({ icon, value, label }: { icon: React.ReactNode; value: number; la
   );
 }
 
-function PersonCard({ pessoa, onFavorite }: { pessoa: PessoaResumo; onFavorite: () => void }) {
+function PersonCard({ pessoa, onFavorite, onLink }: { pessoa: PessoaResumo; onFavorite: () => void; onLink: () => void }) {
   const cor = pessoa.cor_hex || "#86A6A3";
   const style = { "--category-color": cor } as CSSProperties;
   return (
@@ -198,6 +204,7 @@ function PersonCard({ pessoa, onFavorite }: { pessoa: PessoaResumo; onFavorite: 
       {pessoa.etiquetas && <div className="mt-3 flex flex-wrap gap-1">{pessoa.etiquetas.split("\u001f").filter(Boolean).map((etiqueta) => <span key={etiqueta} className="chip">#{etiqueta}</span>)}</div>}
       <p className="mt-5 border-t border-slate-100 pt-3 text-xs text-slate-400">Na agenda desde {formatDate(pessoa.data_cadastro)}</p>
       </Link>
+      <div className="border-t border-slate-100 px-5 py-3"><button type="button" className="btn btn-secondary w-full" onClick={onLink} aria-label={`Criar vínculo com ${pessoa.nome}`}><GitFork className="size-4" />Criar vínculo</button></div>
       <button type="button" className="absolute right-16 top-5 grid size-9 place-items-center rounded-full bg-white/90 shadow-sm" onClick={onFavorite} aria-label={pessoa.favorito ? `Remover ${pessoa.nome} dos favoritos` : `Favoritar ${pessoa.nome}`} title={pessoa.favorito ? "Remover dos favoritos" : "Favoritar"}><Star className={`size-4 ${pessoa.favorito ? "fill-amber-400 text-amber-500" : "text-slate-400"}`} /></button>
     </article>
   );

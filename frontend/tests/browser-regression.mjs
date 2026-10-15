@@ -59,6 +59,7 @@ const searchFixtures = [
  { tipo: 'anexo_dossie', recurso_id: 1, titulo: 'foto1.png', resumo: 'Arquivo de Ana', url: '/api/dossie/anexos/1/stream' },
 ];
 const deletedRelationshipIds = new Set();
+const createdRelationships = [];
 const riskRecord = person => ({ classificacao_risco: person.classificacao_risco, toxicidade: person.toxicidade, justificativa: person.risco_justificativa ?? '', revisado_em: person.risco_revisado_em || null });
 await page.context().route('**/api/**', async route => {
   const req = route.request(), path = new URL(req.url()).pathname;
@@ -88,6 +89,7 @@ await page.context().route('**/api/**', async route => {
   else if (path === '/api/vinculos/lixeira') data = [...deletedRelationshipIds].map(id => ({ id, tipo_vinculo: 'Amizade', pessoa_origem_id: 1, pessoa_destino_id: 2, origem_nome: 'Ana', destino_nome: 'Zeca', excluido_em: '2026-09-23 21:00:00' }));
   else if (/^\/api\/vinculos\/lixeira\/\d+\/restaurar$/.test(path) && req.method() === 'POST') { deletedRelationshipIds.delete(Number(path.split('/')[4])); return route.fulfill({ status: 204 }); }
   else if (/^\/api\/vinculos\/lixeira\/\d+$/.test(path) && req.method() === 'DELETE') { deletedRelationshipIds.delete(Number(path.split('/')[4])); return route.fulfill({ status: 204 }); }
+  else if (path === '/api/vinculos' && req.method() === 'POST') { data = { ...req.postDataJSON(), id: 100 + createdRelationships.length, versao: 1, data_criacao: '2026-10-14' }; createdRelationships.push(data); }
   else if (path === '/api/vinculos') data = [{ id: 1, pessoa_origem_id: 1, pessoa_destino_id: 2, tipo_vinculo: 'Amizade', descricao: '# Contexto' }].filter(relationship => !deletedRelationshipIds.has(relationship.id));
   else if (path === '/api/pessoas/risco/previa') {
     previewPosts++;
@@ -248,6 +250,91 @@ try {
   assert.equal(await page.getByLabel('Tipo de pessoa').inputValue(), 'juridica');
   assert.equal(await page.getByRole('heading', { name: 'Ana', exact: true }).count(), 0);
   await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  // Contextual creation keeps the origin and allows choosing only another person.
+  await page.getByLabel('Buscar pessoas', { exact: true }).fill('Ana');
+  await page.waitForFunction(() => document.querySelectorAll('article.group').length === 1);
+  await page.getByRole('button', { name: 'Criar vínculo com Ana', exact: true }).click();
+  let createDialog = page.getByRole('dialog', { name: 'Criar vínculo · Ana', exact: true });
+  await createDialog.getByLabel('Pessoa destino', { exact: true }).waitFor();
+  assert.equal(await createDialog.getByLabel('Pessoa origem', { exact: true }).count(), 0);
+  assert.equal(await createDialog.getByLabel('Pessoa destino', { exact: true }).locator('option[value="1"]').count(), 0);
+  await createDialog.getByLabel('Buscar outra pessoa', { exact: true }).fill('Zeca');
+  assert.equal(await createDialog.getByLabel('Pessoa destino', { exact: true }).locator('option[value="3"]').count(), 0);
+  await createDialog.getByLabel('Pessoa destino', { exact: true }).selectOption('2');
+  await createDialog.getByLabel('Tipo de vínculo', { exact: true }).fill('Parceria');
+  if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'criar-vinculo-pessoas.png'), animations: 'disabled' });
+  await createDialog.getByRole('button', { name: 'Criar vínculo', exact: true }).click();
+  await createDialog.waitFor({ state: 'hidden' });
+  assert.equal(createdRelationships.length, 1);
+  assert.equal(createdRelationships[0].pessoa_origem_id, 1);
+  assert.equal(createdRelationships[0].pessoa_destino_id, 2);
+  assert.equal(await page.getByLabel('Buscar pessoas', { exact: true }).inputValue(), 'Ana');
+  await page.getByRole('button', { name: 'Limpar filtros' }).click();
+  await page.goto('http://127.0.0.1:4179/pessoas/2?aba=dossie');
+  await page.getByRole('button', { name: 'Criar vínculo', exact: true }).click();
+  createDialog = page.getByRole('dialog', { name: 'Criar vínculo · Zeca', exact: true });
+  await createDialog.getByLabel('Pessoa destino', { exact: true }).selectOption('3');
+  await createDialog.getByLabel('Tipo de vínculo', { exact: true }).fill('Trabalho');
+  await page.keyboard.press('Escape');
+  await page.getByRole('button', { name: 'Criar vínculo', exact: true }).click();
+  await createDialog.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
+  assert.equal(await createDialog.getByLabel('Pessoa destino', { exact: true }).inputValue(), '3');
+  assert.equal(await createDialog.getByLabel('Tipo de vínculo', { exact: true }).inputValue(), 'Trabalho');
+  await createDialog.getByRole('button', { name: 'Criar vínculo', exact: true }).click();
+  await createDialog.waitFor({ state: 'hidden' });
+  assert.equal(createdRelationships.at(-1).pessoa_origem_id, 2);
+  assert.equal(createdRelationships.at(-1).pessoa_destino_id, 3);
+  assert.ok(page.url().endsWith('/pessoas/2?aba=dossie'));
+  await page.goto('http://127.0.0.1:4179/grafo?pessoa=1&busca=Ana');
+  await expectPersonCentered(1);
+  const rightClickNode = async id => {
+    const position = await page.evaluate(id => document.querySelector('[role=application]')._cyreg.cy.$id(`node-${id}`).renderedPosition(), id);
+    await page.getByRole('application').click({ position, button: 'right' });
+  };
+  await rightClickNode(1);
+  await page.getByRole('menuitem', { name: 'Criar vínculo', exact: true }).waitFor();
+  if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'grafo-menu-pessoa.png'), animations: 'disabled' });
+  await page.keyboard.press('Escape');
+  await page.getByRole('menu').waitFor({ state: 'hidden' });
+  await page.getByLabel('Grafo em tela cheia', { exact: true }).waitFor();
+  await rightClickNode(1);
+  await page.getByRole('menuitem', { name: 'Criar vínculo', exact: true }).click();
+  createDialog = page.getByRole('dialog', { name: 'Criar vínculo · Ana', exact: true });
+  await createDialog.getByLabel('Pessoa destino', { exact: true }).selectOption('3');
+  await createDialog.getByLabel('Tipo de vínculo', { exact: true }).fill('Conhecido');
+  await createDialog.getByRole('button', { name: 'Criar vínculo', exact: true }).click();
+  await createDialog.waitFor({ state: 'hidden' });
+  assert.equal(createdRelationships.length, 3);
+  assert.equal(createdRelationships.at(-1).pessoa_origem_id, 1);
+  await page.getByLabel('Grafo em tela cheia', { exact: true }).waitFor();
+  await page.evaluate(() => { const cy = document.querySelector('[role=application]')._cyreg.cy; cy.$id('edge-1').emit({ type: 'cxttap', renderedPosition: { x: cy.width() - 5, y: cy.height() - 5 } }); });
+  const edgeMenu = page.getByRole('menu');
+  const menuBox = await edgeMenu.boundingBox();
+  assert.ok(menuBox.x >= 0 && menuBox.y >= 0 && menuBox.x + menuBox.width <= 1440 && menuBox.y + menuBox.height <= 1000);
+  await page.keyboard.press('Home');
+  assert.equal(await page.getByRole('menuitem', { name: 'Editar vínculo', exact: true }).evaluate(element => element === document.activeElement), true);
+  await page.keyboard.press('Enter');
+  await page.getByRole('dialog', { name: 'Detalhes do vínculo' }).getByRole('heading', { name: 'Editar vínculo', exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await rightClickNode(1);
+  await page.getByRole('menuitem', { name: 'Editar pessoa', exact: true }).click();
+  await page.waitForURL('**/pessoas/1/editar');
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto('http://127.0.0.1:4179/grafo?pessoa=2&busca=Zeca');
+  await page.getByRole('button', { name: 'Criar vínculo com Zeca', exact: true }).click();
+  createDialog = page.getByRole('dialog', { name: 'Criar vínculo · Zeca', exact: true });
+  await createDialog.getByLabel('Pessoa destino', { exact: true }).waitFor();
+  assert.equal(await createDialog.getByRole('button', { name: 'Recuperar rascunho', exact: true }).count(), 0);
+  assert.equal(await createDialog.getByLabel('Pessoa destino', { exact: true }).inputValue(), '');
+  assert.equal(await createDialog.getByLabel('Descrição (Markdown)', { exact: true }).isVisible(), false);
+  if (process.env.BROWSER_SCREENSHOTS === '1') await page.screenshot({ path: join(cacheRoot, 'criar-vinculo-celular.png'), animations: 'disabled' });
+  await createDialog.locator('summary').filter({ hasText: 'Descrição, anexos e evento' }).click();
+  await createDialog.getByLabel('Descrição (Markdown)', { exact: true }).waitFor();
+  await page.keyboard.press('Escape');
+  await page.getByLabel('Grafo em tela cheia', { exact: true }).waitFor();
+  await page.setViewportSize({ width: 1440, height: 1000 });
+  await page.getByRole('button', { name: 'Sair da tela cheia', exact: true }).click();
+  await page.getByRole('button', { name: 'Limpar filtros', exact: true }).click();
   await page.goto('http://127.0.0.1:4179/pessoas/1?aba=dossie');
   await page.getByAltText('foto1.png').click();
   await page.getByRole('button', { name: 'Próxima imagem' }).waitFor();
@@ -647,7 +734,7 @@ try {
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 1);
   assert.deepEqual([...deletedRelationshipIds], [1]);
   assert.equal(await page.getByRole('heading', { name: 'Vínculos cadastrados' }).count(), 0);
-  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Criar ou editar vínculo', exact: true }).click();
   await page.getByText('Lixeira de vínculos (1)').click();
   await page.getByRole('button', { name: 'Restaurar', exact: true }).click();
   await page.waitForFunction(() => document.querySelector('[role=application]')?._cyreg?.cy?.edges().length === 2);
@@ -655,11 +742,11 @@ try {
   // Persistence, manual zoom, drafts, global search, dashboard and audit filters.
   await page.getByPlaceholder('Ex.: Sócio, Irmão').fill('Vínculo em rascunho');
   await page.reload();
-  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Criar ou editar vínculo', exact: true }).click();
   await page.getByRole('button', { name: 'Recuperar rascunho', exact: true }).click();
   assert.equal(await page.getByPlaceholder('Ex.: Sócio, Irmão').inputValue(), 'Vínculo em rascunho');
   await page.reload();
-  await page.getByRole('button', { name: 'Gerenciar vínculos', exact: true }).click();
+  await page.getByRole('button', { name: 'Criar ou editar vínculo', exact: true }).click();
   await page.getByRole('button', { name: 'Descartar rascunho', exact: true }).click();
   await page.getByRole('button', { name: 'Recolher vínculos', exact: true }).click();
   await page.getByRole('button', { name: 'Salvar organização', exact: true }).click();
@@ -928,5 +1015,5 @@ try {
   await page.waitForURL('**/login');
   assert.equal(logoutPosts, 1);
   assert.deepEqual(errors, []);
-  console.log('PASS: edição com versão e preservação de rascunho em conflito, consulta/restauração do histórico, prévia/decisão de mesclagem, saúde e verificação de backup, horário silencioso e adiamento, respostas antigas do calendário, foco/Tab/Escape em modais sobrepostos, prévia/decisões de importação, fila/cancelamento/retomada de pesquisas, lembretes e reconhecimento após falha, paginação, rascunhos de pessoas/tarefas, painel e conclusão, busca global e vínculo por URL, auditoria filtrada, salvamento de posições e zoom manual, regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
+  console.log('PASS: criação contextual de vínculos em Pessoas/perfil/grafo, busca restrita, menu de contexto de pessoas e vínculos, teclado e celular, rascunhos por pessoa, edição com versão e preservação de rascunho em conflito, consulta/restauração do histórico, prévia/decisão de mesclagem, saúde e verificação de backup, horário silencioso e adiamento, respostas antigas do calendário, foco/Tab/Escape em modais sobrepostos, prévia/decisões de importação, fila/cancelamento/retomada de pesquisas, lembretes e reconhecimento após falha, paginação, rascunhos de pessoas/tarefas, painel e conclusão, busca global e vínculo por URL, auditoria filtrada, salvamento de posições e zoom manual, regressão de navegador, lixeira e restauração de vínculo pelo grafo, organização automática do grafo e reajuste manual, enquadramento de Teia/UML e barras no celular, composição do HP, termos neutros, justificativa e data persistidas, histórico com autor e valores, prévia sem gravação, repetição após falha da prévia, barras de 56px e limites de cores, atualização entre abas preservando o mapa.');
 } catch (error) { console.error('Falha original:', error); console.error('Erros de página:', errors); try { console.error('Interface:', (await page.locator('body').innerText({ timeout: 3000 })).slice(0, 5000)); await page.screenshot({ path: join(cacheRoot, 'hp-browser-error.png'), fullPage: false, timeout: 5000 }); } catch { /* Preserve the original failure when Chromium cannot capture the page. */ } throw error; } finally { await browser.close(); server.close(); }

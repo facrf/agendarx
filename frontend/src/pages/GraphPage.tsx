@@ -1,11 +1,9 @@
 /* Developed with care by FACRF - https://github.com/facrf */
-import { useFormDraft } from "../hooks/useFormDraft";
-import { DraftNotice } from "../components/DraftNotice";
-import { LinkedEventFields } from "../components/LinkedEventFields";
 import { ImpactDetails, PsychosocialLegend, PsychosocialStatus } from "../components/PsychosocialStatus";
-import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import {
+  ChevronUp,
   Edit3,
+  UserRound,
   FileDown,
   Filter,
   GitFork,
@@ -17,7 +15,6 @@ import {
   Network,
   Orbit,
   RefreshCw,
-  Plus,
   Save,
   Search,
   Trash2,
@@ -25,19 +22,19 @@ import {
   X,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import type { FormEvent, ReactNode } from "react";
+import type { ReactNode } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { GraphViewer } from "../components/GraphViewer";
 import type { GraphLayout, GraphViewerHandle } from "../components/GraphViewer";
 import { RelationshipDrawer } from "../components/RelationshipDrawer";
-import { RelationshipAttachmentEditor } from "../components/RelationshipMedia";
+import { RelationshipEditor, CreateRelationshipDialog } from "../components/RelationshipEditor";
+import { ContextMenu } from "../components/ContextMenu";
 import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
 import { api, errorMessage } from "../services/api";
 import { formatDate } from "../utils/format";
 import type {
-  AnexoVinculo,
   Categoria,
   GrafoEdge,
   GrafoNode,
@@ -45,19 +42,10 @@ import type {
   PessoaResumo,
   PosicaoGrafo,
   PessoaVinculo,
-  VinculoPayload,
   VinculoLixeira,
 } from "../types/api";
 
-const emptyRelationship: VinculoPayload = {
-  pessoa_origem_id: 0,
-  pessoa_destino_id: 0,
-  tipo_vinculo: "",
-  descricao: "",
-};
-
 export function GraphPage() {
-  const agenda = useLinkedEvent();
   const [searchParams, setSearchParams] = useSearchParams();
   const requestedPersonId = Number(searchParams.get("pessoa"));
   const openingPerson = Number.isSafeInteger(requestedPersonId) && requestedPersonId > 0;
@@ -75,7 +63,7 @@ export function GraphPage() {
   const [graph, setGraph] = useState<GrafoResponse>({ nodes: [], edges: [] });
   const [people, setPeople] = useState<PessoaResumo[]>([]);
   const [categories, setCategories] = useState<Categoria[]>([]);
-  const relationships = useMemo<PessoaVinculo[]>(() => graph.edges.map(edge => ({ id: edge.id, pessoa_origem_id: edge.source, pessoa_destino_id: edge.target, tipo_vinculo: edge.label, descricao: edge.descricao, data_criacao: edge.data_criacao })), [graph.edges]);
+  const relationships = useMemo<PessoaVinculo[]>(() => graph.edges.map(edge => ({ id: edge.id, versao: edge.versao, pessoa_origem_id: edge.source, pessoa_destino_id: edge.target, tipo_vinculo: edge.label, descricao: edge.descricao, data_criacao: edge.data_criacao })), [graph.edges]);
   const [panelRevision, setPanelRevision] = useState(0);
   const [panelLoading, setPanelLoading] = useState(false);
   const [positionsBusy, setPositionsBusy] = useState(false);
@@ -93,26 +81,20 @@ export function GraphPage() {
   const [relationshipType, setRelationshipType] = useState(!openingPerson && typeof savedFilters.relationshipType === "string" ? savedFilters.relationshipType : "");
   const [dateFrom, setDateFrom] = useState(!openingPerson && typeof savedFilters.dateFrom === "string" ? savedFilters.dateFrom : "");
   const [dateTo, setDateTo] = useState(!openingPerson && typeof savedFilters.dateTo === "string" ? savedFilters.dateTo : "");
-  const [form, setForm] = useState<VinculoPayload>(emptyRelationship);
-  const [editingId, setEditingId] = useState<number | null>(null);
-  const [saving, setSaving] = useState(false);
+  const [editor, setEditor] = useState<{ revision: number; person?: { id: number; nome: string }; relationship?: PessoaVinculo }>({ revision: 0 });
+  const [creatingFor, setCreatingFor] = useState<{ id: number; nome: string } | null>(null);
+  const [contextMenu, setContextMenu] = useState<{ kind: "node" | "edge"; id: number; x: number; y: number } | null>(null);
+  const [editSelectedEdge, setEditSelectedEdge] = useState(false);
   const [loading, setLoading] = useState(true);
   const [refreshFailed, setRefreshFailed] = useState(false);
   const loadSequence = useRef(0);
   const refreshTimer = useRef<number | undefined>(undefined);
   const openedEdgeLink = useRef<number | null>(null);
   const [selectedEdge, setSelectedEdge] = useState<GrafoEdge | null>(null);
-  const [relationshipAttachments, setRelationshipAttachments] = useState<AnexoVinculo[]>([]);
-  const [pendingRelationshipFiles, setPendingRelationshipFiles] = useState<File[]>([]);
-  const [loadingRelationshipAttachments, setLoadingRelationshipAttachments] = useState(false);
   const [printImage, setPrintImage] = useState<string | null>(null);
   const graphViewerRef = useRef<GraphViewerHandle>(null);
   const navigate = useNavigate();
   const { notify } = useToast();
-
-  const formDraft = useFormDraft({ name: "vinculo:editor", value: { form, editingId, agenda: agenda.draft },
-    enabled: !loading && showRelationships, meaningful: Boolean(form.tipo_vinculo.trim() || form.descricao?.trim() || form.pessoa_origem_id || form.pessoa_destino_id),
-    restore: item => { setForm(item.form); setEditingId(item.editingId); agenda.setDraft(item.agenda); } });
 
   useEffect(() => {
     try { localStorage.setItem(filterKey, JSON.stringify({ search, category, depth, layout, relationshipType, dateFrom, dateTo, groupByCategory, isolateFocus })); }
@@ -266,115 +248,9 @@ export function GraphPage() {
     }
   };
 
-  const submitRelationship = async (event: FormEvent) => {
-    event.preventDefault();
-    if (!form.pessoa_origem_id || !form.pessoa_destino_id || !form.tipo_vinculo.trim()) {
-      return notify("Selecione duas pessoas e informe o tipo de vínculo", "erro");
-    }
-    if (form.pessoa_origem_id === form.pessoa_destino_id) {
-      return notify("Escolha pessoas diferentes", "erro");
-    }
-
-    try { agenda.validate(); } catch (error) { return notify(errorMessage(error), "erro"); }
-    setSaving(true);
-    try {
-      const payload = {
-        ...form,
-        tipo_vinculo: form.tipo_vinculo.trim(),
-        descricao: form.descricao?.trim() || null,
-      };
-      let saved: PessoaVinculo;
-      if (editingId) {
-        saved = await api.put<PessoaVinculo>(`/api/vinculos/${editingId}`, payload);
-      } else {
-        saved = await api.post<PessoaVinculo>("/api/vinculos", payload);
-      }
-      setForm(current => ({ ...current, versao: saved.versao }));
-      await loadGraphData();
-      const uploads = await Promise.allSettled(
-        pendingRelationshipFiles.map((file) => {
-          const data = new FormData();
-          data.append("arquivo", file);
-          return api.post<AnexoVinculo>(`/api/vinculos/${saved.id}/anexos`, data);
-        }),
-      );
-      setEditingId(saved.id);
-      const uploaded = uploads.flatMap((result) => result.status === "fulfilled" ? [result.value] : []);
-      setPendingRelationshipFiles(pendingRelationshipFiles.filter((_, index) => uploads[index].status === "rejected"));
-      setRelationshipAttachments((items) => [...items, ...uploaded]);
-      const failedUploads = uploads.filter((result) => result.status === "rejected");
-      if (failedUploads.length > 0) {
-        const details = uploads.flatMap((result, index) => result.status === "rejected" ? [`${pendingRelationshipFiles[index].name}: ${errorMessage(result.reason)}`] : []);
-        notify(`Vínculo salvo, mas ${failedUploads.length} anexo(s) falharam. ${details.join("; ")}. Tente salvar novamente.`, "erro");
-        await loadGraphData();
-        return;
-      } else {
-        await agenda.save({ people: [saved.pessoa_origem_id, saved.pessoa_destino_id], title: saved.tipo_vinculo, references: [`Vínculo #${saved.id}: ${saved.tipo_vinculo}`, ...[...relationshipAttachments, ...uploaded].map((a) => `[${a.nome_arquivo.replaceAll("[", "").replaceAll("]", "")}](${a.url_stream})`)] });
-        notify(editingId ? "Vínculo atualizado" : "Vínculo criado");
-      }
-      formDraft.clear();
-      setForm(emptyRelationship);
-      setEditingId(null);
-      setSelectedEdge(null);
-      setRelationshipAttachments([]);
-      setPendingRelationshipFiles([]);
-      await loadGraphData();
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    } finally {
-      setSaving(false);
-    }
-  };
-
-  const editRelationship = async (relationship: PessoaVinculo) => {
-    agenda.reset();
-    setShowRelationships(true);
-    setEditingId(relationship.id);
-    setForm({
-      versao: relationship.versao,
-      pessoa_origem_id: relationship.pessoa_origem_id,
-      pessoa_destino_id: relationship.pessoa_destino_id,
-      tipo_vinculo: relationship.tipo_vinculo,
-      descricao: relationship.descricao || "",
-    });
-    setPendingRelationshipFiles([]);
-    setRelationshipAttachments([]);
-    setLoadingRelationshipAttachments(true);
-    try {
-      setRelationshipAttachments(await api.get<AnexoVinculo[]>(`/api/vinculos/${relationship.id}/anexos`));
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    } finally {
-      setLoadingRelationshipAttachments(false);
-    }
-  };
-
-  const deleteRelationshipAttachment = async (attachment: AnexoVinculo) => {
-    if (!window.confirm(`Excluir “${attachment.nome_arquivo}” desta relação?`)) return;
-    try {
-      await api.delete(`/api/vinculos/anexos/${attachment.id}`);
-      setRelationshipAttachments((items) => items.filter((item) => item.id !== attachment.id));
-      notify("Anexo excluído");
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    }
-  };
-
-  const renameRelationshipAttachment = async (attachment: AnexoVinculo) => {
-    const name = window.prompt("Novo nome do arquivo:", attachment.nome_arquivo)?.trim();
-    if (!name || name === attachment.nome_arquivo) return;
-    try {
-      const updated = await api.put<AnexoVinculo>(`/api/vinculos/anexos/${attachment.id}`, { nome_arquivo: name });
-      setRelationshipAttachments((items) => items.map((item) => item.id === updated.id ? updated : item));
-      notify("Anexo renomeado");
-    } catch (error) {
-      notify(errorMessage(error), "erro");
-    }
-  };
-
   const deleteRelationship = async (relationship: Pick<PessoaVinculo, "id" | "tipo_vinculo" | "pessoa_origem_id" | "pessoa_destino_id">): Promise<void> => {
-    const source = personName(people, relationship.pessoa_origem_id);
-    const target = personName(people, relationship.pessoa_destino_id);
+    const source = graph.nodes.find(node => node.id === relationship.pessoa_origem_id)?.label || personName(people, relationship.pessoa_origem_id);
+    const target = graph.nodes.find(node => node.id === relationship.pessoa_destino_id)?.label || personName(people, relationship.pessoa_destino_id);
     if (!window.confirm(`Mover o vínculo “${relationship.tipo_vinculo}” entre ${source} e ${target} para a lixeira? Os anexos serão preservados e o vínculo poderá ser restaurado.`)) return;
     try {
       await api.delete(`/api/vinculos/${relationship.id}`);
@@ -419,7 +295,7 @@ export function GraphPage() {
   }, [searchParams, graph.edges, loading, notify]);
 
   const openEdge = useCallback(
-    (edgeId: number) => setSelectedEdge(graph.edges.find((edge) => edge.id === edgeId) || null),
+    (edgeId: number) => { setEditSelectedEdge(false); setSelectedEdge(graph.edges.find((edge) => edge.id === edgeId) || null); },
     [graph.edges],
   );
   const openPerson = useCallback(
@@ -441,6 +317,15 @@ export function GraphPage() {
     if (node) { setSelectedPersonId(nodeId); setSearch(node.label); setDepth(2); setIsolateFocus(true); setExpanded(true); setFocusRevision(value => value + 1); }
   }, [graph.nodes]);
 
+  const toggleRelationships = () => {
+    if (!showRelationships && !editor.relationship && editor.person?.id !== focusedNode?.id) {
+      setEditor(current => ({ revision: current.revision + 1, person: focusedNode ? { id: focusedNode.id, nome: focusedNode.label } : undefined }));
+    }
+    setShowRelationships(value => !value);
+  };
+  const menuNode = contextMenu?.kind === "node" ? graph.nodes.find(node => node.id === contextMenu.id) : undefined;
+  const menuEdge = contextMenu?.kind === "edge" ? graph.edges.find(edge => edge.id === contextMenu.id) : undefined;
+
   if (loading) return <Spinner label="Desenhando sua rede" />;
 
   return (
@@ -450,39 +335,24 @@ export function GraphPage() {
         title="Teia de vínculos"
         description="Alterne entre uma rede orgânica e um diagrama hierárquico, investigue conexões e reposicione pessoas livremente."
         action={<div className="flex flex-wrap gap-2">
-          <Button type="button" variant="secondary" aria-expanded={showRelationships} aria-controls="graph-relationships" onClick={() => setShowRelationships(value => !value)}><GitFork className="size-4" />{showRelationships ? "Recolher vínculos" : "Gerenciar vínculos"}</Button>
+          <Button type="button" variant={showRelationships ? "secondary" : "primary"} aria-expanded={showRelationships} aria-controls="graph-relationships" onClick={toggleRelationships}>{showRelationships ? <ChevronUp className="size-4" /> : <GitFork className="size-4" />}{showRelationships ? "Recolher vínculos" : "Criar ou editar vínculo"}</Button>
           <Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => { setRefreshFailed(true); notify(errorMessage(error), "erro"); })}><RefreshCw className="size-4" /> Atualizar mapa</Button>
         </div>}
       />
 
       {refreshFailed && <div className="mb-4 flex items-center justify-between gap-3 rounded-xl bg-amber-50 p-3 text-sm text-amber-900" role="status"><span>Não foi possível atualizar HP e auras. Os últimos valores continuam visíveis.</span><Button type="button" variant="secondary" onClick={() => void loadGraphData().catch((error) => notify(errorMessage(error), "erro"))}>Tentar atualizar grafo</Button></div>}
 
-      <div className={cn("grid items-start gap-5", showRelationships && "xl:grid-cols-[18rem_minmax(0,1fr)]")}>
-        <aside id="graph-relationships" hidden={!showRelationships} className="order-last space-y-5 xl:order-first">
+      <div className={cn("grid items-start gap-5", showRelationships && "xl:grid-cols-[22rem_minmax(0,1fr)]")}>
+        <aside id="graph-relationships" hidden={!showRelationships} className="order-first space-y-5">
           {panelLoading && <p role="status" className="text-sm text-slate-500">Carregando dados dos vínculos…</p>}
-          <DraftNotice draft={formDraft} />
-          <RelationshipForm
-            eventFields={<LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={saving} />}
-            people={people}
-            form={form}
-            editing={editingId !== null}
-            saving={saving || panelLoading}
-            loadingAttachments={loadingRelationshipAttachments}
-            attachments={relationshipAttachments}
-            pendingFiles={pendingRelationshipFiles}
-            onChange={setForm}
-            onPendingFiles={setPendingRelationshipFiles}
-            onDeleteAttachment={(attachment) => void deleteRelationshipAttachment(attachment)}
-            onRenameAttachment={(attachment) => void renameRelationshipAttachment(attachment)}
-            onInvalidFiles={(message) => notify(message, "erro")}
-            onSubmit={submitRelationship}
-            onCancel={() => {
-              agenda.reset();
-              setEditingId(null);
-              setForm(emptyRelationship);
-              setRelationshipAttachments([]);
-              setPendingRelationshipFiles([]);
-            }}
+          <RelationshipEditor
+            key={editor.revision}
+            active={showRelationships}
+            person={editor.person}
+            relationship={editor.relationship}
+            draftName="vinculo:editor"
+            onSaved={() => setEditor(current => ({ revision: current.revision + 1, person: focusedNode ? { id: focusedNode.id, nome: focusedNode.label } : undefined }))}
+            onCancel={() => setEditor(current => ({ revision: current.revision + 1, person: focusedNode ? { id: focusedNode.id, nome: focusedNode.label } : undefined }))}
           />
 
           {relationships.length > 0 && (
@@ -499,7 +369,7 @@ export function GraphPage() {
                         </p>
                         <p className="mt-1 text-xs text-slate-500">{relationship.tipo_vinculo}</p>
                       </div>
-                      <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-teal-700" onClick={() => void editRelationship(relationship)} aria-label="Editar vínculo"><Edit3 className="size-3.5" /></button>
+                      <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-white hover:text-teal-700" onClick={() => { setEditor(current => ({ revision: current.revision + 1, relationship })); document.getElementById("graph-relationships")?.scrollIntoView({ block: "start", behavior: "smooth" }); }} aria-label="Editar vínculo"><Edit3 className="size-3.5" /></button>
                       <button type="button" className="rounded-lg p-1.5 text-slate-400 hover:bg-rose-50 hover:text-rose-600" onClick={() => void deleteRelationship(relationship)} aria-label="Excluir vínculo"><Trash2 className="size-3.5" /></button>
                     </div>
                   </article>
@@ -556,6 +426,11 @@ export function GraphPage() {
             canGeneratePdf={visibleGraph.nodes.length > 0}
             expanded={expanded}
             extraActions={<>
+              {focusedNode && <>
+                <Button type="button" onClick={() => setCreatingFor({ id: focusedNode.id, nome: focusedNode.label })}><GitFork className="size-4" />Criar vínculo com {focusedNode.label}</Button>
+                <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}/editar`}><Edit3 className="size-4" />Editar pessoa</Link>
+              </>}
+              {expanded && <Button type="button" variant="secondary" onClick={() => { setExpanded(false); if (!showRelationships) toggleRelationships(); }}>Criar ou editar vínculo</Button>}
               <Button type="button" variant="secondary" loading={positionsBusy} disabled={!visibleGraph.nodes.length} onClick={() => void saveOrganization()}><Save className="size-4" /> Salvar organização</Button>
               <Button type="button" variant="secondary" disabled={positionsBusy || !visibleGraph.nodes.length} onClick={() => void restoreOrganization()}>Carregar organização</Button>
               <Button type="button" variant="secondary" disabled={!visibleGraph.nodes.length} onClick={() => graphViewerRef.current?.fit()}><Scan className="size-4" /> Enquadrar tudo</Button>
@@ -599,24 +474,38 @@ export function GraphPage() {
                 onEdgeClick={openEdge}
                 onNodeDoubleClick={openPerson}
                 onNodeSelect={selectPerson}
+                onContextMenu={setContextMenu}
               />
             )}
           </div>
           <div className="pointer-events-none flex shrink-0 flex-wrap gap-2 border-t border-slate-100 bg-white px-4 py-3 text-[11px] text-slate-500">
             <span><Move className="mr-1 inline size-3" /> Arraste os nós para reorganizar</span>
-            <span><Info className="mr-1 inline size-3" /> Clique: centralizar conexões · linha: detalhes · duplo clique: perfil</span>
+            <span><Info className="mr-1 inline size-3" /> Clique: centralizar conexões · linha: detalhes · duplo clique: perfil · botão direito: ações</span>
           </div>
         </section>
         {focusedNode && <section className="panel order-last space-y-3 p-5 xl:col-span-full" aria-label="Perfil selecionado">
           <div><p className="eyebrow">Perfil selecionado</p><h2 className="font-display text-xl font-semibold">{focusedNode.label}</h2></div>
           <PsychosocialStatus indicadores={focusedNode} />
           <details><summary className="cursor-pointer text-sm font-semibold text-teal-800">Fontes e composição do impacto</summary><div className="mt-3"><ImpactDetails indicadores={focusedNode} /></div></details>
-          <Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link>
+          <div className="flex flex-wrap gap-2"><Button onClick={() => setCreatingFor({ id: focusedNode.id, nome: focusedNode.label })}><GitFork className="size-4" />Criar vínculo</Button><Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}`}>Abrir perfil</Link><Link className="btn btn-secondary" to={`/pessoas/${focusedNode.id}/editar`}><Edit3 className="size-4" />Editar pessoa</Link></div>
         </section>}
       </div>
 
+      {creatingFor && <CreateRelationshipDialog key={creatingFor.id} person={creatingFor} onClose={() => setCreatingFor(null)} />}
+      {contextMenu && menuNode && <ContextMenu x={contextMenu.x} y={contextMenu.y} title={menuNode.label} onClose={() => setContextMenu(null)} items={[
+        { label: "Criar vínculo", icon: <GitFork className="size-4" />, action: () => setCreatingFor({ id: menuNode.id, nome: menuNode.label }) },
+        { label: "Editar pessoa", icon: <Edit3 className="size-4" />, action: () => navigate(`/pessoas/${menuNode.id}/editar`) },
+        { label: "Abrir perfil", icon: <UserRound className="size-4" />, action: () => openPerson(menuNode.id) },
+        { label: "Focar conexões", icon: <Scan className="size-4" />, action: () => selectPerson(menuNode.id) },
+      ]} />}
+      {contextMenu && menuEdge && <ContextMenu x={contextMenu.x} y={contextMenu.y} title={menuEdge.label} onClose={() => setContextMenu(null)} items={[
+        { label: "Editar vínculo", icon: <Edit3 className="size-4" />, action: () => { setEditSelectedEdge(true); setSelectedEdge(menuEdge); } },
+        { label: "Ver detalhes do vínculo", icon: <Info className="size-4" />, action: () => openEdge(menuEdge.id) },
+        { label: "Mover vínculo para a lixeira", icon: <Trash2 className="size-4" />, danger: true, action: () => void deleteRelationship({ id: menuEdge.id, tipo_vinculo: menuEdge.label, pessoa_origem_id: menuEdge.source, pessoa_destino_id: menuEdge.target }) },
+      ]} />}
       <RelationshipDrawer
-        key={selectedEdge?.id ?? "closed"}
+        key={`${selectedEdge?.id ?? "closed"}:${editSelectedEdge}`}
+        initialEditing={editSelectedEdge}
         edge={selectedEdge}
         nodes={graph.nodes}
         onClose={() => setSelectedEdge(null)}
@@ -646,61 +535,6 @@ export function GraphPage() {
         />
       )}
     </div>
-  );
-}
-
-interface RelationshipFormProps {
-  eventFields: React.ReactNode;
-  people: PessoaResumo[];
-  form: VinculoPayload;
-  editing: boolean;
-  saving: boolean;
-  loadingAttachments: boolean;
-  attachments: AnexoVinculo[];
-  pendingFiles: File[];
-  onChange: (value: VinculoPayload) => void;
-  onPendingFiles: (files: File[]) => void;
-  onDeleteAttachment: (attachment: AnexoVinculo) => void;
-  onRenameAttachment: (attachment: AnexoVinculo) => void;
-  onInvalidFiles: (message: string) => void;
-  onSubmit: (event: FormEvent) => void;
-  onCancel: () => void;
-}
-
-function RelationshipForm({ eventFields, people, form, editing, saving, loadingAttachments, attachments, pendingFiles, onChange, onPendingFiles, onDeleteAttachment, onRenameAttachment, onInvalidFiles, onSubmit, onCancel }: RelationshipFormProps) {
-  return (
-    <section className="panel p-5">
-      <div className="mb-4 flex items-center gap-2"><Plus className="size-5 text-coral" /><h2 className="font-display text-lg font-semibold">{editing ? "Editar vínculo" : "Novo vínculo"}</h2></div>
-      {people.length < 2 ? (
-        <div className="rounded-2xl bg-amber-50 p-4 text-sm text-amber-800">Cadastre pelo menos duas pessoas para criar uma conexão.</div>
-      ) : (
-        <form className="space-y-3" onSubmit={onSubmit}>
-          <div><label className="field-label">Pessoa origem</label><select className="field" value={form.pessoa_origem_id || ""} onChange={(event) => onChange({ ...form, pessoa_origem_id: Number(event.target.value) })} required><option value="">Selecione...</option>{people.map((person) => <option key={person.id} value={person.id}>{person.nome}</option>)}</select></div>
-          <div><label className="field-label">Pessoa destino</label><select className="field" value={form.pessoa_destino_id || ""} onChange={(event) => onChange({ ...form, pessoa_destino_id: Number(event.target.value) })} required><option value="">Selecione...</option>{people.map((person) => <option key={person.id} value={person.id}>{person.nome}</option>)}</select></div>
-          <div><label className="field-label">Tipo de vínculo</label><input className="field" value={form.tipo_vinculo} onChange={(event) => onChange({ ...form, tipo_vinculo: event.target.value })} placeholder="Ex.: Sócio, Irmão" required /></div>
-          <div><label className="field-label">Descrição (Markdown)</label><textarea className="field min-h-64 resize-y font-mono" value={form.descricao || ""} onChange={(event) => onChange({ ...form, descricao: event.target.value })} placeholder="Histórico e contexto desta relação..." /></div>
-          <div>
-            <label className="field-label">Anexos da relação</label>
-            {loadingAttachments ? <p className="rounded-xl bg-slate-50 p-3 text-xs text-slate-400">Carregando anexos…</p> : (
-              <RelationshipAttachmentEditor
-                existing={attachments}
-                pending={pendingFiles}
-                disabled={saving}
-                onPendingChange={onPendingFiles}
-                onDeleteExisting={onDeleteAttachment}
-                onRenameExisting={onRenameAttachment}
-                onInvalidFiles={onInvalidFiles}
-              />
-            )}
-          </div>
-          {eventFields}
-          <div className="flex gap-2">
-            <Button className="flex-1" type="submit" loading={saving}>{editing ? <Save className="size-4" /> : <GitFork className="size-4" />}{editing ? "Salvar" : "Conectar"}</Button>
-            {editing && <button className="icon-button" type="button" onClick={onCancel} aria-label="Cancelar edição"><X className="size-4" /></button>}
-          </div>
-        </form>
-      )}
-    </section>
   );
 }
 

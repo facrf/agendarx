@@ -58,8 +58,11 @@ fn consulta_pessoas(
     q.push_bind(usuario).push(") AS favorito FROM pessoa p LEFT JOIN categoria_pessoa c ON c.id=p.categoria_id WHERE p.excluida_em IS NULL");
     if let Some(busca) = filtro.busca.as_deref().filter(|s| !s.trim().is_empty()) {
         if let Some(termo) = super::busca::termo_fts(busca)? {
-            q.push(" AND p.id IN (WITH encontrados AS (SELECT d.tipo,d.recurso_id,d.pessoa_id FROM busca_fts JOIN busca_visivel d ON d.id=busca_fts.rowid WHERE busca_fts MATCH ").push_bind(termo)
-             .push(" AND (d.usuario_id IS NULL OR d.usuario_id=").push_bind(usuario).push(")) SELECT pessoa_id FROM encontrados UNION SELECT v.pessoa_destino_id FROM encontrados e JOIN pessoa_vinculo v ON v.id=CASE WHEN e.tipo='vinculo' THEN e.recurso_id ELSE (SELECT vinculo_id FROM anexo_vinculo WHERE id=e.recurso_id AND e.tipo='anexo_vinculo') END UNION SELECT tp.pessoa_id FROM encontrados e JOIN tarefa_calendario_pessoa tp ON tp.tarefa_id=CASE WHEN e.tipo='tarefa' THEN e.recurso_id ELSE (SELECT tarefa_id FROM anexo_tarefa_calendario WHERE id=e.recurso_id AND e.tipo='anexo_tarefa') END)");
+            // A agenda pesquisa apenas o cadastro e o dossiê da própria pessoa.
+            // Vínculos e tarefas continuam disponíveis na busca global.
+            q.push(" AND p.id IN (SELECT d.pessoa_id FROM busca_fts JOIN busca_visivel d ON d.id=busca_fts.rowid WHERE busca_fts MATCH ")
+                .push_bind(termo)
+                .push(" AND d.tipo IN ('pessoa','anexo_dossie'))");
         } else {
             q.push(" AND 0");
         }

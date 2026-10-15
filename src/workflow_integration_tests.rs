@@ -146,7 +146,7 @@ async fn busca_indexada_pagina_atualiza_e_isola_tarefas() {
     );
     assert_eq!(
         get(&api, "/api/pessoas/paginadas?busca=segredo", &user).await["total"],
-        1
+        0
     );
     sqlx::query("INSERT INTO anexo_dossie(pessoa_id,nome_arquivo,mime_type,conteudo_blob,tamanho_bytes,notas) VALUES(1,'registro.txt','text/plain',?,10,'notaparticular')").bind(b"arquivoindexado".to_vec()).execute(&pool).await.unwrap();
     assert_eq!(
@@ -220,7 +220,30 @@ async fn busca_indexada_pagina_atualiza_e_isola_tarefas() {
             &admin
         )
         .await["total"],
-        2
+        0
+    );
+    // A match in either endpoint's name must never pull in the other endpoint.
+    for (term, expected_id) in [("renomeadopessoa", 2), ("Contato%2000", 1)] {
+        let matches = get(
+            &api,
+            &format!("/api/pessoas/paginadas?busca={term}"),
+            &admin,
+        )
+        .await;
+        assert_eq!(matches["total"], 1);
+        assert_eq!(matches["itens"][0]["id"], expected_id);
+        let matches = get(&api, &format!("/api/pessoas?busca={term}"), &admin).await;
+        assert_eq!(matches.as_array().unwrap().len(), 1);
+        assert_eq!(matches[0]["id"], expected_id);
+    }
+    sqlx::query("INSERT INTO anexo_vinculo(vinculo_id,nome_arquivo,mime_type,conteudo_blob,tamanho_bytes) VALUES(1,'conexaotextual.txt','text/plain',X'7465737465',5)").execute(&pool).await.unwrap();
+    assert_eq!(
+        get(&api, "/api/pessoas/paginadas?busca=conexaotextual", &admin).await["total"],
+        0
+    );
+    assert_eq!(
+        get(&api, "/api/busca?busca=conexaotextual", &admin).await["total"],
+        1
     );
     sqlx::query("UPDATE pessoa_vinculo SET excluido_em=CURRENT_TIMESTAMP WHERE id=1")
         .execute(&pool)

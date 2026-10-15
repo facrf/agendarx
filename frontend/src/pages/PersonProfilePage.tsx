@@ -25,6 +25,7 @@ import {
 import { useEffect, useState } from "react";
 import type { CSSProperties } from "react";
 import { Link, useNavigate, useParams, useSearchParams } from "react-router-dom";
+import { CreateRelationshipDialog } from "../components/RelationshipEditor";
 import { DossierPanel } from "../components/DossierPanel";
 import { OSINTTab } from "../components/OSINTTab";
 import { Avatar, Button, EmptyState, Spinner, cn } from "../components/ui";
@@ -37,6 +38,7 @@ export function PersonProfilePage() {
   const [params, setParams] = useSearchParams();
   const abaParam = params.get("aba");
   const aba = abaParam === "tarefas" || abaParam === "dossie" || abaParam === "osint" ? abaParam : "perfil";
+  const [creatingRelationship, setCreatingRelationship] = useState(false);
   const [pessoa, setPessoa] = useState<PessoaDetalhe | null>(null);
   const [tipos, setTipos] = useState<TipoMeioContato[]>([]);
   const [tarefas, setTarefas] = useState<TarefaCalendario[]>([]);
@@ -87,6 +89,7 @@ export function PersonProfilePage() {
   const cor = pessoa.cor_hex || "#86A6A3";
   return (
     <div style={{ "--person-color": cor } as CSSProperties}>
+      {creatingRelationship && <CreateRelationshipDialog key={pessoa.id} person={pessoa} onClose={() => setCreatingRelationship(false)} />}
       <Link className="mb-5 inline-flex items-center gap-2 text-sm font-medium text-slate-500 hover:text-teal-800" to="/pessoas"><ArrowLeft className="size-4" /> Voltar para pessoas</Link>
       <section className="panel relative mb-6 p-5 sm:p-7">
         <div className="absolute inset-x-0 top-0 h-1.5 rounded-t-3xl bg-[var(--person-color)]" />
@@ -98,6 +101,7 @@ export function PersonProfilePage() {
             <PsychosocialStatus indicadores={pessoa.psicossocial} />
           </div>
           <div className="flex flex-wrap gap-2">
+            <Button onClick={() => setCreatingRelationship(true)}><GitFork className="size-4" />Criar vínculo</Button>
             <Link className="btn btn-secondary" to={`/grafo?pessoa=${pessoa.id}&busca=${encodeURIComponent(pessoa.nome)}`}><GitFork className="size-4" /> Abrir no mapa</Link>
             <Link className="btn btn-secondary" to={`/pessoas/${id}/editar`}><Edit3 className="size-4" /> Editar</Link>
             <Button variant="danger" loading={excluindo} onClick={() => void excluir()}><Trash2 className="size-4" /> Excluir</Button>
@@ -142,8 +146,9 @@ export function PersonProfilePage() {
           <aside className="panel p-5">
             <div className="grid size-11 place-items-center rounded-2xl bg-coral/10 text-coral"><GitFork className="size-5" /></div>
             <h2 className="mt-4 font-display text-lg font-semibold">Conexões</h2>
-            <p className="mt-2 text-sm leading-6 text-slate-500">Veja esta pessoa no mapa e compreenda seus vínculos na rede.</p>
-            <Link className="btn btn-secondary mt-5 w-full" to={`/grafo?pessoa=${pessoa.id}&busca=${encodeURIComponent(pessoa.nome)}`}>Abrir no mapa</Link>
+            <p className="mt-2 text-sm leading-6 text-slate-500">Crie um vínculo com esta pessoa ou explore suas conexões no mapa.</p>
+            <Button className="mt-5 w-full" onClick={() => setCreatingRelationship(true)}><GitFork className="size-4" />Criar vínculo com {pessoa.nome}</Button>
+            <Link className="btn btn-secondary mt-3 w-full" to={`/grafo?pessoa=${pessoa.id}&busca=${encodeURIComponent(pessoa.nome)}`}>Abrir no mapa</Link>
           </aside>
         </div>
       )}

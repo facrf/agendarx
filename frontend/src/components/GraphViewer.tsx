@@ -19,6 +19,7 @@ interface GraphViewerProps {
   onEdgeClick: (edgeId: number) => void;
   onNodeDoubleClick: (nodeId: number) => void;
   onNodeSelect: (nodeId: number) => void;
+  onContextMenu: (target: { kind: "node" | "edge"; id: number; x: number; y: number } | null) => void;
 }
 export interface GraphViewerHandle { exportPng: () => string | null; organize: () => void; fit: () => void; positions: () => PosicaoGrafo[]; restorePositions: (positions: PosicaoGrafo[]) => boolean }
 interface Overlay { id: number; x: number; y: number; zoom: number; hp: number; dimmed: boolean }
@@ -99,6 +100,19 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
     cy.on("dragpan scrollzoom pinchzoom", () => cy.scratch("viewportMode", "manual"));
     cy.on("mouseover", "node, edge", (event) => event.target.addClass("is-hover"));
     cy.on("mouseout", "node, edge", (event) => event.target.removeClass("is-hover"));
+    cy.on("cxttap", "node, edge", event => {
+      event.originalEvent?.preventDefault();
+      const bounds = containerRef.current!.getBoundingClientRect();
+      const position = event.renderedPosition ?? event.target.renderedPosition();
+      callbacksRef.current.onContextMenu({
+        kind: event.target.isNode() ? "node" : "edge",
+        id: Number(event.target.data(event.target.isNode() ? "nodeId" : "edgeId")),
+        x: bounds.left + position.x,
+        y: bounds.top + position.y,
+      });
+    });
+    cy.on("pan zoom drag", () => callbacksRef.current.onContextMenu(null));
+    cy.on("tap", event => { if (event.target === cy) callbacksRef.current.onContextMenu(null); });
     let lastTap = { id: "", at: 0 };
     cy.on("tap", "edge", (event) => callbacksRef.current.onEdgeClick(Number(event.target.data("edgeId"))));
     cy.on("tap", "node", (event) => {
@@ -222,7 +236,7 @@ export const GraphViewer = forwardRef<GraphViewerHandle, GraphViewerProps>(funct
   };
 
   return <div className={`relative h-full w-full overflow-hidden ${expanded ? "min-h-80" : ""}`}>
-    <div ref={containerRef} className="h-full w-full cursor-grab active:cursor-grabbing" role="application" aria-label="Grafo interativo de relacionamentos" />
+    <div ref={containerRef} className="h-full w-full cursor-grab active:cursor-grabbing" role="application" tabIndex={0} onContextMenu={event => event.preventDefault()} aria-label="Grafo interativo de relacionamentos" />
     <div className="pointer-events-none absolute inset-0 overflow-hidden" aria-hidden="true">
       {groupLabels.map(({ name, x, y, zoom }) => <div key={name} data-graph-category={name} title={name} className="absolute max-w-[200px] truncate rounded-full border border-teal-200 bg-white/95 px-3 py-1 text-xs font-semibold text-teal-900 shadow-sm" style={{ left: x, top: y, transform: `scale(${zoom}) translate(-50%, -100%)`, transformOrigin: "top left" }}>{name}</div>)}
       {overlays.map(({ id, x, y, zoom, hp, dimmed }) => <div key={id} data-person-id={id} className="absolute w-14" style={{ left: x, top: y, opacity: dimmed ? 0.2 : 1, transform: `scale(${zoom}) translateX(-50%)`, transformOrigin: "top left" }}>

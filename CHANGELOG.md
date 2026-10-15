@@ -8,6 +8,19 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 _Aguardando próximas mudanças._
 
+## [0.6.8] - 2026-10-15
+
+### Adicionado
+
+- Criação contextual de vínculos com formulário reutilizável e atalhos diretos a partir de cartões em Pessoas, perfil e nó em foco no grafo.
+- Menus de contexto no mapa de vínculos (grafo) com ações rápidas para pessoas (criar vínculo, editar cadastro, abrir perfil e focar conexões) e vínculos (editar vínculo, ver detalhes e lixeira).
+- Rascunhos persistidos por pessoa de origem para edição e criação de vínculos.
+- Acessibilidade completa nos menus de contexto com navegação por teclado (setas, Home, End, Tab, Escape) e suporte a toque em telas móveis.
+
+### Alterado
+
+- Pesquisa de pessoas (`/api/pessoas` e `/api/pessoas/paginadas`) restrita aos dados cadastrais e ao dossiê da própria pessoa, isolando tarefas e vínculos na busca global (`/api/busca`).
+
 ## [0.6.7] - 2026-10-11
 
 ### Corrigido
@@ -437,6 +450,7 @@ _Aguardando próximas mudanças._
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.8]: https://github.com/facrf/agendarx/compare/v0.6.7...v0.6.8
 [0.6.7]: https://github.com/facrf/agendarx/compare/v0.6.6...v0.6.7
 [0.6.6]: https://github.com/facrf/agendarx/compare/v0.6.5e...v0.6.6
 [0.6.5e]: https://github.com/facrf/agendarx/compare/v0.6.5d...v0.6.5e
