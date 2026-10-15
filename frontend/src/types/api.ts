@@ -189,6 +189,7 @@ export interface BackupInfo {
 
 export interface BackupConfiguracao {
   ativo: boolean;
+  politica_confirmada?: boolean;
   horario: string;
   manter_diarios: number;
   manter_semanais: number;

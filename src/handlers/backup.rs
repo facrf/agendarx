@@ -36,9 +36,10 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOp
 
 use crate::{AppState, error::AppError, middleware::auth::SessaoAutenticada};
 
-const SCHEMA_ATUAL: i64 = 24;
+const SCHEMA_ATUAL: i64 = 25;
 const FORMATO_BACKUP: u32 = 1;
 const EXPIRACAO_RESTORE_MINUTOS: i64 = 30;
+const MAX_BACKUPS_SEGURANCA: usize = 5;
 
 pub fn rotas() -> Router<AppState> {
     Router::new()
@@ -120,6 +121,8 @@ pub struct BackupConfiguracao {
     pub manter_diarios: i64,
     pub manter_semanais: i64,
     pub manter_mensais: i64,
+    #[serde(default)]
+    pub politica_confirmada: bool,
     #[serde(default)]
     pub ultima_execucao_em: Option<String>,
     #[serde(default)]
@@ -302,7 +305,7 @@ async fn criar_snapshot_interno(state: &AppState, tipo: &str) -> Result<BackupIn
         }
     };
     snapshot_guard.preservar();
-    if automatico {
+    if automatico || tipo == "seguranca" {
         limpar_antigos(state).await?;
     }
     Ok(registro)
@@ -310,7 +313,7 @@ async fn criar_snapshot_interno(state: &AppState, tipo: &str) -> Result<BackupIn
 
 async fn carregar_configuracao(pool: &SqlitePool) -> Result<BackupConfiguracao, AppError> {
     Ok(sqlx::query_as(
-        "SELECT ativo, horario, manter_diarios, manter_semanais, manter_mensais, ultima_execucao_em, ultima_tentativa_em, ultimo_erro \
+        "SELECT ativo, horario, manter_diarios, manter_semanais, manter_mensais, politica_confirmada, ultima_execucao_em, ultima_tentativa_em, ultimo_erro \
          FROM backup_configuracao WHERE id = 1",
     )
     .fetch_one(pool)
@@ -364,6 +367,24 @@ async fn limpar_antigos(state: &AppState) -> Result<(), AppError> {
             .execute(&state.pool)
             .await?;
     }
+
+    let segurancas: Vec<(i64, String)> = sqlx::query_as(
+        "SELECT id, nome_arquivo FROM backup_registro \
+         WHERE tipo = 'seguranca' ORDER BY data_criacao DESC, id DESC",
+    )
+    .fetch_all(&state.pool)
+    .await?;
+
+    for (id, nome) in segurancas.into_iter().skip(MAX_BACKUPS_SEGURANCA) {
+        let path = dir.join(&nome);
+        if path.exists() {
+            std::fs::remove_file(path)?;
+        }
+        sqlx::query("DELETE FROM backup_registro WHERE id = ?")
+            .bind(id)
+            .execute(&state.pool)
+            .await?;
+    }
     Ok(())
 }
 
@@ -393,7 +414,7 @@ pub fn iniciar_rotina(state: AppState) {
 
 async fn executar_backup_agendado(state: &AppState) -> Result<(), AppError> {
     let config = carregar_configuracao(&state.pool).await?;
-    if !config.ativo {
+    if !config.ativo || !config.politica_confirmada {
         return Ok(());
     }
     let horario = NaiveTime::parse_from_str(&config.horario, "%H:%M")
@@ -411,6 +432,12 @@ async fn executar_backup_agendado(state: &AppState) -> Result<(), AppError> {
         return Ok(());
     };
     let agora_utc = Utc::now().to_rfc3339();
+    sqlx::query(
+        "UPDATE backup_configuracao SET ultima_tentativa_em = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = 1",
+    )
+    .bind(&agora_utc)
+    .execute(&state.pool)
+    .await?;
     match criar_snapshot_interno(state, "automatico").await {
         Ok(_) => {
             sqlx::query(
@@ -456,6 +483,7 @@ async fn obter_configuracao(
     let config = carregar_configuracao(&state.pool).await?;
     Ok(Json(serde_json::json!({
         "ativo": config.ativo,
+        "politica_confirmada": config.politica_confirmada,
         "horario": config.horario,
         "manter_diarios": config.manter_diarios,
         "manter_semanais": config.manter_semanais,
@@ -469,7 +497,7 @@ async fn obter_configuracao(
 }
 
 fn proxima_execucao(config: &BackupConfiguracao) -> Option<String> {
-    if !config.ativo {
+    if !config.ativo || !config.politica_confirmada {
         return None;
     }
     let horario = NaiveTime::parse_from_str(&config.horario, "%H:%M").ok()?;
@@ -521,7 +549,7 @@ async fn atualizar_configuracao(
         ));
     }
     sqlx::query(
-        "UPDATE backup_configuracao SET ativo = ?, horario = ?, manter_diarios = ?, \
+        "UPDATE backup_configuracao SET ativo = ?, politica_confirmada = 1, horario = ?, manter_diarios = ?, \
          manter_semanais = ?, manter_mensais = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = 1",
     )
     .bind(input.ativo)
@@ -612,25 +640,40 @@ async fn exportar_seguro(
         state.backup_runtime.operacao.try_lock().map_err(|_| {
             AppError::Conflict("já existe uma operação de backup em andamento".into())
         })?;
-    let backup = criar_snapshot_interno(&state, "manual").await?;
     let dir = diretorio_backup(&state)?;
-    let db_path = dir.join(&backup.nome_arquivo);
-    conferir_espaco(
-        &dir,
-        u64::try_from(backup.tamanho_bytes).unwrap_or(u64::MAX),
-    )?;
+    std::fs::create_dir_all(&dir)?;
+    let banco = caminho_banco(&state)?;
+    let tamanho_estimado = std::fs::metadata(&banco)?.len();
+    conferir_espaco(&dir, tamanho_estimado.saturating_mul(2))?;
+
+    let db_path = dir.join(format!(".exportacao-db-{}.db", Uuid::new_v4().simple()));
+    let _db_guard = ArquivoTemporario::new(db_path.clone());
+    let escaped = db_path.to_string_lossy().replace('\'', "''");
+    if let Err(error) = sqlx::query(&format!("VACUUM INTO '{escaped}'"))
+        .execute(&state.pool)
+        .await
+    {
+        return Err(error.into());
+    }
+    restringir_permissoes(&db_path)?;
+
     let zip_path = dir.join(format!(".exportacao-{}.zip", Uuid::new_v4().simple()));
     let db_validacao = db_path.clone();
     let validacao = tokio::task::spawn_blocking(move || validar_banco(&db_validacao))
         .await
         .map_err(|_| AppError::interno("falha ao validar a exportação"))??;
+    let db_hash = db_path.clone();
+    let sha256 = tokio::task::spawn_blocking(move || hash_arquivo(&db_hash))
+        .await
+        .map_err(|_| AppError::interno("falha ao calcular o hash da exportação"))??;
+    let tamanho_banco = std::fs::metadata(&db_path)?.len();
     let manifesto = BackupManifesto {
         formato: FORMATO_BACKUP,
         aplicacao: "AgendarX".into(),
         versao: env!("CARGO_PKG_VERSION").into(),
         criado_em: Utc::now().to_rfc3339(),
-        tamanho_banco: u64::try_from(backup.tamanho_bytes).unwrap_or_default(),
-        sha256: backup.sha256.clone(),
+        tamanho_banco,
+        sha256,
         schema_versao: validacao.schema_versao,
         pessoas: validacao.pessoas,
         usuarios: validacao.usuarios,
@@ -638,8 +681,9 @@ async fn exportar_seguro(
     };
     let senha = input.senha;
     let destino = zip_path.clone();
+    let db_origem = db_path.clone();
     let resultado = tokio::task::spawn_blocking(move || {
-        criar_zip_criptografado(&db_path, &destino, &senha, &manifesto)
+        criar_zip_criptografado(&db_origem, &destino, &senha, &manifesto)
     })
     .await;
     let resultado = match resultado {
@@ -995,6 +1039,7 @@ async fn confirmar_restauracao(
     let _manutencao = state.backup_runtime.manutencao.write().await;
     state.backup_runtime.geracao.fetch_add(1, Ordering::AcqRel);
     super::osint::interromper_trabalhos(&state.pool).await?;
+    let config_atual = carregar_configuracao(&state.pool).await?;
     let seguranca = criar_snapshot_interno(&state, "seguranca").await?;
     let catalogo = listar_catalogo(&state.pool).await?;
     let caminho_atual = caminho_banco(&state)?;
@@ -1004,17 +1049,23 @@ async fn confirmar_restauracao(
         .await
         .map_err(|_| AppError::interno("falha ao executar a restauração"))?;
     if let Err(error) = copia {
-        recuperar_seguranca(&state, &seguranca, &catalogo, &caminho_atual).await?;
+        recuperar_seguranca(&state, &seguranca, &catalogo, &config_atual, &caminho_atual).await?;
         return Err(AppError::interno(format!(
             "a restauração foi interrompida e o estado anterior foi recuperado: {error}"
         )));
     }
 
-    let pos_restore =
-        finalizar_restauracao(&state, &catalogo, &sessao.usuario.login, &pendente.previa).await;
+    let pos_restore = finalizar_restauracao(
+        &state,
+        &catalogo,
+        &config_atual,
+        &sessao.usuario.login,
+        &pendente.previa,
+    )
+    .await;
     if let Err(error) = pos_restore {
         tracing::error!(%error, "validação posterior falhou; recuperando backup de segurança");
-        recuperar_seguranca(&state, &seguranca, &catalogo, &caminho_atual).await?;
+        recuperar_seguranca(&state, &seguranca, &catalogo, &config_atual, &caminho_atual).await?;
         return Err(AppError::interno(format!(
             "a restauração falhou e o estado anterior foi recuperado: {error}"
         )));
@@ -1030,6 +1081,7 @@ async fn recuperar_seguranca(
     state: &AppState,
     seguranca: &BackupInfo,
     catalogo: &[BackupInfo],
+    config_atual: &BackupConfiguracao,
     caminho_atual: &FsPath,
 ) -> Result<(), AppError> {
     let seguranca_path = diretorio_backup(state)?.join(&seguranca.nome_arquivo);
@@ -1043,12 +1095,14 @@ async fn recuperar_seguranca(
         .execute(&state.pool)
         .await?;
     reconciliar_catalogo(state, catalogo).await?;
+    reconciliar_configuracao(&state.pool, config_atual).await?;
     Ok(())
 }
 
 async fn finalizar_restauracao(
     state: &AppState,
     catalogo: &[BackupInfo],
+    config_atual: &BackupConfiguracao,
     usuario_login: &str,
     previa: &RestauracaoPrevia,
 ) -> Result<(), AppError> {
@@ -1061,6 +1115,7 @@ async fn finalizar_restauracao(
         .execute(&state.pool)
         .await?;
     reconciliar_catalogo(state, catalogo).await?;
+    reconciliar_configuracao(&state.pool, config_atual).await?;
     let caminho = caminho_banco(state)?;
     let validacao = tokio::task::spawn_blocking(move || validar_banco(&caminho))
         .await
@@ -1195,6 +1250,29 @@ async fn reconciliar_catalogo(state: &AppState, catalogo: &[BackupInfo]) -> Resu
         .execute(&state.pool)
         .await?;
     }
+    Ok(())
+}
+
+async fn reconciliar_configuracao(
+    pool: &SqlitePool,
+    config: &BackupConfiguracao,
+) -> Result<(), AppError> {
+    sqlx::query(
+        "UPDATE backup_configuracao SET ativo = ?, politica_confirmada = ?, horario = ?, \
+         manter_diarios = ?, manter_semanais = ?, manter_mensais = ?, ultima_execucao_em = ?, \
+         ultima_tentativa_em = ?, ultimo_erro = ?, data_atualizacao = CURRENT_TIMESTAMP WHERE id = 1",
+    )
+    .bind(config.ativo)
+    .bind(config.politica_confirmada)
+    .bind(&config.horario)
+    .bind(config.manter_diarios)
+    .bind(config.manter_semanais)
+    .bind(config.manter_mensais)
+    .bind(&config.ultima_execucao_em)
+    .bind(&config.ultima_tentativa_em)
+    .bind(&config.ultimo_erro)
+    .execute(pool)
+    .await?;
     Ok(())
 }
 
@@ -1648,5 +1726,35 @@ mod tests {
         assert!(preparar_arquivo(&origem, &destino, "", 1024).is_err());
         let _ = std::fs::remove_file(origem);
         let _ = std::fs::remove_file(destino);
+    }
+
+    #[tokio::test]
+    async fn politica_automatica_inicia_desativada_por_padrao() {
+        let id = uuid::Uuid::new_v4().simple().to_string();
+        let mut config = Config::para_testes().unwrap();
+        config.database_url = format!("sqlite://.cache/backup-default-off-{id}.db?mode=rwc");
+        config.admin_login = Some("admin-backup".into());
+        config.admin_password = Some("senha-backup-segura".into());
+        let pool = db::conectar(&config).await.unwrap();
+        let state = AppState {
+            pool: pool.clone(),
+            config,
+            auth_runtime: crate::handlers::auth::AuthRuntime::default(),
+            backup_runtime: BackupRuntime::default(),
+        };
+        let cfg = super::carregar_configuracao(&pool).await.unwrap();
+        assert!(!cfg.ativo);
+        assert!(!cfg.politica_confirmada);
+        assert!(super::proxima_execucao(&cfg).is_none());
+
+        super::executar_backup_agendado(&state).await.unwrap();
+        let total: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM backup_registro")
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+        assert_eq!(total, 0);
+
+        pool.close().await;
+        let _ = std::fs::remove_file(format!(".cache/backup-default-off-{id}.db"));
     }
 }

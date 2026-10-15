@@ -8,6 +8,16 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 _Aguardando próximas mudanças._
 
+## [0.6.9] - 2026-10-15
+
+### Modificado
+
+- **Política de backup automático desativada por padrão (opt-in explícito)**: migração `0025` adiciona `politica_confirmada`, mantendo a rotina automática desativada por padrão até decisão explícita do administrador.
+- **Exportação protegida sem cópias locais extras**: o download do backup completo (`.zip` criptografado) utiliza snapshot temporário, sem salvar nem acumular arquivos `.db` permanentes no servidor.
+- **Prevenção de disparos duplicados após restauração**: a configuração da política de backup do administrador é preservada após restaurar snapshots antigos e `ultima_tentativa_em` é atualizada preventivamente antes da gravação do snapshot.
+- **Retenção de backups de segurança**: backups automáticos criados antes de restaurações (`seguranca`) agora respeitam retenção máxima (5 cópias mais recentes), evitando acúmulo infinito em disco.
+- **Melhorias de UX em Backup e Restauração**: painel com status claro da política (manual vs automática ativa), campos desabilitados visualmente quando inativos, indicador de alterações pendentes de confirmação e resumo de armazenamento em disco com opção de exibir todos os backups.
+
 ## [0.6.8] - 2026-10-15
 
 ### Adicionado
@@ -450,6 +460,7 @@ _Aguardando próximas mudanças._
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.6.9]: https://github.com/facrf/agendarx/compare/v0.6.8...v0.6.9
 [0.6.8]: https://github.com/facrf/agendarx/compare/v0.6.7...v0.6.8
 [0.6.7]: https://github.com/facrf/agendarx/compare/v0.6.6...v0.6.7
 [0.6.6]: https://github.com/facrf/agendarx/compare/v0.6.5e...v0.6.6
