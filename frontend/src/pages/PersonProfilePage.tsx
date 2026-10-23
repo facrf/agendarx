@@ -50,16 +50,21 @@ export function PersonProfilePage() {
   useEffect(() => {
     let active = true;
     let sequence = 0;
-    const refresh = () => { const current = ++sequence; void api.get<PessoaDetalhe>(`/api/pessoas/${id}`).then((value) => { if (active && current === sequence) setPessoa(value); }).catch((error) => { if (active) notify(errorMessage(error), "erro"); }); };
+    let lastLoaded = Date.now();
+    const refresh = () => {
+      lastLoaded = Date.now();
+      const current = ++sequence;
+      void api.get<PessoaDetalhe>(`/api/pessoas/${id}`).then((value) => { if (active && current === sequence) setPessoa(value); }).catch((error) => { if (active) notify(errorMessage(error), "erro"); });
+    };
     const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") refresh(); };
-    const visible = () => { if (!document.hidden) refresh(); };
+    const refreshOnFocus = () => { if (!document.hidden && Date.now() - lastLoaded > 30_000) refresh(); };
     window.addEventListener("agendarx:psychosocial-updated", refresh);
     window.addEventListener("storage", storage);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", visible);
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     Promise.all([
       api.get<PessoaDetalhe>(`/api/pessoas/${id}`),
-      api.get<TipoMeioContato[]>("/api/configuracoes/tipos-contato"),
+      api.get<TipoMeioContato[]>("/api/configuracoes/tipos-contato", { cacheMs: 60_000 }),
       api.get<TarefaCalendario[]>(`/api/calendario/pessoas/${id}/tarefas`),
     ])
       .then(([pessoaData, tiposData, tarefasData]) => {
@@ -67,7 +72,7 @@ export function PersonProfilePage() {
       })
       .catch((error) => notify(errorMessage(error), "erro"))
       .finally(() => setCarregando(false));
-    return () => { active = false; window.removeEventListener("agendarx:psychosocial-updated", refresh); window.removeEventListener("storage", storage); window.removeEventListener("focus", refresh); document.removeEventListener("visibilitychange", visible); };
+    return () => { active = false; window.removeEventListener("agendarx:psychosocial-updated", refresh); window.removeEventListener("storage", storage); window.removeEventListener("focus", refreshOnFocus); document.removeEventListener("visibilitychange", refreshOnFocus); };
   }, [id, notify]);
 
   const excluir = async () => {

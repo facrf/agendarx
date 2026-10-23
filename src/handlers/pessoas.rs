@@ -49,13 +49,12 @@ struct PessoaFiltro {
     por_pagina: Option<i64>,
 }
 const SELECT_PESSOAS: &str = "SELECT p.id,p.versao,p.nome,p.categoria_id,p.descricao,c.nome_categoria,c.cor_hex,p.classificacao_risco,p.toxicidade,(p.foto_principal IS NOT NULL) AS tem_foto,p.pessoa_juridica,p.data_cadastro,COALESCE((SELECT group_concat(e.nome,char(31)) FROM pessoa_etiqueta pe JOIN etiqueta e ON e.id=pe.etiqueta_id WHERE pe.pessoa_id=p.id),'') AS etiquetas,EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=";
-fn consulta_pessoas(
-    prefixo: &str,
+
+fn aplicar_predicados_pessoa(
+    q: &mut sqlx::QueryBuilder<'static, sqlx::Sqlite>,
     filtro: &PessoaFiltro,
     usuario: i64,
-) -> Result<sqlx::QueryBuilder<'static, sqlx::Sqlite>, AppError> {
-    let mut q = sqlx::QueryBuilder::new(prefixo.to_owned());
-    q.push_bind(usuario).push(") AS favorito FROM pessoa p LEFT JOIN categoria_pessoa c ON c.id=p.categoria_id WHERE p.excluida_em IS NULL");
+) -> Result<(), AppError> {
     if let Some(busca) = filtro.busca.as_deref().filter(|s| !s.trim().is_empty()) {
         if let Some(termo) = super::busca::termo_fts(busca)? {
             // A agenda pesquisa apenas o cadastro e o dossiê da própria pessoa.
@@ -88,36 +87,60 @@ fn consulta_pessoas(
             .push_bind(tipo == "juridica");
     }
     if filtro.favoritos == Some(true) {
-        q.push(" AND EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=").push_bind(usuario).push(")");
+        q.push(" AND EXISTS(SELECT 1 FROM pessoa_favorita pf WHERE pf.pessoa_id=p.id AND pf.usuario_id=")
+            .push_bind(usuario)
+            .push(")");
     }
+    Ok(())
+}
+
+fn consulta_pessoas(
+    filtro: &PessoaFiltro,
+    usuario: i64,
+) -> Result<sqlx::QueryBuilder<'static, sqlx::Sqlite>, AppError> {
+    let mut q = sqlx::QueryBuilder::new(SELECT_PESSOAS.to_owned());
+    q.push_bind(usuario).push(") AS favorito FROM pessoa p LEFT JOIN categoria_pessoa c ON c.id=p.categoria_id WHERE p.excluida_em IS NULL");
+    aplicar_predicados_pessoa(&mut q, filtro, usuario)?;
     Ok(q)
 }
+
+fn contar_pessoas(
+    filtro: &PessoaFiltro,
+    usuario: i64,
+) -> Result<sqlx::QueryBuilder<'static, sqlx::Sqlite>, AppError> {
+    let mut q = sqlx::QueryBuilder::new(
+        "SELECT COUNT(*), COALESCE(SUM(p.foto_principal IS NOT NULL), 0) FROM pessoa p WHERE p.excluida_em IS NULL",
+    );
+    aplicar_predicados_pessoa(&mut q, filtro, usuario)?;
+    Ok(q)
+}
+
 async fn listar_pessoas(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Query(filtro): Query<PessoaFiltro>,
 ) -> Result<Json<Vec<PessoaResumo>>, AppError> {
-    let mut q = consulta_pessoas(SELECT_PESSOAS, &filtro, sessao.usuario.id)?;
+    let mut q = consulta_pessoas(&filtro, sessao.usuario.id)?;
     q.push(" ORDER BY favorito DESC,p.nome COLLATE NOCASE,p.id");
     Ok(Json(q.build_query_as().fetch_all(&state.pool).await?))
 }
+
 #[derive(serde::Serialize)]
 struct PessoasPagina {
     #[serde(flatten)]
     pagina: super::busca::Pagina<PessoaResumo>,
     total_com_foto: i64,
 }
+
 async fn listar_paginadas(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Query(filtro): Query<PessoaFiltro>,
 ) -> Result<Json<PessoasPagina>, AppError> {
     let (pagina, tamanho) = super::busca::paginacao(filtro.pagina, filtro.por_pagina)?;
-    let prefixo = format!("SELECT COUNT(*),COALESCE(SUM(tem_foto),0) FROM ({SELECT_PESSOAS}");
-    let mut count = consulta_pessoas(&prefixo, &filtro, sessao.usuario.id)?;
-    count.push(")");
+    let mut count = contar_pessoas(&filtro, sessao.usuario.id)?;
     let (total, fotos): (i64, i64) = count.build_query_as().fetch_one(&state.pool).await?;
-    let mut q = consulta_pessoas(SELECT_PESSOAS, &filtro, sessao.usuario.id)?;
+    let mut q = consulta_pessoas(&filtro, sessao.usuario.id)?;
     q.push(" ORDER BY favorito DESC,p.nome COLLATE NOCASE,p.id LIMIT ")
         .push_bind(tamanho)
         .push(" OFFSET ")
@@ -445,10 +468,7 @@ async fn buscar_pessoa_detalhe_tx(
     .bind(id)
     .fetch_all(&mut *conn)
     .await?;
-    let (_, mut indicadores) = super::hp_psicossocial::calcular_snapshot(&mut *conn).await?;
-    let psicossocial = indicadores
-        .remove(&id)
-        .ok_or_else(|| AppError::interno("perfil ausente do snapshot de HP"))?;
+    let psicossocial = super::hp_psicossocial::calcular_hp_pessoa(&mut *conn, id).await?;
     let risco_registro = super::hp_psicossocial::carregar_registro(&mut *conn, id).await?;
     Ok(PessoaDetalhe {
         pessoa,

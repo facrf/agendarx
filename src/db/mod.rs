@@ -6,7 +6,7 @@ use argon2::{
 };
 use sqlx::{
     SqlitePool,
-    sqlite::{SqliteConnectOptions, SqlitePoolOptions},
+    sqlite::{SqliteConnectOptions, SqliteJournalMode, SqlitePoolOptions, SqliteSynchronous},
 };
 
 use crate::{config::Config, error::AppError};
@@ -14,10 +14,18 @@ use crate::{config::Config, error::AppError};
 pub async fn conectar(config: &Config) -> Result<SqlitePool, AppError> {
     criar_diretorio_do_banco(&config.database_url)?;
 
-    let opcoes = SqliteConnectOptions::from_str(&config.database_url)?
+    let mut opcoes = SqliteConnectOptions::from_str(&config.database_url)?
         .create_if_missing(true)
         .foreign_keys(true)
         .busy_timeout(Duration::from_secs(5));
+
+    // Modo WAL permite leituras e escritas concorrentes sem contenção de locks de arquivo.
+    // Em bancos persistidos em arquivo, synchronous=NORMAL é seguro contra falhas e reduz fsyncs.
+    if !config.database_url.contains(":memory:") {
+        opcoes = opcoes
+            .journal_mode(SqliteJournalMode::Wal)
+            .synchronous(SqliteSynchronous::Normal);
+    }
 
     let pool = SqlitePoolOptions::new()
         .max_connections(5)

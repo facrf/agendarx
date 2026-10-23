@@ -3,8 +3,10 @@
 ## Visão geral
 
 O AgendarX é uma aplicação monolítica leve. Um único processo Axum entrega a API
-REST e os arquivos compilados do React. O SQLite permanece em disco local e também
-armazena fotos e anexos como BLOBs.
+REST e os arquivos compilados do React. Os assets estáticos gerados pelo Vite em
+`/assets/*` são servidos com cabeçalhos de cache imutável (`Cache-Control: public, max-age=31536000, immutable`),
+enquanto o documento HTML principal utiliza `no-cache` para assegurar atualizações imediatas.
+O SQLite permanece em disco local e também armazena fotos e anexos como BLOBs.
 
 ```mermaid
 flowchart LR
@@ -35,10 +37,18 @@ flowchart LR
 
 ## Persistência
 
-As migrações são executadas automaticamente na inicialização. O SQLite usa chaves
-estrangeiras e exclusões em cascata para os registros dependentes de uma pessoa.
-Fotos, anexos pessoais, anexos de vínculos, anexos de tarefas e os ícones
-personalizados ficam no banco para simplificar backup e portabilidade.
+As migrações são executadas automaticamente na inicialização. O pool de conexões SQLite
+opera em modo WAL (`journal_mode=WAL`) e `synchronous=NORMAL` para bancos em arquivo,
+permitindo leituras e escritas concorrentes sem contenção de locks e reduzindo I/O bloqueante
+de fsync em operações de escrita. O SQLite usa chaves estrangeiras e exclusões em cascata
+para os registros dependentes de uma pessoa. Fotos, anexos pessoais, anexos de vínculos,
+anexos de tarefas e os ícones personalizados ficam no banco para simplificar backup e portabilidade.
+
+A listagem de tarefas para o calendário carrega pessoas vinculadas, anexos e contagem de
+séries em consultas consolidadas em lote (`IN (...)`), evitando roundtrips de N+1 queries.
+Na consulta ao perfil individual de contatos (`GET /api/pessoas/:id`), o cálculo de HP psicossocial
+utiliza uma CTE recursiva (`calcular_hp_pessoa`) para carregar estritamente a sub-rede relevante
+(até 2º grau) da pessoa consultada, eliminando varreduras do grafo completo.
 
 Tarefas do calendário armazenam os instantes em UTC e pertencem ao usuário que as
 criou. A associação com pessoas usa uma tabela de junção, permitindo múltiplos

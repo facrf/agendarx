@@ -13,11 +13,11 @@ FROM rust:bookworm@sha256:0e2bcaef56d041a486784e54104a81aebe0da44bd03019bd70bc04
 
 WORKDIR /build
 COPY Cargo.toml Cargo.lock ./
-COPY migrations ./migrations
 
 # Esta camada mantém as dependências compiladas quando apenas o código muda.
 RUN mkdir -p src && printf 'fn main() {}\n' > src/main.rs && cargo build --locked --release
 
+COPY migrations ./migrations
 COPY src ./src
 RUN touch src/main.rs && cargo build --locked --release && \
     cp /build/target/release/agendarx /tmp/agendarx

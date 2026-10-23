@@ -170,7 +170,7 @@ export function CalendarPage() {
   }, [carregarTarefas]);
 
   useEffect(() => {
-    api.get<PessoaResumo[]>("/api/pessoas")
+    api.get<PessoaResumo[]>("/api/pessoas", { cacheMs: 30_000 })
       .then(setPessoas)
       .catch((error) => notify(errorMessage(error), "erro"));
   }, [notify]);

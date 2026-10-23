@@ -55,6 +55,105 @@ pub async fn calcular_snapshot(
     ))
 }
 
+pub async fn calcular_hp_pessoa(
+    conn: &mut SqliteConnection,
+    id: i64,
+) -> Result<IndicadoresPsicossociais, AppError> {
+    let config = carregar_configuracao(conn).await?;
+    let (nos, arestas) = carregar_rede_pessoa(conn, id).await?;
+    let atualizacoes = calcular_hp_psicossocial(&nos, &arestas, &config)
+        .map_err(|e| AppError::interno(e.to_string()))?;
+    atualizacoes
+        .into_iter()
+        .find(|a| a.pessoa_id == id)
+        .map(|a| a.indicadores)
+        .ok_or_else(|| AppError::interno("perfil ausente do snapshot de HP"))
+}
+
+async fn carregar_rede_pessoa(
+    conn: &mut SqliteConnection,
+    id: i64,
+) -> Result<(Vec<NoPsicossocial>, Vec<ArestaPsicossocial>), AppError> {
+    let query_nos = "WITH RECURSIVE \
+         n1(id) AS ( \
+           SELECT DISTINCT CASE WHEN v.pessoa_origem_id = ? THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           FROM pessoa_vinculo v \
+           JOIN pessoa p ON p.id = CASE WHEN v.pessoa_origem_id = ? THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           WHERE v.excluido_em IS NULL AND p.excluida_em IS NULL AND (v.pessoa_origem_id = ? OR v.pessoa_destino_id = ?) \
+         ), \
+         n2(id) AS ( \
+           SELECT DISTINCT CASE WHEN v.pessoa_origem_id = n1.id THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           FROM pessoa_vinculo v \
+           JOIN n1 ON (v.pessoa_origem_id = n1.id OR v.pessoa_destino_id = n1.id) \
+           JOIN pessoa p ON p.id = CASE WHEN v.pessoa_origem_id = n1.id THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           WHERE v.excluido_em IS NULL AND p.excluida_em IS NULL AND p.toxicidade > 0 AND p.id <> ? \
+         ), \
+         sub_nos(id) AS ( \
+           SELECT ? AS id \
+           UNION SELECT id FROM n1 \
+           UNION SELECT id FROM n2 \
+         ) \
+         SELECT p.id AS pessoa_id, p.nome, p.classificacao_risco, p.toxicidade \
+         FROM pessoa p \
+         JOIN sub_nos s ON s.id = p.id \
+         WHERE p.excluida_em IS NULL \
+         ORDER BY p.id";
+
+    let nos = sqlx::query_as::<_, NoPsicossocial>(query_nos)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .fetch_all(&mut *conn)
+        .await?;
+
+    if nos.is_empty() {
+        return Err(AppError::nao_encontrado("pessoa"));
+    }
+
+    let query_arestas = "WITH RECURSIVE \
+         n1(id) AS ( \
+           SELECT DISTINCT CASE WHEN v.pessoa_origem_id = ? THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           FROM pessoa_vinculo v \
+           JOIN pessoa p ON p.id = CASE WHEN v.pessoa_origem_id = ? THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           WHERE v.excluido_em IS NULL AND p.excluida_em IS NULL AND (v.pessoa_origem_id = ? OR v.pessoa_destino_id = ?) \
+         ), \
+         n2(id) AS ( \
+           SELECT DISTINCT CASE WHEN v.pessoa_origem_id = n1.id THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           FROM pessoa_vinculo v \
+           JOIN n1 ON (v.pessoa_origem_id = n1.id OR v.pessoa_destino_id = n1.id) \
+           JOIN pessoa p ON p.id = CASE WHEN v.pessoa_origem_id = n1.id THEN v.pessoa_destino_id ELSE v.pessoa_origem_id END \
+           WHERE v.excluido_em IS NULL AND p.excluida_em IS NULL AND p.toxicidade > 0 AND p.id <> ? \
+         ), \
+         sub_nos(id) AS ( \
+           SELECT ? AS id \
+           UNION SELECT id FROM n1 \
+           UNION SELECT id FROM n2 \
+         ) \
+         SELECT v.id AS vinculo_id, v.pessoa_origem_id AS origem_id, v.pessoa_destino_id AS destino_id, v.tipo_vinculo \
+         FROM pessoa_vinculo v \
+         JOIN sub_nos s1 ON s1.id = v.pessoa_origem_id \
+         JOIN sub_nos s2 ON s2.id = v.pessoa_destino_id \
+         JOIN pessoa a ON a.id = v.pessoa_origem_id \
+         JOIN pessoa b ON b.id = v.pessoa_destino_id \
+         WHERE v.excluido_em IS NULL AND a.excluida_em IS NULL AND b.excluida_em IS NULL \
+         ORDER BY v.id";
+
+    let arestas = sqlx::query_as::<_, ArestaPsicossocial>(query_arestas)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .bind(id)
+        .fetch_all(&mut *conn)
+        .await?;
+
+    Ok((nos, arestas))
+}
+
 async fn carregar_rede(
     conn: &mut SqliteConnection,
 ) -> Result<(Vec<NoPsicossocial>, Vec<ArestaPsicossocial>), AppError> {

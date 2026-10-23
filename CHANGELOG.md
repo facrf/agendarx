@@ -6,6 +6,16 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
+### Otimizações
+
+- **Modo WAL e `synchronous=NORMAL` no SQLite**: habilitação de Write-Ahead Logging (`journal_mode=WAL`) e `synchronous=NORMAL` para bancos em arquivo em `src/db/mod.rs`, permitindo leituras e escritas concorrentes sem bloqueios e reduzindo fsyncs no disco.
+- **Eliminação de N+1 queries no calendário (`calendario.rs`)**: carregamento em lote de pessoas vinculadas, anexos e contagem de séries para listagens mensais e lembretes, reduzindo de centenas para apenas 3 a 4 consultas SQL por requisição.
+- **Otimização da contagem paginada de pessoas (`pessoas.rs`)**: separação dos predicados da cláusula de contagem (`COUNT(*)` e fotos), eliminando subconsultas custosas de etiquetas e favoritos na paginação.
+- **Cálculo localizado de HP psicossocial para perfil único (`hp_psicossocial.rs` / `pessoas.rs`)**: introdução de `calcular_hp_pessoa`, restringindo consultas e processamento estritamente ao subgrafo relevante (até 2º grau) da pessoa consultada, eliminando varreduras do banco inteiro em visualizações de perfil.
+- **Cache e Throttling no frontend**: adição de cache client-side para tipos de contato e contatos no calendário, além de controle de frequência (throttling de 30s) na recarga por foco e visibilidade no grafo e no perfil de contato.
+- **Cabeçalhos de cache imutável para assets estáticos (`main.rs`)**: injeção de `Cache-Control: public, max-age=31536000, immutable` para bundles de assets gerados pelo Vite e `no-cache` para o documento HTML principal.
+- **Otimização de cache de camadas no Dockerfile**: preservação da camada de build de dependências do Rust quando apenas migrações são alteradas.
+
 ### Segurança
 
 - **Sanitização CRLF no vCard (`exportar_vcard`)**: purga caracteres `\r` (retorno de carro) em `escapar_vcard`, mitigando injeção de propriedades e delimitações falsas em clientes de contatos.

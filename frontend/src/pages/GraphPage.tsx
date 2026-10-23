@@ -155,7 +155,9 @@ export function GraphPage() {
   }, [showRelationships, panelRevision, notify]);
 
   useEffect(() => {
+    let lastGraphLoad = Date.now();
     const refresh = () => {
+      lastGraphLoad = Date.now();
       window.clearTimeout(refreshTimer.current);
       refreshTimer.current = window.setTimeout(() => { void loadGraphData("graph").catch(error => { setRefreshFailed(true); notify(errorMessage(error), "erro"); }); }, 150);
     };
@@ -168,19 +170,19 @@ export function GraphPage() {
       }
     };
     const storage = (event: StorageEvent) => { if (event.key === "agendarx:psychosocial-update") { setPanelRevision(value => value + 1); refresh(); } };
-    const visibility = () => { if (!document.hidden) refresh(); };
+    const refreshOnFocus = () => { if (!document.hidden && Date.now() - lastGraphLoad > 30_000) refresh(); };
     window.addEventListener("agendarx:psychosocial-updated", refresh);
     window.addEventListener("agendarx:data-updated", updated);
     window.addEventListener("storage", storage);
-    window.addEventListener("focus", refresh);
-    document.addEventListener("visibilitychange", visibility);
+    window.addEventListener("focus", refreshOnFocus);
+    document.addEventListener("visibilitychange", refreshOnFocus);
     return () => {
       window.clearTimeout(refreshTimer.current); loadSequence.current += 1;
       window.removeEventListener("agendarx:psychosocial-updated", refresh);
       window.removeEventListener("agendarx:data-updated", updated);
       window.removeEventListener("storage", storage);
-      window.removeEventListener("focus", refresh);
-      document.removeEventListener("visibilitychange", visibility);
+      window.removeEventListener("focus", refreshOnFocus);
+      document.removeEventListener("visibilitychange", refreshOnFocus);
     };
   }, [loadGraphData, notify]);
 

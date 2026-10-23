@@ -89,3 +89,20 @@ Validação desta rodada aprovada:
 - 81 testes Rust executados e aprovados (`cargo test`), incluindo teste de regressão para os novos cabeçalhos globais de segurança.
 - `cargo clippy --all-targets -- -D warnings`: aprovado sem avisos.
 - `cargo fmt --all -- --check`: aprovado.
+
+## Quarta rodada — otimizações de banco de dados, consultas e frontend
+
+Autorizada e concluída em 23/10/2026.
+
+- [x] **Modo WAL e synchronous no SQLite:** ativação de `journal_mode=WAL` e `synchronous=NORMAL` em `src/db/mod.rs` para permitir leituras e escritas concorrentes sem travamento e diminuir I/O de disco.
+- [x] **Eliminação de N+1 queries no calendário:** implementação de carregamento em lote (`montar_respostas_em_lote`) para pessoas vinculadas, anexos e contagem de séries em `src/handlers/calendario.rs`, reduzindo centenas de roundtrips para 3 consultas no banco.
+- [x] **Otimização da contagem de paginação de contatos:** separação da consulta de contagem em `src/handlers/pessoas.rs`, removendo subconsultas custosas de etiquetas e favoritos na paginação.
+- [x] **Cálculo localizado de HP psicossocial para perfil único:** introdução de `calcular_hp_pessoa` em `src/handlers/hp_psicossocial.rs` e `src/handlers/pessoas.rs`, restringindo consultas e processamento estritamente ao subgrafo relevante (até 2º grau) da pessoa consultada em vez de varrer toda a base.
+- [x] **Cache e controle de recarga por foco no frontend:** introdução de cache em memória para tipos de contato e contatos no calendário, e throttling de 30 segundos em eventos de foco/visibilidade em `GraphPage.tsx` e `PersonProfilePage.tsx`.
+- [x] **Cabeçalhos de cache de assets imutáveis:** injeção de `Cache-Control: public, max-age=31536000, immutable` para `/assets/*` e `no-cache` para o HTML em `src/main.rs`.
+- [x] **Otimização de cache de camadas no Dockerfile:** reorganização do `Dockerfile` movendo a cópia de `migrations` para depois do build das dependências, preservando a compilação de crates quando apenas migrações mudam.
+
+Validação desta rodada aprovada:
+- 81 testes Rust executados e aprovados (`cargo test`).
+- `cargo clippy --all-targets -- -D warnings`: sem avisos.
+- `cargo fmt --all -- --check`: aprovado.

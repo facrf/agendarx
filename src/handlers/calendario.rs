@@ -1,4 +1,4 @@
-use std::collections::BTreeSet;
+use std::collections::{BTreeSet, HashMap, HashSet};
 
 use axum::{
     Extension, Json, Router,
@@ -100,11 +100,7 @@ async fn listar_tarefas_da_pessoa(
     .fetch_all(&state.pool)
     .await?;
 
-    let mut tarefas = Vec::with_capacity(rows.len());
-    for row in rows {
-        tarefas.push(montar_resposta(&state, row).await?);
-    }
-    Ok(Json(tarefas))
+    Ok(Json(montar_respostas_em_lote(&state, rows).await?))
 }
 
 async fn listar_tarefas(
@@ -173,11 +169,7 @@ async fn listar_tarefas(
             .await?,
         };
 
-    let mut tarefas = Vec::with_capacity(rows.len());
-    for row in rows {
-        tarefas.push(montar_resposta(&state, row).await?);
-    }
-    Ok(Json(tarefas))
+    Ok(Json(montar_respostas_em_lote(&state, rows).await?))
 }
 
 async fn obter_tarefa(
@@ -477,18 +469,18 @@ async fn listar_lembretes(
     .fetch_all(&state.pool)
     .await?;
 
-    let mut lembretes = Vec::new();
+    let mut elegiveis = Vec::new();
     for row in rows {
         let minutos = row.lembrete_minutos.unwrap_or_default();
         let inicio = parse_data(&row.inicio_em, "inicio_em")?;
         if inicio - Duration::minutes(minutos) <= agora {
-            lembretes.push(montar_resposta(&state, row).await?);
-            if lembretes.len() >= 20 {
+            elegiveis.push(row);
+            if elegiveis.len() >= 20 {
                 break;
             }
         }
     }
-    Ok(Json(lembretes))
+    Ok(Json(montar_respostas_em_lote(&state, elegiveis).await?))
 }
 
 #[derive(serde::Deserialize)]
@@ -586,54 +578,167 @@ async fn buscar_tarefa(
     montar_resposta(state, row).await
 }
 
+#[derive(sqlx::FromRow)]
+struct PessoaTarefaLinha {
+    tarefa_id: i64,
+    id: i64,
+    nome: String,
+    cor_hex: Option<String>,
+    tem_foto: bool,
+    pessoa_juridica: bool,
+}
+
+#[derive(sqlx::FromRow)]
+struct SerieContagemLinha {
+    serie_id: String,
+    total: i64,
+}
+
 async fn montar_resposta(
     state: &AppState,
     row: TarefaCalendarioRow,
 ) -> Result<TarefaCalendarioResponse, AppError> {
-    let pessoas = sqlx::query_as::<_, PessoaTarefaResumo>(
-        "SELECT p.id, p.nome, c.cor_hex, (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica \
+    let mut lote = montar_respostas_em_lote(state, vec![row]).await?;
+    lote.pop()
+        .ok_or_else(|| AppError::interno("falha ao montar resposta de tarefa"))
+}
+
+async fn montar_respostas_em_lote(
+    state: &AppState,
+    rows: Vec<TarefaCalendarioRow>,
+) -> Result<Vec<TarefaCalendarioResponse>, AppError> {
+    if rows.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let tarefa_ids: Vec<i64> = rows.iter().map(|r| r.id).collect();
+    let mut serie_ids = HashSet::new();
+    let mut usuario_id = None;
+    for row in &rows {
+        if let Some(serie_id) = &row.serie_id {
+            serie_ids.insert(serie_id.clone());
+        }
+        usuario_id = Some(row.usuario_id);
+    }
+
+    // 1. Pessoas vinculadas em lote (elimina N queries individuais)
+    let mut query_pessoas = sqlx::QueryBuilder::<Sqlite>::new(
+        "SELECT tp.tarefa_id, p.id, p.nome, c.cor_hex, (p.foto_principal IS NOT NULL) AS tem_foto, p.pessoa_juridica \
          FROM tarefa_calendario_pessoa tp \
          JOIN pessoa p ON p.id = tp.pessoa_id AND p.excluida_em IS NULL \
          LEFT JOIN categoria_pessoa c ON c.id = p.categoria_id \
-         WHERE tp.tarefa_id = ? ORDER BY p.nome COLLATE NOCASE",
-    )
-    .bind(row.id)
-    .fetch_all(&state.pool)
-    .await?;
-    let anexos = buscar_resumos_anexos(state, row.id).await?;
+         WHERE tp.tarefa_id IN (",
+    );
+    let mut sep = query_pessoas.separated(", ");
+    for id in &tarefa_ids {
+        sep.push_bind(id);
+    }
+    query_pessoas.push(") ORDER BY p.nome COLLATE NOCASE");
 
-    Ok(TarefaCalendarioResponse {
-        id: row.id,
-        versao: row.versao,
-        titulo: row.titulo,
-        descricao: row.descricao,
-        inicio_em: row.inicio_em,
-        fim_em: row.fim_em,
-        dia_inteiro: row.dia_inteiro,
-        status: row.status,
-        prioridade: row.prioridade,
-        cor_hex: row.cor_hex,
-        serie_id: row.serie_id.clone(),
-        recorrencia: row.recorrencia,
-        recorrencia_fim_em: row.recorrencia_fim_em,
-        total_ocorrencias: if let Some(serie_id) = &row.serie_id {
-            sqlx::query_scalar(
-                "SELECT COUNT(*) FROM tarefa_calendario WHERE serie_id = ? AND usuario_id = ?",
-            )
-            .bind(serie_id)
-            .bind(row.usuario_id)
-            .fetch_one(&state.pool)
-            .await?
+    let pessoas_linhas: Vec<PessoaTarefaLinha> = query_pessoas
+        .build_query_as()
+        .fetch_all(&state.pool)
+        .await?;
+
+    let mut pessoas_por_tarefa: HashMap<i64, Vec<PessoaTarefaResumo>> = HashMap::new();
+    for p in pessoas_linhas {
+        pessoas_por_tarefa
+            .entry(p.tarefa_id)
+            .or_default()
+            .push(PessoaTarefaResumo {
+                id: p.id,
+                nome: p.nome,
+                cor_hex: p.cor_hex,
+                tem_foto: p.tem_foto,
+                pessoa_juridica: p.pessoa_juridica,
+            });
+    }
+
+    // 2. Anexos em lote (elimina N queries individuais)
+    let mut query_anexos = sqlx::QueryBuilder::<Sqlite>::new(
+        "SELECT id, tarefa_id, nome_arquivo, mime_type, tamanho_bytes, data_upload \
+         FROM anexo_tarefa_calendario \
+         WHERE tarefa_id IN (",
+    );
+    let mut sep_anexos = query_anexos.separated(", ");
+    for id in &tarefa_ids {
+        sep_anexos.push_bind(id);
+    }
+    query_anexos.push(") ORDER BY data_upload DESC, id DESC");
+
+    let anexos_linhas: Vec<AnexoTarefaLinha> =
+        query_anexos.build_query_as().fetch_all(&state.pool).await?;
+
+    let mut anexos_por_tarefa: HashMap<i64, Vec<AnexoTarefaResumo>> = HashMap::new();
+    for a in anexos_linhas {
+        anexos_por_tarefa
+            .entry(a.tarefa_id)
+            .or_default()
+            .push(a.into());
+    }
+
+    // 3. Contagem de ocorrências de séries em lote (elimina N queries para séries)
+    let mut contagens_serie: HashMap<String, i64> = HashMap::new();
+    if !serie_ids.is_empty()
+        && let Some(uid) = usuario_id
+    {
+        let mut query_series = sqlx::QueryBuilder::<Sqlite>::new(
+            "SELECT serie_id, COUNT(*) AS total \
+             FROM tarefa_calendario \
+             WHERE usuario_id = ",
+        );
+        query_series.push_bind(uid);
+        query_series.push(" AND serie_id IN (");
+        let mut sep_series = query_series.separated(", ");
+        for s in &serie_ids {
+            sep_series.push_bind(s);
+        }
+        query_series.push(") GROUP BY serie_id");
+
+        let series_linhas: Vec<SerieContagemLinha> =
+            query_series.build_query_as().fetch_all(&state.pool).await?;
+
+        for s in series_linhas {
+            contagens_serie.insert(s.serie_id, s.total);
+        }
+    }
+
+    // 4. Montagem das respostas em memória
+    let mut respostas = Vec::with_capacity(rows.len());
+    for row in rows {
+        let total_ocorrencias = if let Some(serie_id) = &row.serie_id {
+            contagens_serie.get(serie_id).copied().unwrap_or(1)
         } else {
             1
-        },
-        lembrete_minutos: row.lembrete_minutos,
-        lembrete_adiado_ate: row.lembrete_adiado_ate,
-        pessoas,
-        anexos,
-        data_criacao: row.data_criacao,
-        data_atualizacao: row.data_atualizacao,
-    })
+        };
+        let pessoas = pessoas_por_tarefa.remove(&row.id).unwrap_or_default();
+        let anexos = anexos_por_tarefa.remove(&row.id).unwrap_or_default();
+
+        respostas.push(TarefaCalendarioResponse {
+            id: row.id,
+            versao: row.versao,
+            titulo: row.titulo,
+            descricao: row.descricao,
+            inicio_em: row.inicio_em,
+            fim_em: row.fim_em,
+            dia_inteiro: row.dia_inteiro,
+            status: row.status,
+            prioridade: row.prioridade,
+            cor_hex: row.cor_hex,
+            serie_id: row.serie_id,
+            recorrencia: row.recorrencia,
+            recorrencia_fim_em: row.recorrencia_fim_em,
+            total_ocorrencias,
+            lembrete_minutos: row.lembrete_minutos,
+            lembrete_adiado_ate: row.lembrete_adiado_ate,
+            pessoas,
+            anexos,
+            data_criacao: row.data_criacao,
+            data_atualizacao: row.data_atualizacao,
+        });
+    }
+
+    Ok(respostas)
 }
 
 #[derive(sqlx::FromRow)]

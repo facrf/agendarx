@@ -126,7 +126,22 @@ fn construir_app(state: AppState) -> Router {
                         .into_response();
                 }
                 match arquivos_frontend.try_call(request).await {
-                    Ok(response) => response.into_response(),
+                    Ok(mut response) => {
+                        if uri.path().starts_with("/assets/") {
+                            response.headers_mut().insert(
+                                axum::http::header::CACHE_CONTROL,
+                                axum::http::HeaderValue::from_static(
+                                    "public, max-age=31536000, immutable",
+                                ),
+                            );
+                        } else if uri.path() == "/" || uri.path().ends_with(".html") {
+                            response.headers_mut().insert(
+                                axum::http::header::CACHE_CONTROL,
+                                axum::http::HeaderValue::from_static("no-cache"),
+                            );
+                        }
+                        response.into_response()
+                    }
                     Err(error) => AppError::from(error).into_response(),
                 }
             }
