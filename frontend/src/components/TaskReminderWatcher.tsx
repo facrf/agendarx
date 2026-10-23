@@ -61,16 +61,40 @@ function notificarNavegador(tarefa: TarefaCalendario, mensagem: string) {
   if (!("Notification" in window)) return;
   if (localStorage.getItem(NOTIFICACOES_TAREFAS_KEY) !== "true") return;
   if (Notification.permission !== "granted") return;
-  const notificacao = new Notification("AgendarX · Lembrete", {
+
+  const url = `/calendario?tarefa=${tarefa.id}`;
+  const options: NotificationOptions = {
     body: mensagem,
     icon: "/api/identidade/icone",
+    badge: "/api/identidade/icone",
     tag: `agendarx-tarefa-${tarefa.id}`,
-  });
-  notificacao.onclick = () => {
-    window.focus();
-    window.location.assign(`/calendario?tarefa=${tarefa.id}`);
-    notificacao.close();
+    data: { url },
   };
+
+  if ("serviceWorker" in navigator) {
+    void navigator.serviceWorker.ready
+      .then((registration) => {
+        return registration.showNotification("AgendarX · Lembrete", options);
+      })
+      .catch(() => {
+        dispararNotificacaoSimples(options, url);
+      });
+  } else {
+    dispararNotificacaoSimples(options, url);
+  }
+}
+
+function dispararNotificacaoSimples(options: NotificationOptions, url: string) {
+  try {
+    const notificacao = new Notification("AgendarX · Lembrete", options);
+    notificacao.onclick = () => {
+      window.focus();
+      window.location.assign(url);
+      notificacao.close();
+    };
+  } catch {
+    /* Alguns navegadores móveis rejeitam o construtor direto Notification */
+  }
 }
 
 function formatarMomento(tarefa: TarefaCalendario) {

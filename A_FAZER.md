@@ -113,8 +113,12 @@ Autorizada e concluída em 23/10/2026.
 
 - [x] **Suporte a Progressive Web App (PWA):** criação do manifesto Web (`frontend/public/manifest.webmanifest`), meta tags mobile/PWA no HTML com preservação da assinatura FACRF, registro de Service Worker (`frontend/public/sw.js`) com estratégia Stale-While-Revalidate para o shell da aplicação e fallback offline, além de cabeçalhos `no-cache` dedicados no backend Axum para Service Worker e WebManifest.
 - [x] **Exportação do grafo em formato GraphML padrão:** implementação do endpoint `/api/vinculos/grafo/graphml` e serializador XML com escape de caracteres especiais, exportando nós com metadados cadastrais, classificação de risco, toxicidade e indicadores psicossociais completos (HP, aura, vitalidade), além de arestas direcionadas com tipo e data de criação para compatibilidade com Gephi, Cytoscape Desktop, yEd e NetworkX.
-- [x] **Ação de exportação no frontend:** integração de botão de download direto para GraphML na barra de ferramentas do mapa de relacionamentos (`GraphPage.tsx`).
-- [x] **Cobertura de testes e validação:** testes unitários para a geração de GraphML e teste de integração HTTP (`exportacao_grafo_graphml_retorna_xml_com_metadados_e_indicadores`) cobrindo headers de anexo, formato XML e autorização de sessão.
+- [x] **Exportação do grafo em formato GEXF nativo do Gephi:** implementação do endpoint `/api/vinculos/grafo/gexf` gerando XML GEXF 1.2 com suporte a atributos visuais (`viz:color` com cálculo RGB), classificação e métricas psicossociais completas.
+- [x] **Ações de exportação no frontend:** integração de botões de download direto para GraphML e GEXF na barra de ferramentas do mapa de relacionamentos (`GraphPage.tsx`).
+- [x] **Notificações PWA e clique no Service Worker:** integração de `showNotification` no Service Worker para dispositivos móveis e evento `notificationclick` com foco automático na tarefa vinculada.
+- [x] **Gerenciador de instalação PWA:** componente `PwaInstallManager` nas configurações para instalação do AgendarX em desktop e mobile.
+- [x] **Cobertura de testes e validação:** testes unitários para a geração de GraphML e GEXF e testes de integração HTTP cobrindo headers de anexo, formato XML e autorização de sessão.
+- [x] **Sincronização remota:** push sincronizado com os servidores Git configurados.
 
 Validação desta rodada aprovada:
 - 83 testes Rust executados e aprovados (`cargo test`).

@@ -733,4 +733,30 @@ async fn exportacao_grafo_graphml_retorna_xml_com_metadados_e_indicadores() {
     assert!(body.contains("Vínculo de teste"));
     assert!(body.contains(&format!("<node id=\"n{id1}\">")));
     assert!(body.contains(&format!("<node id=\"n{id2}\">")));
+
+    let res_gexf = api
+        .client
+        .get(format!("{}/api/vinculos/grafo/gexf", api.base))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res_gexf.status(), StatusCode::OK);
+    assert!(
+        res_gexf
+            .headers()
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("attachment; filename=\"agendarx-grafo.gexf\"")
+    );
+    let body_gexf = res_gexf.text().await.unwrap();
+    assert!(body_gexf.contains("<gexf"));
+    assert!(body_gexf.contains("Alice Agente"));
+    assert!(body_gexf.contains("Bob Destino"));
+    assert!(body_gexf.contains("<viz:color"));
+    assert!(body_gexf.contains(&format!("<node id=\"{id1}\" label=\"Alice Agente\">")));
+    assert!(body_gexf.contains(&format!("<node id=\"{id2}\" label=\"Bob Destino\">")));
 }

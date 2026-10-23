@@ -18,7 +18,7 @@ import {
 import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { Button, EmptyState, PageHeader, Spinner } from "../components/ui";
-import { AdminCredentialsManager, BackupManager, BrandingManager, ContactTransferManager, TaskNotificationManager, TrashAndAuditManager } from "../components/SettingsTools";
+import { AdminCredentialsManager, BackupManager, BrandingManager, ContactTransferManager, PwaInstallManager, TaskNotificationManager, TrashAndAuditManager } from "../components/SettingsTools";
 import { useToast } from "../contexts/ToastContext";
 import { api, errorMessage } from "../services/api";
 import type { Categoria, DiagnosticoArmazenamento, Etiqueta, TipoMeioContato } from "../types/api";
@@ -56,6 +56,7 @@ export function SettingsPage() {
         {admin && <BrandingManager />}
         <AdminCredentialsManager />
         <TaskNotificationManager />
+        <PwaInstallManager />
         <ReminderPreferences />
         {admin && <UserManager />}
         {admin && <SystemHealth />}

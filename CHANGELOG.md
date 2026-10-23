@@ -10,7 +10,10 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 - **Progressive Web App (PWA)**: manifesto web (`manifest.webmanifest`), meta tags mobile/PWA para iOS/Android, e Service Worker (`sw.js`) com cache shell (Stale-While-Revalidate / Cache-First para `/assets/`) e suporte a navegação resiliente offline, com cabeçalhos `no-cache` no servidor para atualização imediata.
 - **Exportação do Grafo em GraphML (`/api/vinculos/grafo/graphml`)**: exportação completa da rede de relacionamentos e dos indicadores psicossociais (HP, HP percentual, toxicidade, classificação de risco, aura e vitalidade) em formato padronizado GraphML XML para análise avançada no Gephi, Cytoscape Desktop, yEd e NetworkX.
-- **Ação de exportação GraphML na interface do grafo**: botão de download direto integrado à barra de ferramentas em `GraphPage.tsx`.
+- **Exportação do Grafo em GEXF (`/api/vinculos/grafo/gexf`)**: exportação no formato nativo do Gephi (GEXF 1.2) com atributos de visualização (`viz:color`), indicadores e metadados completos.
+- **Ações de exportação no mapa de relacionamentos**: botões de download direto para GraphML e GEXF integrados à barra de ferramentas em `GraphPage.tsx`.
+- **Notificações PWA com Service Worker**: lembretes de tarefas integrados ao `registration.showNotification` e evento `notificationclick` no Service Worker para abertura direta da tarefa ao clicar.
+- **Gerenciador de Instalação PWA (`PwaInstallManager`)**: componente nas Configurações para instalação do aplicativo independente e verificação de status.
 
 ### Otimizações
 

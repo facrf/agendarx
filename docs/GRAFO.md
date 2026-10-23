@@ -80,3 +80,7 @@ O botão **Exportar GraphML** baixa o arquivo `.graphml` com todos os nós e are
 rede, incluindo metadados cadastrais, classificação de risco, toxicidade e indicadores
 psicossociais (HP, aura, vitalidade), pronto para importação em ferramentas de análise
 de redes como Gephi, Cytoscape Desktop, yEd e NetworkX.
+
+O botão **Exportar GEXF** gera o arquivo `.gexf` (Graph Exchange XML Format) padrão do
+Gephi com namespace visual (`viz:color`), atributos estruturados e mapeamento de
+cores das categorias, permitindo carregar o grafo diretamente com estilização.

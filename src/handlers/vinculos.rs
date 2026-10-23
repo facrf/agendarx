@@ -25,6 +25,7 @@ pub fn rotas() -> Router<AppState> {
         .route("/", get(listar_vinculos).post(criar_vinculo))
         .route("/grafo", get(obter_grafo))
         .route("/grafo/graphml", get(exportar_graphml))
+        .route("/grafo/gexf", get(exportar_gexf))
         .route("/lixeira", get(listar_lixeira))
         .route(
             "/lixeira/{id}/restaurar",
@@ -590,6 +591,174 @@ async fn exportar_graphml(State(state): State<AppState>) -> Result<Response, App
     Ok((headers, graphml).into_response())
 }
 
+async fn exportar_gexf(State(state): State<AppState>) -> Result<Response, AppError> {
+    let mut tx = state.pool.begin().await?;
+    let grafo = carregar_grafo_dados(&mut tx).await?;
+    tx.commit().await?;
+
+    let gexf = gerar_gexf(&grafo);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/xml; charset=utf-8"),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_static("attachment; filename=\"agendarx-grafo.gexf\""),
+    );
+
+    Ok((headers, gexf).into_response())
+}
+
+fn hex_para_rgb(hex: &str) -> (u8, u8, u8) {
+    let limpo = hex.trim().trim_start_matches('#');
+    if limpo.len() == 6 {
+        let r = u8::from_str_radix(&limpo[0..2], 16).unwrap_or(134);
+        let g = u8::from_str_radix(&limpo[2..4], 16).unwrap_or(166);
+        let b = u8::from_str_radix(&limpo[4..6], 16).unwrap_or(163);
+        (r, g, b)
+    } else {
+        (134, 166, 163)
+    }
+}
+
+fn gerar_gexf(grafo: &GrafoResponse) -> String {
+    use std::fmt::Write;
+
+    let mut xml = String::with_capacity(4096);
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    xml.push_str("<gexf xmlns=\"http://www.gexf.net/1.2draft\"\n");
+    xml.push_str("      xmlns:viz=\"http://www.gexf.net/1.2draft/viz\"\n");
+    xml.push_str("      xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+    xml.push_str("      xsi:schemaLocation=\"http://www.gexf.net/1.2draft http://www.gexf.net/1.2draft/gexf.xsd\"\n");
+    xml.push_str("      version=\"1.2\">\n");
+    xml.push_str("  <meta>\n");
+    xml.push_str("    <creator>AgendarX</creator>\n");
+    xml.push_str(
+        "    <description>Grafo de Relacionamentos e Indicadores Psicossociais</description>\n",
+    );
+    xml.push_str("  </meta>\n");
+    xml.push_str("  <graph defaultedgetype=\"directed\" mode=\"static\">\n");
+    xml.push_str("    <attributes class=\"node\">\n");
+    xml.push_str("      <attribute id=\"0\" title=\"categoria\" type=\"string\"/>\n");
+    xml.push_str("      <attribute id=\"1\" title=\"pessoa_juridica\" type=\"boolean\"/>\n");
+    xml.push_str("      <attribute id=\"2\" title=\"descricao\" type=\"string\"/>\n");
+    xml.push_str("      <attribute id=\"3\" title=\"classificacao_risco\" type=\"string\"/>\n");
+    xml.push_str("      <attribute id=\"4\" title=\"toxicidade\" type=\"double\"/>\n");
+    xml.push_str("      <attribute id=\"5\" title=\"hp\" type=\"double\"/>\n");
+    xml.push_str("      <attribute id=\"6\" title=\"hp_percentual\" type=\"double\"/>\n");
+    xml.push_str("      <attribute id=\"7\" title=\"vitalidade\" type=\"string\"/>\n");
+    xml.push_str("      <attribute id=\"8\" title=\"aura\" type=\"string\"/>\n");
+    xml.push_str("    </attributes>\n");
+    xml.push_str("    <attributes class=\"edge\">\n");
+    xml.push_str("      <attribute id=\"0\" title=\"descricao\" type=\"string\"/>\n");
+    xml.push_str("      <attribute id=\"1\" title=\"data_criacao\" type=\"string\"/>\n");
+    xml.push_str("    </attributes>\n");
+
+    xml.push_str("    <nodes>\n");
+    for node in &grafo.nodes {
+        let (r, g, b) = hex_para_rgb(&node.color);
+        let _ = writeln!(
+            xml,
+            "      <node id=\"{}\" label=\"{}\">",
+            node.id,
+            escapar_xml(&node.label)
+        );
+        let _ = writeln!(
+            xml,
+            "        <viz:color r=\"{}\" g=\"{}\" b=\"{}\"/>",
+            r, g, b
+        );
+        xml.push_str("        <attvalues>\n");
+        if let Some(cat) = &node.categoria {
+            let _ = writeln!(
+                xml,
+                "          <attvalue for=\"0\" value=\"{}\"/>",
+                escapar_xml(cat)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"1\" value=\"{}\"/>",
+            node.pessoa_juridica
+        );
+        if let Some(desc) = &node.descricao {
+            let _ = writeln!(
+                xml,
+                "          <attvalue for=\"2\" value=\"{}\"/>",
+                escapar_xml(desc)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"3\" value=\"{}\"/>",
+            escapar_xml(&node.classificacao_risco)
+        );
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"4\" value=\"{:.2}\"/>",
+            node.toxicidade
+        );
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"5\" value=\"{:.2}\"/>",
+            node.psicossocial.hp
+        );
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"6\" value=\"{:.2}\"/>",
+            node.psicossocial.hp_percentual
+        );
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"7\" value=\"{}\"/>",
+            escapar_xml(&node.psicossocial.vitalidade_nome)
+        );
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"8\" value=\"{}\"/>",
+            escapar_xml(&node.psicossocial.aura_nome)
+        );
+        xml.push_str("        </attvalues>\n");
+        xml.push_str("      </node>\n");
+    }
+    xml.push_str("    </nodes>\n");
+
+    xml.push_str("    <edges>\n");
+    for edge in &grafo.edges {
+        let _ = writeln!(
+            xml,
+            "      <edge id=\"{}\" source=\"{}\" target=\"{}\" label=\"{}\">",
+            edge.id,
+            edge.source,
+            edge.target,
+            escapar_xml(&edge.label)
+        );
+        xml.push_str("        <attvalues>\n");
+        if let Some(desc) = &edge.descricao {
+            let _ = writeln!(
+                xml,
+                "          <attvalue for=\"0\" value=\"{}\"/>",
+                escapar_xml(desc)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "          <attvalue for=\"1\" value=\"{}\"/>",
+            escapar_xml(&edge.data_criacao)
+        );
+        xml.push_str("        </attvalues>\n");
+        xml.push_str("      </edge>\n");
+    }
+    xml.push_str("    </edges>\n");
+
+    xml.push_str("  </graph>\n");
+    xml.push_str("</gexf>\n");
+
+    xml
+}
+
 fn escapar_xml(texto: &str) -> String {
     let mut resultado = String::with_capacity(texto.len());
     for c in texto.chars() {
@@ -928,5 +1097,16 @@ mod tests {
         assert!(xml.contains("<node id=\"n1\">"));
         assert!(xml.contains("<edge id=\"e10\" source=\"n1\" target=\"n2\">"));
         assert!(xml.contains("<data key=\"d_hp\">95.00</data>"));
+
+        let gexf = super::gerar_gexf(&grafo);
+        assert!(gexf.contains("<gexf"));
+        assert!(gexf.contains("Alice &amp; Bob &lt;Test&gt;"));
+        assert!(gexf.contains("<viz:color r=\"134\" g=\"166\" b=\"163\"/>"));
+        assert!(gexf.contains("<node id=\"1\" label=\"Alice &amp; Bob &lt;Test&gt;\">"));
+        assert!(
+            gexf.contains(
+                "<edge id=\"10\" source=\"1\" target=\"2\" label=\"Irmão &amp; Parceiro\">"
+            )
+        );
     }
 }

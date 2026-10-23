@@ -10,6 +10,7 @@ import {
   LockKeyhole,
   Save,
   ShieldCheck,
+  Smartphone,
   Trash2,
   Upload,
   UserRound,
@@ -240,6 +241,81 @@ export function TaskNotificationManager() {
             <Button className="mt-4" type="button" variant={enabled ? "secondary" : "primary"} onClick={() => enabled ? disable() : void enable()}>
               {enabled ? <BellOff className="size-4" /> : <BellRing className="size-4" />}
               {enabled ? "Desativar no navegador" : "Ativar no navegador"}
+            </Button>
+          </>
+        )}
+      </div>
+    </section>
+  );
+}
+
+export function PwaInstallManager() {
+  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [isInstalled, setIsInstalled] = useState(() => {
+    return (
+      window.matchMedia("(display-mode: standalone)").matches ||
+      (window.navigator as unknown as { standalone?: boolean }).standalone === true
+    );
+  });
+  const { notify } = useToast();
+
+  useEffect(() => {
+    const handleBeforeInstall = (event: Event) => {
+      event.preventDefault();
+      setDeferredPrompt(event);
+    };
+    const handleAppInstalled = () => {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+      notify("Aplicativo AgendarX instalado com sucesso!");
+    };
+
+    window.addEventListener("beforeinstallprompt", handleBeforeInstall);
+    window.addEventListener("appinstalled", handleAppInstalled);
+
+    return () => {
+      window.removeEventListener("beforeinstallprompt", handleBeforeInstall);
+      window.removeEventListener("appinstalled", handleAppInstalled);
+    };
+  }, [notify]);
+
+  const installApp = async () => {
+    if (!deferredPrompt) {
+      notify("Para instalar, use a opção 'Instalar aplicativo' ou 'Adicionar à tela de início' no menu do seu navegador.");
+      return;
+    }
+    deferredPrompt.prompt();
+    const choice = await deferredPrompt.userChoice;
+    if (choice?.outcome === "accepted") {
+      setIsInstalled(true);
+      setDeferredPrompt(null);
+    }
+  };
+
+  return (
+    <section className="panel overflow-hidden">
+      <header className="flex items-center gap-3 border-b border-slate-100 p-5 sm:p-6">
+        <div className="grid size-11 place-items-center rounded-2xl bg-teal-50 text-teal-700">
+          <Smartphone className="size-5" />
+        </div>
+        <div>
+          <h2 className="font-display text-xl font-semibold">Aplicativo Web (PWA)</h2>
+          <p className="text-sm text-slate-500">Instalação e funcionamento offline no celular e desktop.</p>
+        </div>
+      </header>
+      <div className="p-5 sm:p-6">
+        {isInstalled ? (
+          <div className="flex items-center gap-2 rounded-xl bg-emerald-50 p-3 text-sm font-medium text-emerald-800">
+            <ShieldCheck className="size-4 shrink-0" />
+            O AgendarX está instalado e operando como aplicativo independente.
+          </div>
+        ) : (
+          <>
+            <p className="text-sm leading-6 text-slate-600">
+              Instale o AgendarX para ter acesso direto pela tela de início ou área de trabalho, com navegação rápida em tela cheia e carregamento resiliente mesmo sem conexão à rede.
+            </p>
+            <Button className="mt-4" type="button" onClick={() => void installApp()}>
+              <Download className="size-4" /> Instalar AgendarX
             </Button>
           </>
         )}
