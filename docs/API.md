@@ -118,6 +118,7 @@ e persistência de mídia privada no cache do navegador.
 | Backup | `POST /api/configuracoes/restauracoes/{token}/confirmar` | Confirmar restore físico com `{"confirmacao":"RESTAURAR"}` |
 | Backup | `DELETE /api/configuracoes/restauracoes/{token}` | Cancelar uma restauração preparada |
 | Grafo | `GET /api/vinculos/grafo` | Nós e arestas para visualização |
+| Grafo | `GET /api/vinculos/grafo/graphml` | Exportação em XML GraphML (Gephi, Cytoscape, yEd, NetworkX) |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
 | OSINT | `POST /api/osint/varrer/{pessoa_id}` | Enfileirar pesquisa; 202 com trabalho e progresso |

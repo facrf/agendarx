@@ -75,3 +75,8 @@ Se uma das pessoas também estiver na lixeira, restaure a pessoa primeiro.
 
 O botão **Gerar PDF** usa exatamente o recorte visível do mapa e abre a janela de
 impressão, onde é possível escolher **Salvar como PDF**.
+
+O botão **Exportar GraphML** baixa o arquivo `.graphml` com todos os nós e arestas da
+rede, incluindo metadados cadastrais, classificação de risco, toxicidade e indicadores
+psicossociais (HP, aura, vitalidade), pronto para importação em ferramentas de análise
+de redes como Gephi, Cytoscape Desktop, yEd e NetworkX.
