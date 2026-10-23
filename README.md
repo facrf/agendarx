@@ -40,6 +40,10 @@ Versão atual: **v0.6.9**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAF
   de uso em [Grafo de relacionamentos](docs/GRAFO.md).
 - Exportação do mapa interpessoal para PDF, com imagem da rede e relação detalhada
   de pessoas, descrições, categorias, meios de contato e vínculos visíveis.
+- Exportação da rede em formatos de inteligência GraphML e GEXF (nativo do Gephi),
+  com mapeamento visual de cores, dados cadastrais e indicadores psicossociais completos.
+- Progressive Web App (PWA) instalável em desktop e dispositivos móveis, com
+  Service Worker, cache de navegação offline e gerenciador de instalação.
 - Importação de Google Contacts, Outlook, CSV e vCard, com exportação CSV/vCard.
 - Ícone visual configurável, aplicado também ao favicon do navegador.
 - Usuário e senha do administrador alteráveis nas configurações, com revogação
