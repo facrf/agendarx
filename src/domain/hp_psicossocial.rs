@@ -32,6 +32,15 @@ pub struct ConfigHpPsicossocial {
     pub parametros: ParametrosHp,
 }
 
+impl Default for ConfigHpPsicossocial {
+    fn default() -> Self {
+        Self {
+            versao: 1,
+            parametros: ParametrosHp::default(),
+        }
+    }
+}
+
 fn faixa(min: f64, nome: &str, cor: &str, pulsante: bool) -> FaixaIndicador {
     FaixaIndicador {
         min,

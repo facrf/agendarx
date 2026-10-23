@@ -627,3 +627,110 @@ async fn hp_snapshot_cadastro_configuracao_permissoes_e_lixeira() {
         0.4
     );
 }
+
+#[tokio::test]
+async fn exportacao_grafo_graphml_retorna_xml_com_metadados_e_indicadores() {
+    let mut config = Config::para_testes().unwrap();
+    config.database_url = "sqlite::memory:".into();
+    config.admin_login = Some("admin-graphml".into());
+    config.admin_password = Some("senha-admin-graphml".into());
+    let pool = db::conectar(&config).await.unwrap();
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let app = construir_app(AppState {
+        pool: pool.clone(),
+        config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
+        backup_runtime: BackupRuntime::default(),
+    });
+    let task = tokio::spawn(async move {
+        axum::serve(listener, app).await.unwrap();
+    });
+    let api = TestApi {
+        client: Client::new(),
+        base,
+        task,
+    };
+    let login = api
+        .json(
+            Method::POST,
+            "/api/auth/login",
+            "",
+            json!({"login":"admin-graphml","senha":"senha-admin-graphml"}),
+            StatusCode::OK,
+        )
+        .await;
+    let token = login["token"].as_str().unwrap();
+
+    let p1 = api
+        .json(
+            Method::POST,
+            "/api/pessoas",
+            token,
+            json!({
+                "nome": "Alice Agente",
+                "classificacao_risco": "MANIPULATIVO",
+                "toxicidade": 0.25,
+                "risco_justificativa": "Observações",
+                "risco_revisado_em": "2026-09-17"
+            }),
+            StatusCode::CREATED,
+        )
+        .await;
+    let id1 = p1["id"].as_i64().unwrap();
+
+    let p2 = api
+        .json(
+            Method::POST,
+            "/api/pessoas",
+            token,
+            json!({"nome":"Bob Destino","classificacao_risco":"SEM_RISCO","toxicidade":0.0}),
+            StatusCode::CREATED,
+        )
+        .await;
+    let id2 = p2["id"].as_i64().unwrap();
+
+    api.json(
+        Method::POST,
+        "/api/vinculos",
+        token,
+        json!({"pessoa_origem_id":id1,"pessoa_destino_id":id2,"tipo_vinculo":"Parceiro","descricao":"Vínculo de teste"}),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let res = api
+        .client
+        .get(format!("{}/api/vinculos/grafo/graphml", api.base))
+        .bearer_auth(token)
+        .send()
+        .await
+        .unwrap();
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert!(
+        res.headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("application/xml")
+    );
+    assert!(
+        res.headers()
+            .get("content-disposition")
+            .unwrap()
+            .to_str()
+            .unwrap()
+            .contains("attachment; filename=\"agendarx-grafo.graphml\"")
+    );
+
+    let body = res.text().await.unwrap();
+    assert!(body.contains("<graphml"));
+    assert!(body.contains("Alice Agente"));
+    assert!(body.contains("Bob Destino"));
+    assert!(body.contains("Parceiro"));
+    assert!(body.contains("Vínculo de teste"));
+    assert!(body.contains(&format!("<node id=\"n{id1}\">")));
+    assert!(body.contains(&format!("<node id=\"n{id2}\">")));
+}

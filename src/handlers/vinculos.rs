@@ -4,7 +4,7 @@ use axum::{
     Extension, Json, Router,
     extract::{Multipart, Path, State},
     http::{HeaderMap, StatusCode},
-    response::Response,
+    response::{IntoResponse, Response},
     routing::get,
 };
 use bytes::Bytes;
@@ -24,6 +24,7 @@ pub fn rotas() -> Router<AppState> {
     Router::new()
         .route("/", get(listar_vinculos).post(criar_vinculo))
         .route("/grafo", get(obter_grafo))
+        .route("/grafo/graphml", get(exportar_graphml))
         .route("/lixeira", get(listar_lixeira))
         .route(
             "/lixeira/{id}/restaurar",
@@ -490,8 +491,9 @@ async fn excluir_definitivamente(
     Ok(StatusCode::NO_CONTENT)
 }
 
-async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse>, AppError> {
-    let mut tx = state.pool.begin().await?;
+async fn carregar_grafo_dados(
+    conn: &mut sqlx::SqliteConnection,
+) -> Result<GrafoResponse, AppError> {
     let node_rows = sqlx::query_as::<_, GrafoNodeLinha>(
         "SELECT p.id, p.nome AS label, COALESCE(c.cor_hex, '#86A6A3') AS color, \
                 CASE WHEN p.foto_principal IS NOT NULL \
@@ -504,7 +506,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
          WHERE p.excluida_em IS NULL \
          ORDER BY p.nome COLLATE NOCASE",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await?;
     let contact_rows = sqlx::query_as::<_, GrafoContatoLinha>(
         "SELECT co.pessoa_id, t.nome_tipo AS tipo, co.valor \
@@ -512,7 +514,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
          JOIN tipo_meio_contato t ON t.id = co.tipo_contato_id \
          ORDER BY co.pessoa_id, co.id",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await?;
     let mut contacts_by_person = HashMap::<i64, Vec<GrafoContato>>::new();
     for contact in contact_rows {
@@ -525,7 +527,7 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
             });
     }
     let (hp_configuracao, mut indicadores) =
-        super::hp_psicossocial::calcular_snapshot(&mut tx).await?;
+        super::hp_psicossocial::calcular_snapshot(conn).await?;
     let nodes = node_rows
         .into_iter()
         .map(|node| {
@@ -551,14 +553,192 @@ async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse
                 tipo_vinculo AS label, descricao, data_criacao \
          FROM pessoa_vinculo WHERE excluido_em IS NULL AND pessoa_origem_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) AND pessoa_destino_id IN (SELECT id FROM pessoa WHERE excluida_em IS NULL) ORDER BY id",
     )
-    .fetch_all(&mut *tx)
+    .fetch_all(&mut *conn)
     .await?;
-    tx.commit().await?;
-    Ok(Json(GrafoResponse {
+
+    Ok(GrafoResponse {
         nodes,
         edges,
         hp_configuracao,
-    }))
+    })
+}
+
+async fn obter_grafo(State(state): State<AppState>) -> Result<Json<GrafoResponse>, AppError> {
+    let mut tx = state.pool.begin().await?;
+    let grafo = carregar_grafo_dados(&mut tx).await?;
+    tx.commit().await?;
+    Ok(Json(grafo))
+}
+
+async fn exportar_graphml(State(state): State<AppState>) -> Result<Response, AppError> {
+    let mut tx = state.pool.begin().await?;
+    let grafo = carregar_grafo_dados(&mut tx).await?;
+    tx.commit().await?;
+
+    let graphml = gerar_graphml(&grafo);
+
+    let mut headers = HeaderMap::new();
+    headers.insert(
+        axum::http::header::CONTENT_TYPE,
+        axum::http::HeaderValue::from_static("application/xml; charset=utf-8"),
+    );
+    headers.insert(
+        axum::http::header::CONTENT_DISPOSITION,
+        axum::http::HeaderValue::from_static("attachment; filename=\"agendarx-grafo.graphml\""),
+    );
+
+    Ok((headers, graphml).into_response())
+}
+
+fn escapar_xml(texto: &str) -> String {
+    let mut resultado = String::with_capacity(texto.len());
+    for c in texto.chars() {
+        match c {
+            '&' => resultado.push_str("&amp;"),
+            '<' => resultado.push_str("&lt;"),
+            '>' => resultado.push_str("&gt;"),
+            '"' => resultado.push_str("&quot;"),
+            '\'' => resultado.push_str("&apos;"),
+            outro => resultado.push(outro),
+        }
+    }
+    resultado
+}
+
+fn gerar_graphml(grafo: &GrafoResponse) -> String {
+    use std::fmt::Write;
+
+    let mut xml = String::with_capacity(4096);
+    xml.push_str("<?xml version=\"1.0\" encoding=\"UTF-8\"?>\n");
+    xml.push_str("<graphml xmlns=\"http://graphml.graphdrawing.org/xmlns\"\n");
+    xml.push_str("         xmlns:xsi=\"http://www.w3.org/2001/XMLSchema-instance\"\n");
+    xml.push_str("         xsi:schemaLocation=\"http://graphml.graphdrawing.org/xmlns\n");
+    xml.push_str("         http://graphml.graphdrawing.org/xmlns/1.0/graphml.xsd\">\n");
+
+    // Definição dos atributos dos nós
+    xml.push_str("  <key id=\"d_label\" for=\"node\" attr.name=\"label\" attr.type=\"string\"/>\n");
+    xml.push_str(
+        "  <key id=\"d_categoria\" for=\"node\" attr.name=\"categoria\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str("  <key id=\"d_pessoa_juridica\" for=\"node\" attr.name=\"pessoa_juridica\" attr.type=\"boolean\"/>\n");
+    xml.push_str(
+        "  <key id=\"d_descricao\" for=\"node\" attr.name=\"descricao\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str("  <key id=\"d_classificacao_risco\" for=\"node\" attr.name=\"classificacao_risco\" attr.type=\"string\"/>\n");
+    xml.push_str(
+        "  <key id=\"d_toxicidade\" for=\"node\" attr.name=\"toxicidade\" attr.type=\"double\"/>\n",
+    );
+    xml.push_str("  <key id=\"d_hp\" for=\"node\" attr.name=\"hp\" attr.type=\"double\"/>\n");
+    xml.push_str("  <key id=\"d_hp_percentual\" for=\"node\" attr.name=\"hp_percentual\" attr.type=\"double\"/>\n");
+    xml.push_str(
+        "  <key id=\"d_vitalidade\" for=\"node\" attr.name=\"vitalidade\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str("  <key id=\"d_aura\" for=\"node\" attr.name=\"aura\" attr.type=\"string\"/>\n");
+    xml.push_str("  <key id=\"d_cor\" for=\"node\" attr.name=\"cor\" attr.type=\"string\"/>\n");
+
+    // Definição dos atributos das arestas
+    xml.push_str("  <key id=\"e_label\" for=\"edge\" attr.name=\"label\" attr.type=\"string\"/>\n");
+    xml.push_str(
+        "  <key id=\"e_descricao\" for=\"edge\" attr.name=\"descricao\" attr.type=\"string\"/>\n",
+    );
+    xml.push_str("  <key id=\"e_data_criacao\" for=\"edge\" attr.name=\"data_criacao\" attr.type=\"string\"/>\n");
+
+    xml.push_str("  <graph id=\"G\" edgedefault=\"directed\">\n");
+
+    for node in &grafo.nodes {
+        let _ = writeln!(xml, "    <node id=\"n{}\">", node.id);
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_label\">{}</data>",
+            escapar_xml(&node.label)
+        );
+        if let Some(cat) = &node.categoria {
+            let _ = writeln!(
+                xml,
+                "      <data key=\"d_categoria\">{}</data>",
+                escapar_xml(cat)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_pessoa_juridica\">{}</data>",
+            node.pessoa_juridica
+        );
+        if let Some(desc) = &node.descricao {
+            let _ = writeln!(
+                xml,
+                "      <data key=\"d_descricao\">{}</data>",
+                escapar_xml(desc)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_classificacao_risco\">{}</data>",
+            escapar_xml(&node.classificacao_risco)
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_toxicidade\">{:.2}</data>",
+            node.toxicidade
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_hp\">{:.2}</data>",
+            node.psicossocial.hp
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_hp_percentual\">{:.2}</data>",
+            node.psicossocial.hp_percentual
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_vitalidade\">{}</data>",
+            escapar_xml(&node.psicossocial.vitalidade_nome)
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_aura\">{}</data>",
+            escapar_xml(&node.psicossocial.aura_nome)
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"d_cor\">{}</data>",
+            escapar_xml(&node.color)
+        );
+        xml.push_str("    </node>\n");
+    }
+
+    for edge in &grafo.edges {
+        let _ = writeln!(
+            xml,
+            "    <edge id=\"e{}\" source=\"n{}\" target=\"n{}\">",
+            edge.id, edge.source, edge.target
+        );
+        let _ = writeln!(
+            xml,
+            "      <data key=\"e_label\">{}</data>",
+            escapar_xml(&edge.label)
+        );
+        if let Some(desc) = &edge.descricao {
+            let _ = writeln!(
+                xml,
+                "      <data key=\"e_descricao\">{}</data>",
+                escapar_xml(desc)
+            );
+        }
+        let _ = writeln!(
+            xml,
+            "      <data key=\"e_data_criacao\">{}</data>",
+            escapar_xml(&edge.data_criacao)
+        );
+        xml.push_str("    </edge>\n");
+    }
+
+    xml.push_str("  </graph>\n");
+    xml.push_str("</graphml>\n");
+
+    xml
 }
 
 #[derive(sqlx::FromRow)]
@@ -690,5 +870,63 @@ mod tests {
             descricao: None,
         };
         assert!(validar_vinculo(&longo).is_err());
+    }
+
+    #[test]
+    fn valida_geracao_graphml() {
+        use super::gerar_graphml;
+        use crate::models::{GrafoEdge, GrafoNode, GrafoResponse};
+
+        let grafo = GrafoResponse {
+            nodes: vec![GrafoNode {
+                id: 1,
+                label: "Alice & Bob <Test>".into(),
+                color: "#86A6A3".into(),
+                foto_url: None,
+                categoria: Some("Família".into()),
+                pessoa_juridica: false,
+                descricao: Some("Nota com \"aspas\"".into()),
+                contatos: vec![],
+                classificacao_risco: "Baixo".into(),
+                toxicidade: 0.15,
+                psicossocial: crate::domain::hp_psicossocial::IndicadoresPsicossociais {
+                    hp: 95.0,
+                    hp_percentual: 95.0,
+                    hp_base: 100.0,
+                    hp_min: 10.0,
+                    penalidade_direta: 5.0,
+                    penalidade_propria: 0.0,
+                    penalidade_residual: 5.0,
+                    aura_nome: "Aura Saudável".into(),
+                    aura_cor_hex: "#22c55e".into(),
+                    aura_pulsante: false,
+                    vitalidade_nome: "Normal".into(),
+                    vitalidade_cor_hex: "#22c55e".into(),
+                    calculo_ativo: true,
+                    configuracao_versao: 1,
+                    contribuicoes: vec![],
+                },
+            }],
+            edges: vec![GrafoEdge {
+                id: 10,
+                versao: 1,
+                source: 1,
+                target: 2,
+                label: "Irmão & Parceiro".into(),
+                descricao: Some("Desde '2020'".into()),
+                data_criacao: "2026-01-01T00:00:00Z".into(),
+            }],
+            hp_configuracao: Default::default(),
+        };
+
+        let xml = gerar_graphml(&grafo);
+        assert!(xml.contains("<graphml"));
+        assert!(xml.contains("Alice &amp; Bob &lt;Test&gt;"));
+        assert!(xml.contains("Nota com &quot;aspas&quot;"));
+        assert!(xml.contains("Irmão &amp; Parceiro"));
+        assert!(xml.contains("Desde &apos;2020&apos;"));
+        assert!(xml.contains("<node id=\"n1\">"));
+        assert!(xml.contains("<edge id=\"e10\" source=\"n1\" target=\"n2\">"));
+        assert!(xml.contains("<data key=\"d_hp\">95.00</data>"));
     }
 }

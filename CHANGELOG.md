@@ -6,6 +6,12 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
+### Adicionado
+
+- **Progressive Web App (PWA)**: manifesto web (`manifest.webmanifest`), meta tags mobile/PWA para iOS/Android, e Service Worker (`sw.js`) com cache shell (Stale-While-Revalidate / Cache-First para `/assets/`) e suporte a navegação resiliente offline, com cabeçalhos `no-cache` no servidor para atualização imediata.
+- **Exportação do Grafo em GraphML (`/api/vinculos/grafo/graphml`)**: exportação completa da rede de relacionamentos e dos indicadores psicossociais (HP, HP percentual, toxicidade, classificação de risco, aura e vitalidade) em formato padronizado GraphML XML para análise avançada no Gephi, Cytoscape Desktop, yEd e NetworkX.
+- **Ação de exportação GraphML na interface do grafo**: botão de download direto integrado à barra de ferramentas em `GraphPage.tsx`.
+
 ### Otimizações
 
 - **Modo WAL e `synchronous=NORMAL` no SQLite**: habilitação de Write-Ahead Logging (`journal_mode=WAL`) e `synchronous=NORMAL` para bancos em arquivo em `src/db/mod.rs`, permitindo leituras e escritas concorrentes sem bloqueios e reduzindo fsyncs no disco.

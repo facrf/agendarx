@@ -32,7 +32,7 @@ import { ContextMenu } from "../components/ContextMenu";
 import { Button, EmptyState, PageHeader, Spinner, cn } from "../components/ui";
 import { useToast } from "../contexts/ToastContext";
 import { useAuth } from "../contexts/AuthContext";
-import { api, errorMessage } from "../services/api";
+import { api, apiUrl, errorMessage } from "../services/api";
 import { formatDate } from "../utils/format";
 import type {
   Categoria,
@@ -436,6 +436,7 @@ export function GraphPage() {
               <Button type="button" variant="secondary" loading={positionsBusy} disabled={!visibleGraph.nodes.length} onClick={() => void saveOrganization()}><Save className="size-4" /> Salvar organização</Button>
               <Button type="button" variant="secondary" disabled={positionsBusy || !visibleGraph.nodes.length} onClick={() => void restoreOrganization()}>Carregar organização</Button>
               <Button type="button" variant="secondary" disabled={!visibleGraph.nodes.length} onClick={() => graphViewerRef.current?.fit()}><Scan className="size-4" /> Enquadrar tudo</Button>
+              <a className={cn("btn btn-secondary", !visibleGraph.nodes.length && "pointer-events-none opacity-50")} href={apiUrl("/api/vinculos/grafo/graphml")} download="agendarx-grafo.graphml" title="Exportar grafo em GraphML (Gephi, Cytoscape, yEd)"><FileDown className="size-4" /> Exportar GraphML</a>
               <button ref={fullscreenButtonRef} type="button" className="btn btn-secondary" aria-pressed={expanded} onClick={() => setExpanded(value => !value)}>{expanded ? <Minimize className="size-4" /> : <Maximize className="size-4" />}{expanded ? "Sair da tela cheia" : "Tela cheia"}</button>
               <div className={cn("flex w-full flex-wrap gap-4 text-xs text-slate-600", expanded ? "col-span-2" : "sm:col-span-2")}>
                 <label className="flex cursor-pointer items-center gap-2"><input type="checkbox" checked={groupByCategory} onChange={event => setGroupByCategory(event.target.checked)} /> Agrupar por categoria</label>

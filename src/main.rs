@@ -134,7 +134,11 @@ fn construir_app(state: AppState) -> Router {
                                     "public, max-age=31536000, immutable",
                                 ),
                             );
-                        } else if uri.path() == "/" || uri.path().ends_with(".html") {
+                        } else if uri.path() == "/"
+                            || uri.path().ends_with(".html")
+                            || uri.path() == "/sw.js"
+                            || uri.path().ends_with(".webmanifest")
+                        {
                             response.headers_mut().insert(
                                 axum::http::header::CACHE_CONTROL,
                                 axum::http::HeaderValue::from_static("no-cache"),
