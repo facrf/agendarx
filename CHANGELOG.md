@@ -4,7 +4,7 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
-## [Não publicado]
+## [0.7.0] - 2026-10-23
 
 ### Adicionado
 
@@ -485,6 +485,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.7.0]: https://github.com/facrf/agendarx/compare/v0.6.9...v0.7.0
 [0.6.9]: https://github.com/facrf/agendarx/compare/v0.6.8...v0.6.9
 [0.6.8]: https://github.com/facrf/agendarx/compare/v0.6.7...v0.6.8
 [0.6.7]: https://github.com/facrf/agendarx/compare/v0.6.6...v0.6.7

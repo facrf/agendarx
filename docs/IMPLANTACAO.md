@@ -56,7 +56,7 @@ A aplicação fica em `http://localhost:12000`. Durante o desenvolvimento do Rea
 
 ## Docker
 
-Imagem gerada pelo workflow de versões: `ghcr.io/facrf/agendarx:0.6.9`. É preciso
+Imagem gerada pelo workflow de versões: `ghcr.io/facrf/agendarx:0.7.0`. É preciso
 publicar ao menos uma tag de versão antes do primeiro pull.
 
 Na primeira versão, confirme no GitHub que o pacote `agendarx` foi marcado como
@@ -64,13 +64,13 @@ Na primeira versão, confirme no GitHub que o pacote `agendarx` foi marcado como
 novo; enquanto ele estiver privado, faça login no registry antes do pull.
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.6.9
+docker pull ghcr.io/facrf/agendarx:0.7.0
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.6.9
+  ghcr.io/facrf/agendarx:0.7.0
 ```
 
 O contêiner executa sem privilégios e todo o estado fica em `/app/data`.
@@ -90,7 +90,7 @@ editor Web de uma Stack. No Portainer:
 3. cole o YAML de `deploy/portainer-stack.yml`;
 4. cadastre as variáveis de `deploy/portainer.env.example` na seção da Stack,
    incluindo um `SEARXNG_SECRET` independente;
-5. mantenha `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:0.6.9` e atualize a versão
+5. mantenha `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:0.7.0` e atualize a versão
    conscientemente;
 6. implante e acesse `http://IP_DO_SERVIDOR:12000`.
 
@@ -110,7 +110,7 @@ pronta para pull. Verifique no workflow **Publicar versão** do GitHub e na pág
 do pacote antes de prosseguir.
 
 1. Em **Stacks**, abra a Stack do AgendarX e clique em **Editor**.
-2. Defina `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:0.6.9` nas variáveis da Stack,
+2. Defina `AGENDARX_IMAGE=ghcr.io/facrf/agendarx:0.7.0` nas variáveis da Stack,
    ou atualize a tag padrão no YAML.
 3. Marque **Pull latest image** e clique em **Update the stack**. A atualização
    recria somente os contêineres; o volume `agendarx_data` é preservado.

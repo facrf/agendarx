@@ -249,8 +249,13 @@ export function TaskNotificationManager() {
   );
 }
 
+interface BeforeInstallPromptEvent extends Event {
+  prompt: () => Promise<void>;
+  userChoice: Promise<{ outcome: "accepted" | "dismissed"; platform: string }>;
+}
+
 export function PwaInstallManager() {
-  const [deferredPrompt, setDeferredPrompt] = useState<any>(null);
+  const [deferredPrompt, setDeferredPrompt] = useState<BeforeInstallPromptEvent | null>(null);
   const [isInstalled, setIsInstalled] = useState(() => {
     return (
       window.matchMedia("(display-mode: standalone)").matches ||
@@ -262,7 +267,7 @@ export function PwaInstallManager() {
   useEffect(() => {
     const handleBeforeInstall = (event: Event) => {
       event.preventDefault();
-      setDeferredPrompt(event);
+      setDeferredPrompt(event as BeforeInstallPromptEvent);
     };
     const handleAppInstalled = () => {
       setIsInstalled(true);
