@@ -19,8 +19,8 @@ mod workflow_integration_tests;
 use axum::{
     Json, Router,
     extract::{DefaultBodyLimit, OriginalUri, Request},
-    middleware::from_fn_with_state,
-    response::IntoResponse,
+    middleware::{from_fn, from_fn_with_state},
+    response::{IntoResponse, Response},
     routing::get,
 };
 use serde_json::json;
@@ -114,6 +114,7 @@ fn construir_app(state: AppState) -> Router {
         )
         .nest("/api/identidade", handlers::identidade::rotas_publicas())
         .merge(protegidas)
+        .layer(from_fn(cabecalhos_seguranca))
         .layer(DefaultBodyLimit::max(limite_corpo_requisicao))
         .layer(CompressionLayer::new())
         .layer(TraceLayer::new_for_http())
@@ -135,6 +136,23 @@ fn construir_app(state: AppState) -> Router {
 
 async fn health() -> Json<serde_json::Value> {
     Json(json!({ "status": "ok", "servico": "agendarx" }))
+}
+
+async fn cabecalhos_seguranca(request: Request, next: axum::middleware::Next) -> Response {
+    let mut response = next.run(request).await;
+    let headers = response.headers_mut();
+    headers
+        .entry(axum::http::header::X_CONTENT_TYPE_OPTIONS)
+        .or_insert(axum::http::HeaderValue::from_static("nosniff"));
+    headers
+        .entry(axum::http::header::X_FRAME_OPTIONS)
+        .or_insert(axum::http::HeaderValue::from_static("SAMEORIGIN"));
+    headers
+        .entry(axum::http::header::REFERRER_POLICY)
+        .or_insert(axum::http::HeaderValue::from_static(
+            "strict-origin-when-cross-origin",
+        ));
+    response
 }
 
 async fn encerrar_graciosamente() {

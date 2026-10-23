@@ -279,7 +279,7 @@ async fn criar_tipo_contato(
     State(state): State<AppState>,
     Json(input): Json<TipoMeioContatoInput>,
 ) -> Result<(StatusCode, Json<TipoMeioContato>), AppError> {
-    validar_texto(&input.nome_tipo, "nome_tipo")?;
+    validar_texto(&input.nome_tipo, "nome_tipo", 100)?;
     let item = sqlx::query_as::<_, TipoMeioContato>(
         "INSERT INTO tipo_meio_contato (nome_tipo) VALUES (?) RETURNING id, nome_tipo",
     )
@@ -294,7 +294,7 @@ async fn atualizar_tipo_contato(
     Path(id): Path<i64>,
     Json(input): Json<TipoMeioContatoInput>,
 ) -> Result<Json<TipoMeioContato>, AppError> {
-    validar_texto(&input.nome_tipo, "nome_tipo")?;
+    validar_texto(&input.nome_tipo, "nome_tipo", 100)?;
     let item = sqlx::query_as::<_, TipoMeioContato>(
         "UPDATE tipo_meio_contato SET nome_tipo = ? WHERE id = ? RETURNING id, nome_tipo",
     )
@@ -321,7 +321,7 @@ async fn excluir_tipo_contato(
 }
 
 fn validar_categoria(input: &CategoriaInput) -> Result<(), AppError> {
-    validar_texto(&input.nome_categoria, "nome_categoria")?;
+    validar_texto(&input.nome_categoria, "nome_categoria", 100)?;
     let cor = input.cor_hex.as_bytes();
     if cor.len() != 7 || cor.first() != Some(&b'#') || !cor[1..].iter().all(u8::is_ascii_hexdigit) {
         return Err(AppError::BadRequest(
@@ -331,16 +331,22 @@ fn validar_categoria(input: &CategoriaInput) -> Result<(), AppError> {
     Ok(())
 }
 
-fn validar_texto(valor: &str, campo: &str) -> Result<(), AppError> {
-    if valor.trim().is_empty() {
+fn validar_texto(valor: &str, campo: &str, max_chars: usize) -> Result<(), AppError> {
+    let trimmed = valor.trim();
+    if trimmed.is_empty() {
         return Err(AppError::BadRequest(format!("{campo} é obrigatório")));
+    }
+    if trimmed.chars().count() > max_chars {
+        return Err(AppError::BadRequest(format!(
+            "{campo} deve ter no máximo {max_chars} caracteres"
+        )));
     }
     Ok(())
 }
 
 #[cfg(test)]
 mod tests {
-    use super::validar_categoria;
+    use super::{validar_categoria, validar_texto};
     use crate::models::CategoriaInput;
 
     #[test]
@@ -359,5 +365,20 @@ mod tests {
             })
             .is_err()
         );
+        assert!(
+            validar_categoria(&CategoriaInput {
+                nome_categoria: "a".repeat(101),
+                cor_hex: "#123456".into(),
+            })
+            .is_err()
+        );
+    }
+
+    #[test]
+    fn valida_limite_de_texto() {
+        assert!(validar_texto("válido", "campo", 10).is_ok());
+        assert!(validar_texto("   ", "campo", 10).is_err());
+        assert!(validar_texto(&"a".repeat(10), "campo", 10).is_ok());
+        assert!(validar_texto(&"a".repeat(11), "campo", 10).is_err());
     }
 }

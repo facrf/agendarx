@@ -603,9 +603,15 @@ fn validar_vinculo(input: &VinculoInput) -> Result<(), AppError> {
             "uma pessoa não pode ter vínculo consigo mesma".to_owned(),
         ));
     }
-    if input.tipo_vinculo.trim().is_empty() {
+    let tipo = input.tipo_vinculo.trim();
+    if tipo.is_empty() {
         return Err(AppError::BadRequest(
             "tipo_vinculo é obrigatório".to_owned(),
+        ));
+    }
+    if tipo.chars().count() > 100 {
+        return Err(AppError::BadRequest(
+            "tipo_vinculo deve ter no máximo 100 caracteres".to_owned(),
         ));
     }
     Ok(())
@@ -643,5 +649,46 @@ impl From<AnexoVinculoLinha> for AnexoVinculoResumo {
             url_download: format!("/api/vinculos/anexos/{}/download", anexo.id),
             url_thumbnail,
         }
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::validar_vinculo;
+    use crate::models::VinculoInput;
+
+    #[test]
+    fn valida_limite_e_campos_obrigatorios_de_vinculo() {
+        let valido = VinculoInput {
+            pessoa_origem_id: 1,
+            pessoa_destino_id: 2,
+            tipo_vinculo: "Amigo".into(),
+            descricao: None,
+        };
+        assert!(validar_vinculo(&valido).is_ok());
+
+        let mesmo_id = VinculoInput {
+            pessoa_origem_id: 1,
+            pessoa_destino_id: 1,
+            tipo_vinculo: "Amigo".into(),
+            descricao: None,
+        };
+        assert!(validar_vinculo(&mesmo_id).is_err());
+
+        let vazio = VinculoInput {
+            pessoa_origem_id: 1,
+            pessoa_destino_id: 2,
+            tipo_vinculo: "   ".into(),
+            descricao: None,
+        };
+        assert!(validar_vinculo(&vazio).is_err());
+
+        let longo = VinculoInput {
+            pessoa_origem_id: 1,
+            pessoa_destino_id: 2,
+            tipo_vinculo: "a".repeat(101),
+            descricao: None,
+        };
+        assert!(validar_vinculo(&longo).is_err());
     }
 }

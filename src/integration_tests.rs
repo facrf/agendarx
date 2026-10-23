@@ -1013,3 +1013,39 @@ async fn migracao_preserva_administradores_existentes() {
     assert_eq!(perfil, "usuario");
     pool.close().await;
 }
+
+#[tokio::test]
+async fn cabecalhos_globais_de_seguranca_sao_injetados_em_todas_as_respostas() {
+    let mut config = Config::para_testes().unwrap();
+    config.frontend_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_lazy("sqlite::memory:")
+        .unwrap();
+    let app = construir_app(AppState {
+        pool,
+        config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
+        backup_runtime: BackupRuntime::default(),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let api = TestApi {
+        client: Client::new(),
+        base,
+        task,
+    };
+
+    let response = api
+        .client
+        .get(format!("{}/health", api.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(response.headers()["x-frame-options"], "SAMEORIGIN");
+    assert_eq!(response.headers()["x-content-type-options"], "nosniff");
+    assert_eq!(
+        response.headers()["referrer-policy"],
+        "strict-origin-when-cross-origin"
+    );
+}

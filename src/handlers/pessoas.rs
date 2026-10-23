@@ -472,8 +472,14 @@ async fn garantir_pessoa(state: &AppState, id: i64) -> Result<(), AppError> {
 }
 
 fn validar_nome(nome: &str) -> Result<(), AppError> {
-    if nome.trim().is_empty() {
+    let trimmed = nome.trim();
+    if trimmed.is_empty() {
         return Err(AppError::BadRequest("nome é obrigatório".to_owned()));
+    }
+    if trimmed.chars().count() > 255 {
+        return Err(AppError::BadRequest(
+            "o nome deve ter no máximo 255 caracteres".to_owned(),
+        ));
     }
     Ok(())
 }
@@ -495,9 +501,15 @@ fn normalizar_descricao(descricao: Option<String>) -> Option<String> {
 }
 
 fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
-    if input.tipo_contato_id <= 0 || input.valor.trim().is_empty() {
+    let valor = input.valor.trim();
+    if input.tipo_contato_id <= 0 || valor.is_empty() {
         return Err(AppError::BadRequest(
             "tipo_contato_id e valor são obrigatórios".to_owned(),
+        ));
+    }
+    if valor.chars().count() > 500 {
+        return Err(AppError::BadRequest(
+            "o valor do contato deve ter no máximo 500 caracteres".to_owned(),
         ));
     }
     Ok(())
@@ -505,7 +517,8 @@ fn validar_contato(input: &ContatoInput) -> Result<(), AppError> {
 
 #[cfg(test)]
 mod tests {
-    use super::{normalizar_descricao, validar_descricao};
+    use super::{normalizar_descricao, validar_contato, validar_descricao, validar_nome};
+    use crate::models::ContatoInput;
 
     #[test]
     fn normaliza_descricao_vazia_e_remove_espacos() {
@@ -520,5 +533,31 @@ mod tests {
     fn limita_descricao_por_caracteres() {
         assert!(validar_descricao(Some(&"á".repeat(50_000))).is_ok());
         assert!(validar_descricao(Some(&"á".repeat(50_001))).is_err());
+    }
+
+    #[test]
+    fn limita_nome_e_contato_por_caracteres() {
+        assert!(validar_nome("Nome Válido").is_ok());
+        assert!(validar_nome("   ").is_err());
+        assert!(validar_nome(&"a".repeat(255)).is_ok());
+        assert!(validar_nome(&"a".repeat(256)).is_err());
+
+        let contato_valido = ContatoInput {
+            tipo_contato_id: 1,
+            valor: "email@example.com".into(),
+        };
+        assert!(validar_contato(&contato_valido).is_ok());
+
+        let contato_vazio = ContatoInput {
+            tipo_contato_id: 1,
+            valor: "   ".into(),
+        };
+        assert!(validar_contato(&contato_vazio).is_err());
+
+        let contato_longo = ContatoInput {
+            tipo_contato_id: 1,
+            valor: "a".repeat(501),
+        };
+        assert!(validar_contato(&contato_longo).is_err());
     }
 }

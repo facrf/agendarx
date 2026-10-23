@@ -74,3 +74,18 @@ O [guia de uso](docs/MELHORIAS.md) e os [contratos HTTP](docs/API.md) explicam o
 novos fluxos. A migração 24 é aplicada na inicialização. Clientes de API devem
 usar `If-Match` para proteger edições concorrentes. Mesclagem exige revisão e
 confirmação e não é desfeita pelo histórico; os dados anteriores ficam arquivados.
+
+## Terceira rodada — endurecimento de segurança e auditoria
+
+Autorizada e concluída em 23/10/2026.
+
+- [x] **Sanitização CRLF no vCard:** remoção de retornos de carro (`\r`) em `escapar_vcard` para prevenir injeção de propriedades e cartões maliciosos na exportação de contatos.
+- [x] **Limites de tamanho em campos textuais (CWE-400):** validação de comprimento máximo em `nome` (255 caracteres), `valor` de contato (500 caracteres), `tipo_vinculo` (100 caracteres), `nome_categoria` (100 caracteres) e `nome_tipo` (100 caracteres) para mitigar sobrecarga de memória e banco de dados.
+- [x] **Cabeçalhos globais de segurança HTTP:** aplicação de middleware injetando `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: strict-origin-when-cross-origin` para proteção contra Clickjacking/UI Redressing e MIME-sniffing.
+- [x] **Configuração e templates de implantação:** reforço da diretriz de segurança com `COOKIE_SECURE=true` para ambientes protegidos por TLS nos exemplos de deploy.
+- [x] **Documentação de segurança:** elaboração do relatório técnico em `docs/SEGURANCA.md`.
+
+Validação desta rodada aprovada:
+- 81 testes Rust executados e aprovados (`cargo test`), incluindo teste de regressão para os novos cabeçalhos globais de segurança.
+- `cargo clippy --all-targets -- -D warnings`: aprovado sem avisos.
+- `cargo fmt --all -- --check`: aprovado.

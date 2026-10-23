@@ -835,6 +835,7 @@ fn escapar_csv(valor: &str) -> String {
 
 fn escapar_vcard(valor: &str) -> String {
     valor
+        .replace('\r', "")
         .replace('\\', "\\\\")
         .replace('\n', "\\n")
         .replace(',', "\\,")
@@ -929,5 +930,19 @@ mod tests {
         assert_eq!(escapar_csv("a\"b"), "\"a\"\"b\"");
         assert_eq!(escapar_csv("=2+2"), "\"\t=2+2\"");
         assert_eq!(escapar_csv("+5511999"), "\"\t+5511999\"");
+    }
+
+    #[test]
+    fn escapa_vcard_remove_retorno_de_carro_e_previne_injecao_crlf() {
+        use super::escapar_vcard;
+        assert_eq!(escapar_vcard("linha1\r\nlinha2"), "linha1\\nlinha2");
+        assert_eq!(
+            escapar_vcard("campo\rPHOTO;VALUE=uri:http://evil.com"),
+            "campoPHOTO\\;VALUE=uri:http://evil.com"
+        );
+        assert_eq!(
+            escapar_vcard("sobrenome;nome,extra\\barra"),
+            "sobrenome\\;nome\\,extra\\\\barra"
+        );
     }
 }

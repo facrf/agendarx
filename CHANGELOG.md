@@ -6,7 +6,13 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 ## [Não publicado]
 
-_Aguardando próximas mudanças._
+### Segurança
+
+- **Sanitização CRLF no vCard (`exportar_vcard`)**: purga caracteres `\r` (retorno de carro) em `escapar_vcard`, mitigando injeção de propriedades e delimitações falsas em clientes de contatos.
+- **Limites de comprimento em campos de texto (CWE-400)**: validação de tamanho máximo em `nome` da pessoa (255 caracteres), `valor` de contato (500 caracteres), `tipo_vinculo` (100 caracteres), `nome_categoria` (100 caracteres) e `nome_tipo` de contato (100 caracteres), prevenindo ataques de negação de serviço e sobrecarga de banco de dados.
+- **Cabeçalhos globais de segurança HTTP**: middleware global com `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: strict-origin-when-cross-origin`, mitigando Clickjacking/UI Redressing e MIME-sniffing.
+- **Configuração de produção reforçada**: documentação e exemplos atualizados com `COOKIE_SECURE=true` para proteção de cookies de sessão em tráfego HTTPS/TLS.
+- **Documentação de segurança**: relatório técnico de auditoria publicado em `docs/SEGURANCA.md`.
 
 ## [0.6.9] - 2026-10-15
 
