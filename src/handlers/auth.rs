@@ -153,6 +153,7 @@ async fn login(
     State(state): State<AppState>,
     Json(input): Json<LoginInput>,
 ) -> Result<Response, AppError> {
+    let inicio = Instant::now();
     let login = input.login.trim();
     if login.is_empty() || input.senha.is_empty() {
         return Err(AppError::BadRequest(
@@ -164,7 +165,22 @@ async fn login(
             "usuário ou senha excedem o tamanho permitido".to_owned(),
         ));
     }
-    let verificacao = state.auth_runtime.admitir(login)?;
+    let verificacao = match state.auth_runtime.admitir(login) {
+        Ok(v) => v,
+        Err(e) => {
+            let duracao = inicio.elapsed().as_millis() as i64;
+            auditar_tentativa_login(
+                &state.pool,
+                None,
+                login,
+                429,
+                duracao,
+                "Tentativa de login bloqueada: excesso de tentativas",
+            )
+            .await;
+            return Err(e);
+        }
+    };
 
     let usuario = sqlx::query_as::<_, Usuario>(
         "SELECT id, login, perfil, senha_hash, icone_admin_blob, icone_admin_mime_type, \
@@ -193,6 +209,16 @@ async fn login(
     .await
     .map_err(|_| AppError::interno("falha ao validar credenciais"))?;
     if !senha_valida {
+        let duracao = inicio.elapsed().as_millis() as i64;
+        auditar_tentativa_login(
+            &state.pool,
+            usuario.as_ref().map(|u| u.id),
+            login,
+            401,
+            duracao,
+            "Falha de autenticação: credenciais inválidas",
+        )
+        .await;
         return Err(AppError::Unauthorized);
     }
     let usuario = usuario.ok_or(AppError::Unauthorized)?;
@@ -223,6 +249,17 @@ async fn login(
     )
     .await?;
 
+    let duracao = inicio.elapsed().as_millis() as i64;
+    auditar_tentativa_login(
+        &state.pool,
+        Some(usuario.id),
+        &usuario.login,
+        200,
+        duracao,
+        "Login realizado com sucesso",
+    )
+    .await;
+
     let resposta = LoginResponse {
         token: token.clone(),
         token_tipo: "Bearer",
@@ -250,6 +287,31 @@ async fn login(
         Json(resposta),
     )
         .into_response())
+}
+
+async fn auditar_tentativa_login(
+    pool: &SqlitePool,
+    usuario_id: Option<i64>,
+    login: &str,
+    status: u16,
+    duracao_ms: i64,
+    resumo: &str,
+) {
+    if let Err(error) = sqlx::query(
+        "INSERT INTO auditoria (usuario_id, usuario_login, acao, recurso, status_http, metodo, duracao_ms, resumo) \
+         VALUES (CASE WHEN EXISTS(SELECT 1 FROM usuario WHERE id = ?) THEN ? ELSE NULL END, ?, 'EXECUTAR', 'auth/login', ?, 'POST', ?, ?)",
+    )
+    .bind(usuario_id)
+    .bind(usuario_id)
+    .bind(login)
+    .bind(i64::from(status))
+    .bind(duracao_ms)
+    .bind(resumo)
+    .execute(pool)
+    .await
+    {
+        tracing::warn!(%error, "não foi possível registrar auditoria de login");
+    }
 }
 
 async fn registrar_sessao(

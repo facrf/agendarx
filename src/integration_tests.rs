@@ -170,6 +170,15 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
     assert_eq!(login["usuario"]["perfil"], "admin");
     let admin = login["token"].as_str().unwrap();
 
+    api.json(
+        Method::POST,
+        "/api/auth/login",
+        "",
+        json!({"login":"admin-teste", "senha":"senha-errada"}),
+        StatusCode::UNAUTHORIZED,
+    )
+    .await;
+
     for role in ["usuario", "admin"] {
         let account = api
             .json(
@@ -421,6 +430,20 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
             .iter()
             .any(|item| item["usuario_login"] == "novo-usuario"
                 && item["recurso"] == format!("/api/pessoas/{id}"))
+    );
+    assert!(
+        audit
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["recurso"] == "auth/login" && item["status_http"] == 200)
+    );
+    assert!(
+        audit
+            .as_array()
+            .unwrap()
+            .iter()
+            .any(|item| item["recurso"] == "auth/login" && item["status_http"] == 401)
     );
     api.json(
         Method::GET,
@@ -1047,5 +1070,15 @@ async fn cabecalhos_globais_de_seguranca_sao_injetados_em_todas_as_respostas() {
     assert_eq!(
         response.headers()["referrer-policy"],
         "strict-origin-when-cross-origin"
+    );
+    assert!(
+        response.headers()["content-security-policy"]
+            .to_str()
+            .unwrap()
+            .contains("default-src 'self'")
+    );
+    assert_eq!(
+        response.headers()["permissions-policy"],
+        "camera=(), microphone=(), geolocation=()"
     );
 }

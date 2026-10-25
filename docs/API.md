@@ -363,7 +363,10 @@ e `por_pagina` (1 a 100, padrão 30), retornando:
 `GET /api/pessoas` continua retornando uma lista para integrações e seletores,
 com os mesmos filtros de busca, categoria, tipo e favoritos, sem paginação.
 `GET /api/produtividade/auditoria` preserva a resposta antiga com os últimos
-500 registros. Os novos endpoints paginados são usados pelas telas.
+500 registros. Os endpoints de auditoria registram tanto operações autenticadas
+quanto eventos de autenticação (`auth/login`), incluindo logins bem-sucedidos (200),
+credenciais inválidas (401) e bloqueios por excesso de tentativas (429).
+Os novos endpoints paginados são usados pelas telas.
 
 Busca textual usa prefixos de palavras com FTS5, sem distinção de caixa/acentos,
 e aceita até 200 caracteres e 12 palavras. Pessoas, dossiês e vínculos seguem

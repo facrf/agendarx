@@ -45,10 +45,35 @@ Este documento consolida a análise de segurança do código-fonte do **AgendarX
 - **Problema**: `COOKIE_SECURE` constava como `false` nos exemplos, gerando risco de operadores subirem o sistema em HTTPS mantendo cookies sem a flag `Secure`.
 - **Correção**: Configurado `COOKIE_SECURE=true` no arquivo de exemplo de produção (`portainer.env.example`) e documentada a obrigatoriedade da flag em ambientes protegidos por TLS.
 
+### 1.5 Cabeçalhos Globais Content-Security-Policy (CSP) e Permissions-Policy
+- **Classificação**: CWE-79 (Cross-Site Scripting), CWE-1021 (Improper Restriction of Rendered UI Layers).
+- **Arquivo afetado**: `src/main.rs` (`cabecalhos_seguranca`).
+- **Problema**: O frontend SPA e as rotas gerais da aplicação não declaravam uma política explícita de Content-Security-Policy nem Permissions-Policy, embora os endpoints de entrega de anexos já contassem com sandbox isolada.
+- **Correção**: Injetados cabeçalhos restritivos por padrão no middleware global:
+  - `Content-Security-Policy`: `default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';`
+  - `Permissions-Policy`: `camera=(), microphone=(), geolocation=()`
+  - O cabeçalho preserva regras específicas mais estritas caso a resposta já possua CSP definido (ex: `sandbox; default-src 'none'` para arquivos do dossiê).
+
+### 1.6 Auditoria Completa de Tentativas de Autenticação (Login)
+- **Classificação**: CWE-778 (Insufficient Logging).
+- **Arquivo afetado**: `src/handlers/auth.rs` (`login`).
+- **Problema**: As rotas públicas de autenticação não eram interceptadas pelo middleware de auditoria de rotas autenticadas. Dessa forma, tentativas de invasão, ataques de força bruta ou falhas por senha incorreta não eram visíveis na tabela `auditoria` do painel administrativo.
+- **Correção**: Implementado registro automático em `auditoria` para todos os eventos de autenticação:
+  - Logins bem-sucedidos (`status_http: 200`, ação `EXECUTAR`, recurso `auth/login`).
+  - Falhas por senha ou login inválido (`status_http: 401`, ação `EXECUTAR`, recurso `auth/login`).
+  - Bloqueios preventivos de taxa/concorrência (`status_http: 429`, ação `EXECUTAR`, recurso `auth/login`).
+  - Todos os registros gravam duração e resumo explicativo, permitindo monitoramento forense direto na aba **Configurações → Lixeira e auditoria**.
+
 ---
 
 ## 2. Análise de Defesas Existentes no AgendarX
 
+### 2.1 Modelo Operacional e Premissas de Rede (LAN / VPN)
+O **AgendarX foi projetado prioritariamente para operação em redes locais (LAN) e redes privadas virtuais (VPN)**, atendendo equipes em ambientes controlados e isolados. Por essa razão:
+- O sistema não depende de CDNs externas ou scripts de terceiros (toda a interface, fontes, ícones e assets são estáticos e servidos localmente).
+- Adota-se o princípio de **defesa em profundidade**: mesmo dentro de uma rede corporativa ou VPN privada, onde outros dispositivos podem estar comprometidos, a aplicação isola privilégios, audita tentativas de autenticação, restringe origens e valida rigorosamente o tráfego.
+
+### 2.2 Controles Defensivos Consolidados
 Durante a auditoria, foram confirmados os seguintes controles defensivos já consolidados:
 
 1. **Injeção SQL**: Totalmente mitigada pelo uso do driver tipado `sqlx` com binds preparados (`?`). Concatenações de queries existentes utilizam apenas literais hardcoded ou constantes imutáveis validadas.

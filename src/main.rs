@@ -171,6 +171,16 @@ async fn cabecalhos_seguranca(request: Request, next: axum::middleware::Next) ->
         .or_insert(axum::http::HeaderValue::from_static(
             "strict-origin-when-cross-origin",
         ));
+    headers
+        .entry(axum::http::header::CONTENT_SECURITY_POLICY)
+        .or_insert(axum::http::HeaderValue::from_static(
+            "default-src 'self'; script-src 'self'; style-src 'self' 'unsafe-inline'; img-src 'self' data: blob:; font-src 'self' data:; connect-src 'self'; media-src 'self' blob:; object-src 'none'; base-uri 'self'; form-action 'self'; frame-ancestors 'self';",
+        ));
+    headers
+        .entry(axum::http::HeaderName::from_static("permissions-policy"))
+        .or_insert(axum::http::HeaderValue::from_static(
+            "camera=(), microphone=(), geolocation=()",
+        ));
     response
 }
 

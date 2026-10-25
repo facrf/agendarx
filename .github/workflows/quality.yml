@@ -61,6 +61,9 @@ jobs:
       - name: Executar lint
         run: npm run lint
 
+      - name: Auditar dependências npm
+        run: npm audit --audit-level=high
+
       - name: Compilar frontend
         run: npm run build
 
