@@ -433,6 +433,7 @@ async fn verificar_sessao(
         "autenticado": true,
         "usuario": sessao.usuario,
         "expira_em": sessao.expira_em,
+        "versao": env!("CARGO_PKG_VERSION"),
     }))
 }
 

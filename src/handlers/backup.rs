@@ -925,7 +925,13 @@ fn preparar_arquivo(
             AppError::BadRequest("o arquivo não é um backup SQLite ou ZIP válido".into())
         })?;
         let db_index = (0..zip.len())
-            .find(|indice| zip.file_names().nth(*indice) == Some("agendarx.db"))
+            .find(|indice| {
+                zip.file_names()
+                    .nth(*indice)
+                    .and_then(|res| res.ok())
+                    .as_deref()
+                    == Some("agendarx.db")
+            })
             .ok_or_else(|| AppError::BadRequest("o ZIP não contém agendarx.db".into()))?;
         let zip_criptografado;
         {
@@ -948,9 +954,13 @@ fn preparar_arquivo(
                 return Err(AppError::PayloadTooLarge);
             }
         }
-        if let Some(index) =
-            (0..zip.len()).find(|indice| zip.file_names().nth(*indice) == Some("manifest.json"))
-        {
+        if let Some(index) = (0..zip.len()).find(|indice| {
+            zip.file_names()
+                .nth(*indice)
+                .and_then(|res| res.ok())
+                .as_deref()
+                == Some("manifest.json")
+        }) {
             let mut item = if senha.is_empty() {
                 zip.by_index(index)
             } else {

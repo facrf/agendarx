@@ -24,7 +24,16 @@ pub fn rotas_protegidas() -> Router<AppState> {
 }
 
 pub fn rotas_publicas() -> Router<AppState> {
-    Router::new().route("/icone", get(obter_icone))
+    Router::new()
+        .route("/icone", get(obter_icone))
+        .route("/versao", get(obter_versao))
+}
+
+pub async fn obter_versao() -> Json<serde_json::Value> {
+    Json(serde_json::json!({
+        "servico": "agendarx",
+        "versao": env!("CARGO_PKG_VERSION"),
+    }))
 }
 
 async fn obter_identidade(

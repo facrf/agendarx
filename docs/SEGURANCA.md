@@ -1,7 +1,7 @@
 # Auditoria e Endurecimento de Segurança — AgendarX
 
-Data da auditoria: 24/10/2026  
-Versão auditada: 0.7.1  
+Data da auditoria: 25/10/2026  
+Versão auditada: 0.7.2  
 Status: Implementado e verificado
 
 Este documento consolida a análise de segurança do código-fonte do **AgendarX**, detalhando as fragilidades identificadas, as medidas corretivas aplicadas e as diretrizes operacionais de proteção.
@@ -63,6 +63,15 @@ Este documento consolida a análise de segurança do código-fonte do **AgendarX
   - Falhas por senha ou login inválido (`status_http: 401`, ação `EXECUTAR`, recurso `auth/login`).
   - Bloqueios preventivos de taxa/concorrência (`status_http: 429`, ação `EXECUTAR`, recurso `auth/login`).
   - Todos os registros gravam duração e resumo explicativo, permitindo monitoramento forense direto na aba **Configurações → Lixeira e auditoria**.
+
+### 1.7 Correção de CVEs e Atualização de Dependências (Ciclo Outubro/2026)
+- **Classificação**: Múltiplas (RCE / DoS / Parsing XML & ZIP / Memory Safety / ReDoS / Prototype Pollution).
+- **Escopo**: Ecossistemas Rust (Cargo) e Node.js/TypeScript (npm).
+- **Problemas Mitigados**:
+  - `zip` (RUSTSEC-2026-0369 [CVSS 9.1 Crítico], RUSTSEC-2026-0368, RUSTSEC-2026-0367): vulnerabilidades graves de heap overflow e negação de serviço na extração e descompressão de arquivos ZIP no módulo de restauração de backups (`backup.rs`). Atualizado para `zip = "9.1.0"`.
+  - `quick-xml` (RUSTSEC-2026-0195, RUSTSEC-2026-0194): vulnerabilidades de panics descontrolados e DoS por alocação excessiva em parsing de tags e CDATA no provedor OSINT (`src/handlers/osint/providers.rs`). Atualizado para `quick-xml = "0.42.0"`.
+  - Atualização do lockfile Cargo (`cargo update`): resolução de 17 advisories de segurança em dependências transitivas, incluindo `rustls 0.23.46`, `rustls-webpki 0.103.16`, `webpki-root-certs 1.0.11`, `tokio 1.54.1`, `quinn-proto 0.11.19` e `h2 0.4.20`.
+  - Frontend (`npm audit fix`): correção de 4 vulnerabilidades de severidade High identificadas em outubro/2026, atualizando `vite` para `8.3.5`, `zod` para `4.6.7`, `brace-expansion` para `5.0.12` e `source-map-js` para `1.2.2`. Relatório final com 0 vulnerabilidades no `npm audit`.
 
 ---
 

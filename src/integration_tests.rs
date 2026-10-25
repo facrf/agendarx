@@ -1081,4 +1081,67 @@ async fn cabecalhos_globais_de_seguranca_sao_injetados_em_todas_as_respostas() {
         response.headers()["permissions-policy"],
         "camera=(), microphone=(), geolocation=()"
     );
+    let payload: serde_json::Value = response.json().await.unwrap();
+    assert_eq!(payload["status"], "ok");
+    assert_eq!(payload["servico"], "agendarx");
+    assert_eq!(payload["versao"], env!("CARGO_PKG_VERSION"));
+}
+
+#[tokio::test]
+async fn rotas_de_versao_retornam_versao_do_software() {
+    let mut config = Config::para_testes().unwrap();
+    config.frontend_dir = std::path::Path::new(env!("CARGO_MANIFEST_DIR")).join("frontend");
+    let pool = sqlx::sqlite::SqlitePoolOptions::new()
+        .connect_lazy("sqlite::memory:")
+        .unwrap();
+    let app = construir_app(AppState {
+        pool,
+        config,
+        auth_runtime: crate::handlers::auth::AuthRuntime::default(),
+        backup_runtime: BackupRuntime::default(),
+    });
+    let listener = tokio::net::TcpListener::bind("127.0.0.1:0").await.unwrap();
+    let base = format!("http://{}", listener.local_addr().unwrap());
+    let task = tokio::spawn(async move { axum::serve(listener, app).await.unwrap() });
+    let api = TestApi {
+        client: Client::new(),
+        base,
+        task,
+    };
+
+    let res_versao = api
+        .client
+        .get(format!("{}/api/versao", api.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res_versao.status(), reqwest::StatusCode::OK);
+    let json_versao: serde_json::Value = res_versao.json().await.unwrap();
+    assert_eq!(json_versao["versao"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json_versao["servico"], "agendarx");
+
+    let res_identidade_versao = api
+        .client
+        .get(format!("{}/api/identidade/versao", api.base))
+        .send()
+        .await
+        .unwrap();
+    assert_eq!(res_identidade_versao.status(), reqwest::StatusCode::OK);
+    let json_identidade: serde_json::Value = res_identidade_versao.json().await.unwrap();
+    assert_eq!(json_identidade["versao"], env!("CARGO_PKG_VERSION"));
+    assert_eq!(json_identidade["servico"], "agendarx");
+}
+
+#[test]
+fn versao_do_software_e_do_frontend_sao_identicas() {
+    let pkg_json: serde_json::Value =
+        serde_json::from_str(include_str!("../frontend/package.json")).unwrap();
+    let frontend_version = pkg_json["version"].as_str().unwrap();
+    assert_eq!(
+        env!("CARGO_PKG_VERSION"),
+        frontend_version,
+        "A versão em Cargo.toml ({}) difere da versão em frontend/package.json ({})",
+        env!("CARGO_PKG_VERSION"),
+        frontend_version
+    );
 }

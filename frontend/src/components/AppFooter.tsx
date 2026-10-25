@@ -1,10 +1,38 @@
 /* Developed with care by FACRF - https://github.com/facrf */
-import { version } from "../../package.json";
+import { useEffect, useState } from "react";
+import { version as packageVersion } from "../../package.json";
+import { api } from "../services/api";
+
+let cachedSoftwareVersion: string | null = null;
 
 export function AppFooter() {
+  const [appVersion, setAppVersion] = useState<string>(
+    cachedSoftwareVersion || packageVersion.replace(/-([a-z])$/, "$1"),
+  );
+
+  useEffect(() => {
+    if (cachedSoftwareVersion) return;
+    let active = true;
+    api
+      .get<{ versao?: string }>("/api/identidade/versao", { cacheMs: 60_000 })
+      .then((data) => {
+        if (active && data?.versao) {
+          const v = data.versao.replace(/-([a-z])$/, "$1");
+          cachedSoftwareVersion = v;
+          setAppVersion(v);
+        }
+      })
+      .catch(() => {
+        // Mantém fallback do package.json
+      });
+    return () => {
+      active = false;
+    };
+  }, []);
+
   return (
     <footer className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1 px-4 py-5 text-center text-[11px] text-slate-500">
-      <span>AgendarX v{version.replace(/-([a-z])$/, "$1")}</span>
+      <span>AgendarX v{appVersion}</span>
       <span aria-hidden="true">·</span>
       <a
         href="https://www.fabianocesar.com"

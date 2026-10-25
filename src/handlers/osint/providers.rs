@@ -950,10 +950,11 @@ fn parse_inlabs_zip(bytes: Vec<u8>) -> Result<Vec<InlabsDocument>, ProviderFailu
             tracing::warn!(provider = "INLABS", error = %error, "entrada ZIP inválida");
             ProviderFailure::new("não foi possível ler um arquivo do DOU")
         })?;
-        if file.is_dir()
-            || !file.name().to_ascii_lowercase().ends_with(".xml")
-            || file.size() > INLABS_MAX_XML_BYTES
-        {
+        let is_xml = file
+            .name()
+            .ok()
+            .is_some_and(|name| name.to_ascii_lowercase().ends_with(".xml"));
+        if file.is_dir() || !is_xml || file.size() > INLABS_MAX_XML_BYTES {
             continue;
         }
         let mut xml = String::new();
@@ -976,15 +977,15 @@ fn parse_inlabs_xml(xml: &str) -> Option<InlabsDocument> {
     loop {
         match reader.read_event() {
             Ok(Event::Start(element)) => {
-                current_tag = String::from_utf8_lossy(element.name().as_ref()).to_string();
+                current_tag = element.name().as_ref().to_string();
                 if current_tag == "article" {
                     for attribute in element.attributes().flatten() {
-                        let key = String::from_utf8_lossy(attribute.key.as_ref());
+                        let key = attribute.key.as_ref();
                         let value = attribute
-                            .decode_and_unescape_value(reader.decoder())
+                            .normalized_value(quick_xml::XmlVersion::Implicit1_0)
                             .map(|value| value.into_owned())
                             .unwrap_or_default();
-                        match key.as_ref() {
+                        match key {
                             "name" | "artType" if document.title.is_empty() => {
                                 document.title = value
                             }
@@ -1000,17 +1001,13 @@ fn parse_inlabs_xml(xml: &str) -> Option<InlabsDocument> {
                 }
             }
             Ok(Event::Text(text)) => {
-                let value = text
-                    .decode()
+                let value = quick_xml::escape::unescape(&text)
                     .map(|value| value.into_owned())
-                    .unwrap_or_default();
+                    .unwrap_or_else(|_| text.to_string());
                 assign_inlabs_text(&mut document, &current_tag, value);
             }
             Ok(Event::CData(text)) => {
-                let value = text
-                    .decode()
-                    .map(|value| value.into_owned())
-                    .unwrap_or_default();
+                let value = text.to_string();
                 assign_inlabs_text(&mut document, &current_tag, strip_html(&value));
             }
             Ok(Event::End(_)) => current_tag.clear(),

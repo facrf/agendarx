@@ -105,6 +105,7 @@ fn construir_app(state: AppState) -> Router {
 
     Router::new()
         .route("/health", get(health))
+        .route("/api/versao", get(handlers::identidade::obter_versao))
         .nest(
             "/api/auth",
             handlers::auth::rotas_publicas().route_layer(from_fn_with_state(
@@ -154,7 +155,11 @@ fn construir_app(state: AppState) -> Router {
 }
 
 async fn health() -> Json<serde_json::Value> {
-    Json(json!({ "status": "ok", "servico": "agendarx" }))
+    Json(json!({
+        "status": "ok",
+        "servico": "agendarx",
+        "versao": env!("CARGO_PKG_VERSION")
+    }))
 }
 
 async fn cabecalhos_seguranca(request: Request, next: axum::middleware::Next) -> Response {

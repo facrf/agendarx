@@ -4,6 +4,36 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.7.2] - 2026-10-25
+
+### Segurança
+
+- **Remediação de vulnerabilidades críticas de outubro/2026 no ecossistema Rust**:
+  - `zip`: atualização para `9.1.0` eliminando as vulnerabilidades RUSTSEC-2026-0369 (CVSS 9.1 Crítico - heap buffer overflow), RUSTSEC-2026-0368 e RUSTSEC-2026-0367 na restauração e inspeção de backups compactados.
+  - `quick-xml`: atualização para `0.42.0` corrigindo vulnerabilidades de negação de serviço e panics RUSTSEC-2026-0195 e RUSTSEC-2026-0194 no parser de feeds OSINT.
+  - Dependências de rede e runtime: atualização do lockfile (`cargo update`) mitigando 17 advisories de segurança em `rustls` (0.23.46), `rustls-webpki` (0.103.16), `webpki-root-certs` (1.0.11), `tokio` (1.54.1), `quinn-proto` (0.11.19) e `h2` (0.4.20).
+- **Remediação de vulnerabilidades de outubro/2026 no frontend (npm)**:
+  - Resolução de todas as vulnerabilidades apontadas pelo `npm audit` (`0 vulnerabilities`), atualizando `vite` para `8.3.5`, `zod` para `4.6.7`, `brace-expansion` para `5.0.12` e `source-map-js` para `1.2.2`.
+
+### Corrigido
+
+- **Sincronização estrita de versão entre Frontend e Backend**:
+  - Resolução de inconsistência onde navegadores retinham e exibiam versões legadas do frontend (ex: `v0.6.9`) decorrente de cache persistente do Service Worker e permissões de build.
+  - O Service Worker (`sw.js`) agora adota nomenclatura versionada de cache (`agendarx-shell-v{versao}`) e efetua purga ativa de caches obsoletos no evento `activate`.
+  - Injeção dinâmica da versão no Service Worker em tempo de compilação via plugin Vite (`swVersionPlugin`).
+  - O componente `AppFooter` agora consulta a versão real do software em tempo de execução via endpoint `/api/identidade/versao` (com fallback imediato para o `package.json`), eliminando disparidades entre o frontend e a API.
+  - Enriquecimento das respostas de `/health`, `/api/versao` e `/api/auth/sessao` com o campo `versao`.
+  - Adição de testes automatizados de integração validando paridade exata de versão entre `Cargo.toml` e `frontend/package.json` e o retorno do endpoint de versão.
+
+### Modificado
+
+- **Regras operacionais e espelhamento Gitea/GitHub (`AGENTS.md`)**:
+  - Inclusão das diretrizes mandatórias de paridade absoluta de versão entre frontend e backend.
+  - Documentação formal do espelhamento do repositório Git local no Gitea (`http://192.168.0.10:3010/facrf/agendarx.git`) sincronizado com o GitHub (`https://github.com/facrf/agendarx.git`).
+- **Otimização de `.gitignore` e `.dockerignore`**:
+  - Inclusão de artefatos de testes (`playwright-report`, `test-results`), logs de gerenciadores (`npm-debug.log*`, etc.) e segredos de deploy (`deploy/.env`).
+  - Exclusão do contexto do Docker de diretórios desnecessários (`docs/`, `tests/` e arquivos markdown), agilizando o envio de contexto e construção de imagens OCI.
+
 ## [0.7.1] - 2026-10-24
 
 ### Segurança
@@ -494,6 +524,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.7.2]: https://github.com/facrf/agendarx/compare/v0.7.1...v0.7.2
 [0.7.1]: https://github.com/facrf/agendarx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/facrf/agendarx/compare/v0.6.9...v0.7.0
 [0.6.9]: https://github.com/facrf/agendarx/compare/v0.6.8...v0.6.9

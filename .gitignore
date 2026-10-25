@@ -7,24 +7,35 @@
 /frontend/dist/
 /frontend/.vite/
 *.tsbuildinfo
+test-results/
+playwright-report/
+blob-report/
 
 # Dados e segredos locais
 .env
 .env.*
 !.env.example
 !deploy/*.env.example
+deploy/.env
 /data/
 *.db
 *.db-journal
 *.db-shm
 *.db-wal
+*.sqlite
+*.sqlite3
 
 # Logs, cobertura e temporários
 *.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+pnpm-debug.log*
 /coverage/
 /.cache/
 /.tmp/
 *.tmp
+*.bak
 
 # Editores e sistema operacional
 /.idea/
@@ -32,4 +43,6 @@
 *.swp
 *.swo
 .DS_Store
+._*
 Thumbs.db
+desktop.ini
