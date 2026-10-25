@@ -4,6 +4,15 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.7.1] - 2026-10-24
+
+### Segurança
+
+- **Cabeçalhos restritivos CSP e Permissions-Policy**: inclusão de `Content-Security-Policy: default-src 'self' ...` e `Permissions-Policy: camera=(), microphone=(), geolocation=()` no middleware global, mitigando injeção de scripts (XSS), framing e acesso indevido a APIs de dispositivos.
+- **Auditoria de tentativas de autenticação (`auth/login`)**: registro persistente de logins bem-sucedidos (`200`), falhas por credenciais inválidas (`401`) e bloqueios por excesso de tentativas (`429`) na tabela `auditoria`, permitindo monitoramento de acessos no painel administrativo em redes locais e VPNs.
+- **Auditoria de dependências automatizada no CI**: inclusão de verificação de vulnerabilidades `npm audit --audit-level=high` no fluxo de qualidade do GitHub Actions.
+- **Documentação de segurança e modelo de rede privada**: atualização de `docs/SEGURANCA.md` e `docs/API.md` formalizando a operação defensiva em redes locais (LAN) e VPNs.
+
 ## [0.7.0] - 2026-10-23
 
 ### Adicionado
@@ -29,11 +38,9 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
 - **Sanitização CRLF no vCard (`exportar_vcard`)**: purga caracteres `\r` (retorno de carro) em `escapar_vcard`, mitigando injeção de propriedades e delimitações falsas em clientes de contatos.
 - **Limites de comprimento em campos de texto (CWE-400)**: validação de tamanho máximo em `nome` da pessoa (255 caracteres), `valor` de contato (500 caracteres), `tipo_vinculo` (100 caracteres), `nome_categoria` (100 caracteres) e `nome_tipo` de contato (100 caracteres), prevenindo ataques de negação de serviço e sobrecarga de banco de dados.
-- **Cabeçalhos globais de segurança HTTP**: middleware global com `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff`, `Referrer-Policy: strict-origin-when-cross-origin`, `Content-Security-Policy: default-src 'self' ...` e `Permissions-Policy: camera=(), microphone=(), geolocation=()`, mitigando Clickjacking/UI Redressing, MIME-sniffing e injeções de script (XSS).
-- **Auditoria de tentativas de autenticação (`auth/login`)**: registro automático de logins bem-sucedidos (`200`), credenciais inválidas (`401`) e bloqueios por excesso de tentativas (`429`) na tabela `auditoria`, permitindo monitoramento de acessos no painel administrativo em redes locais/VPNs.
-- **Auditoria de dependências automatizada**: inclusão de verificação de vulnerabilidades `npm audit --audit-level=high` no pipeline de qualidade do GitHub Actions.
+- **Cabeçalhos globais de segurança HTTP**: middleware global com `X-Frame-Options: SAMEORIGIN`, `X-Content-Type-Options: nosniff` e `Referrer-Policy: strict-origin-when-cross-origin`, mitigando Clickjacking/UI Redressing e MIME-sniffing.
 - **Configuração de produção reforçada**: documentação e exemplos atualizados com `COOKIE_SECURE=true` para proteção de cookies de sessão em tráfego HTTPS/TLS.
-- **Documentação de segurança e modelo de rede privada**: relatório técnico de auditoria em `docs/SEGURANCA.md` com diretrizes para implantação em redes locais (LAN) e VPNs.
+- **Documentação de segurança**: relatório técnico de auditoria publicado em `docs/SEGURANCA.md`.
 
 ## [0.6.9] - 2026-10-15
 
@@ -487,6 +494,7 @@ grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 - Actions, ferramenta de cross-compilação e imagens-base foram fixadas por SHA/digest
   para tornar a cadeia de publicação reproduzível e resistente a tags mutáveis.
 
+[0.7.1]: https://github.com/facrf/agendarx/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/facrf/agendarx/compare/v0.6.9...v0.7.0
 [0.6.9]: https://github.com/facrf/agendarx/compare/v0.6.8...v0.6.9
 [0.6.8]: https://github.com/facrf/agendarx/compare/v0.6.7...v0.6.8
