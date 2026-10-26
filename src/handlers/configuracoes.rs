@@ -19,6 +19,10 @@ use crate::{
 pub fn rotas() -> Router<AppState> {
     Router::new()
         .route(
+            "/osint",
+            get(super::osint::obter_configuracao).put(super::osint::atualizar_configuracao),
+        )
+        .route(
             "/hp-psicossocial",
             get(super::hp_psicossocial::obter_configuracao)
                 .put(super::hp_psicossocial::atualizar_configuracao),

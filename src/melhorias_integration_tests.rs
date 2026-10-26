@@ -182,6 +182,80 @@ async fn trabalhos_osint_sao_persistentes_isolados_cancelaveis_e_retomaveis() {
         StatusCode::NO_CONTENT,
     )
     .await;
+    api.json(
+        Method::POST,
+        &format!("/api/osint/trabalhos/{jid}/cancelar"),
+        &admin,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+
+    // Configuração OSINT dinâmica (CGU, PNCP, TSE) e expansão de sistemas compatíveis
+    let cfg = api
+        .json(
+            Method::PUT,
+            "/api/configuracoes/osint",
+            &admin,
+            json!({
+                "cgu_api_key": "chave-cgu-integracao-123456",
+                "tse_anos": "2024,2022",
+                "tse_abrangencias": "BR,SP",
+                "pncp_retroativo_dias": 180
+            }),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(cfg["cgu_api_key_configurada"], true);
+    assert_eq!(cfg["pncp_retroativo_dias"], 180);
+
+    // Parâmetro CNPJ em modo COMPATIVEIS expande para PNCP, CGU, TSE e QUERIDO_DIARIO
+    sqlx::query("DELETE FROM parametro_busca WHERE pessoa_id = ?")
+        .bind(id)
+        .execute(&pool)
+        .await
+        .unwrap();
+    api.json(
+        Method::POST,
+        &format!("/api/osint/parametros/{id}"),
+        &admin,
+        json!({
+            "tipo": "CNPJ",
+            "valor": "00.394.460/0001-41",
+            "provider": "COMPATIVEIS",
+            "ativo": true
+        }),
+        StatusCode::CREATED,
+    )
+    .await;
+
+    let job_comp = api
+        .json(
+            Method::POST,
+            &format!("/api/osint/varrer/{id}"),
+            &admin,
+            json!({"expandir_compativeis": true}),
+            StatusCode::ACCEPTED,
+        )
+        .await;
+    assert_eq!(job_comp["total"], 4);
+    assert_eq!(
+        job_comp["fontes_buscadas"],
+        json!(["PNCP", "CGU", "TSE", "QUERIDO_DIARIO"])
+    );
+
+    // Importação automática de dados do perfil para parâmetros OSINT
+    let importado = api
+        .json(
+            Method::POST,
+            &format!("/api/osint/parametros/{id}/importar-perfil"),
+            &admin,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(importado["importados"], 1);
+    assert_eq!(importado["parametros"].as_array().unwrap().len(), 2);
 }
 #[tokio::test]
 async fn limites_login_retornam_429_com_retry_after_e_413_para_corpo_grande() {

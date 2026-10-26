@@ -4,6 +4,21 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.7.4] - 2026-10-26
+
+### Adicionado
+
+- **Novas integrações na Pesquisa Pública (OSINT)**:
+  - **PNCP (`PNCP` — Portal Nacional de Contratações Públicas)**: consulta de editais, atas de registro de preços e contratos públicos nacionais via `/api/search/` (`CNPJ`, `NOME`, `TERMO`, `PROCESSO`) e consulta complementar de contratos por fornecedor (`/api/consulta/v1/contratos` com `niFornecedor` para `CNPJ`), extraindo valores globais, modalidade, situação, vigência e links oficiais.
+  - **APIs da CGU (`CGU` — Portal da Transparência Federal)**: consulta autenticada via cabeçalho `chave-api-dados` aos cadastros federais **CEIS** (Empresas Inidôneas e Suspensas), **CNEP** (Empresas Punidas), **CEPIM** (Entidades Sem Fins Lucrativos Impedidas), **Servidores do Executivo Federal** (`/servidores`) e **Contratos Federais** (`/contratos/cpf-cnpj`) para parâmetros `CPF`, `CNPJ` e `NOME`.
+  - **DivulgaCandContas (`TSE` — Tribunal Superior Eleitoral)**: consulta de candidaturas, situação de registro, coligação/partido, CNPJ de campanha e total de bens declarados na Justiça Eleitoral para `NOME`, `CPF` e `CNPJ` nos anos e abrangências (UFs e códigos TSE de municípios) configurados.
+- **Reaproveitamento Inteligente de Parâmetros em Sistemas Compatíveis (`COMPATIVEIS`)**:
+  - Novo modo padrão **Automático (Todos os sistemas compatíveis)** ao cadastrar parâmetros de pesquisa, exibindo em tempo real os selos de compatibilidade de cada tipo (`NOME`, `CPF`, `CNPJ`, `TERMO`, `PROCESSO`, `EMAIL`, `TELEFONE`).
+  - Opção **"Aproveitar parâmetros ativos em todos os sistemas de busca compatíveis"** no painel de varredura, expandindo automaticamente parâmetros existentes para todas as bases compatíveis ativas e configuradas, com prévia visual e notificação dos sistemas consultados ao iniciar a varredura.
+  - Atalho **"Importar do perfil"** (`POST /api/osint/parametros/{pessoa_id}/importar-perfil`) para importar com um clique o Nome, CPF, CNPJ, E-mail e Telefone cadastrados no perfil para os parâmetros OSINT em modo compatível.
+- **Painel de Configuração de Pesquisa Pública em Configurações**:
+  - Novo componente `OSINTSettings` em `Configurações` (`GET / PUT /api/configuracoes/osint` e migração `0026_osint_pncp_cgu_tse.sql`, schema `26`) permitindo ativar/desativar fontes compatíveis, gerenciar com mascaramento a `chave-api-dados` da CGU, configurar anos/abrangências/cargos do TSE, janela retroativa e tipos de documento do PNCP, além de SearXNG, INLABS, DataJud e OpenAlex sem necessidade de reiniciar o servidor.
+
 ## [0.7.3] - 2026-10-26
 
 ### Adicionado

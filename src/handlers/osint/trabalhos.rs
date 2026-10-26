@@ -1,9 +1,10 @@
 use axum::{
     Extension, Json,
+    body::Bytes,
     extract::{Path, State},
 };
 use chrono::Utc;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use sqlx::SqlitePool;
 use tokio::sync::RwLockReadGuard;
 use uuid::Uuid;
@@ -14,6 +15,12 @@ use crate::{
     middleware::auth::SessaoAutenticada,
     models::{ParametroBusca, VarreduraResponse},
 };
+
+#[derive(Debug, Default, Deserialize)]
+pub(super) struct VarreduraOpcoesInput {
+    #[serde(default)]
+    pub expandir_compativeis: bool,
+}
 
 #[derive(sqlx::FromRow, Serialize)]
 pub(super) struct Trabalho {
@@ -35,6 +42,15 @@ impl Trabalho {
         let mut value = serde_json::to_value(self).map_err(|e| AppError::interno(e.to_string()))?;
         value["resultado"] =
             serde_json::from_str(&self.resultado).map_err(|e| AppError::interno(e.to_string()))?;
+        if let Ok(params) = serde_json::from_str::<Vec<ParametroBusca>>(&self.parametros) {
+            let mut fontes = Vec::new();
+            for p in &params {
+                if !fontes.contains(&p.provider) {
+                    fontes.push(p.provider.clone());
+                }
+            }
+            value["fontes_buscadas"] = serde_json::json!(fontes);
+        }
         Ok(value)
     }
 }
@@ -57,14 +73,29 @@ pub(super) async fn criar(
     State(state): State<AppState>,
     Extension(sessao): Extension<SessaoAutenticada>,
     Path(pessoa_id): Path<i64>,
+    body: Bytes,
 ) -> Result<(axum::http::StatusCode, Json<serde_json::Value>), AppError> {
     super::garantir_pessoa(&state, pessoa_id).await?;
-    let parametros:Vec<ParametroBusca>=sqlx::query_as("SELECT id,pessoa_id,tipo,valor,provider,ativo FROM parametro_busca WHERE pessoa_id=? AND ativo=1 ORDER BY id").bind(pessoa_id).fetch_all(&state.pool).await?;
-    if parametros.is_empty() || parametros.len() > super::MAX_PARAMETROS_ATIVOS {
+    let opcoes: VarreduraOpcoesInput = if body.is_empty() {
+        VarreduraOpcoesInput::default()
+    } else {
+        serde_json::from_slice::<Option<VarreduraOpcoesInput>>(&body)
+            .map_err(|_| AppError::BadRequest("opções de varredura inválidas".into()))?
+            .unwrap_or_default()
+    };
+    let parametros_base: Vec<ParametroBusca> = sqlx::query_as(
+        "SELECT id,pessoa_id,tipo,valor,provider,ativo FROM parametro_busca WHERE pessoa_id=? AND ativo=1 ORDER BY id",
+    )
+    .bind(pessoa_id)
+    .fetch_all(&state.pool)
+    .await?;
+    if parametros_base.is_empty() || parametros_base.len() > super::MAX_PARAMETROS_ATIVOS {
         return Err(AppError::BadRequest(
             "ative de 1 a 50 parâmetros antes da varredura".into(),
         ));
     }
+    let osint_cfg = super::carregar_osint_config(&state).await?;
+    let parametros = osint_cfg.expandir_parametros(parametros_base, opcoes.expandir_compativeis);
     let id = Uuid::new_v4().to_string();
     let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
     admitir_fila(&mut tx, sessao.usuario.id).await?;
@@ -232,8 +263,9 @@ async fn executar(
         serde_json::from_str(&trabalho.parametros).map_err(|e| AppError::interno(e.to_string()))?;
     let mut total: VarreduraResponse =
         serde_json::from_str(&trabalho.resultado).map_err(|e| AppError::interno(e.to_string()))?;
+    let osint_cfg = super::carregar_osint_config(state).await?;
     let mut providers =
-        super::PublicSearchProviders::new(&state.config).map_err(AppError::interno)?;
+        super::PublicSearchProviders::from_osint_config(&osint_cfg).map_err(AppError::interno)?;
     let stored: serde_json::Value =
         serde_json::from_str(&trabalho.resultado).map_err(|e| AppError::interno(e.to_string()))?;
     let mut fontes: std::collections::BTreeSet<String> = stored["fontes_indisponiveis_nomes"]

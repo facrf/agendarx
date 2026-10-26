@@ -410,11 +410,50 @@ export type TipoParametroBusca =
   | "PROCESSO";
 
 export type FontePesquisaPublica =
+  | "COMPATIVEIS"
+  | "PNCP"
+  | "CGU"
+  | "TSE"
   | "SEARXNG"
   | "QUERIDO_DIARIO"
   | "INLABS"
   | "OPENALEX"
   | "DATAJUD";
+
+export interface FonteOsintStatus {
+  provider: FontePesquisaPublica;
+  label: string;
+  ativo: boolean;
+  configurado: boolean;
+  requer_credencial: boolean;
+  tipos_compativeis: TipoParametroBusca[];
+}
+
+export interface OsintConfiguracao {
+  searxng_url: string;
+  searxng_configurado: boolean;
+  cgu_api_key_configurada: boolean;
+  cgu_api_key_mascarada: string | null;
+  datajud_api_key_configurada: boolean;
+  datajud_api_key_mascarada: string | null;
+  openalex_api_key_configurada: boolean;
+  openalex_api_key_mascarada: string | null;
+  inlabs_username: string;
+  inlabs_configurado: boolean;
+  inlabs_lookback_days: number;
+  pncp_base_url: string;
+  pncp_tipos_documento: string;
+  pncp_retroativo_dias: number;
+  cgu_base_url: string;
+  tse_base_url: string;
+  tse_anos: string;
+  tse_abrangencias: string;
+  tse_cargos: string;
+  osint_timeout_seconds: number;
+  osint_max_results: number;
+  fontes_ativas: FontePesquisaPublica[];
+  fontes_status: FonteOsintStatus[];
+}
 
 export interface ParametroBusca {
   id: number;

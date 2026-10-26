@@ -36,7 +36,7 @@ use zip::{AesMode, CompressionMethod, ZipArchive, ZipWriter, write::SimpleFileOp
 
 use crate::{AppState, error::AppError, middleware::auth::SessaoAutenticada};
 
-const SCHEMA_ATUAL: i64 = 25;
+const SCHEMA_ATUAL: i64 = 26;
 const FORMATO_BACKUP: u32 = 1;
 const EXPIRACAO_RESTORE_MINUTOS: i64 = 30;
 const MAX_BACKUPS_SEGURANCA: usize = 5;

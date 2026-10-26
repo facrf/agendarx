@@ -72,6 +72,7 @@ e persistência de mídia privada no cache do navegador.
 | Configurações | `GET, POST /api/configuracoes/tipos-contato` | Listar/criar tipos |
 | Configurações | `GET, PUT, DELETE /api/configuracoes/tipos-contato/{id}` | CRUD de tipo |
 | Configurações | `GET, PUT /api/configuracoes/hp-psicossocial` | Consultar parâmetros de HP/auras; edição completa com versão esperada, somente admin |
+| Configurações | `GET, PUT /api/configuracoes/osint` | Consultar/alterar configurações de fontes públicas (CGU, TSE, PNCP, SearXNG, INLABS, DataJud, OpenAlex e fontes compatíveis) |
 | Identidade | `GET /api/identidade/icone` | Ícone público usado pela interface e favicon |
 | Identidade | `GET /api/configuracoes/identidade` | Estado da identidade visual |
 | Identidade | `PUT, DELETE /api/configuracoes/icone` | Trocar/restaurar ícone em bytes brutos |
@@ -123,8 +124,10 @@ e persistência de mídia privada no cache do navegador.
 | Grafo | `GET /api/vinculos/grafo/graphml` | Exportação em XML GraphML (Gephi, Cytoscape, yEd, NetworkX) |
 | Grafo | `GET /api/vinculos/grafo/gexf` | Exportação no formato nativo do Gephi (GEXF 1.2 com cores viz) |
 | OSINT | `GET, POST /api/osint/parametros/{pessoa_id}` | Listar/criar parâmetros |
+| OSINT | `POST /api/osint/parametros/{pessoa_id}/importar-perfil` | Importar automaticamente Nome, CPF, CNPJ, E-mail e Telefone do perfil em modo `COMPATIVEIS` |
 | OSINT | `PUT, DELETE /api/osint/parametros/item/{id}` | Atualizar/remover parâmetro |
-| OSINT | `POST /api/osint/varrer/{pessoa_id}` | Enfileirar pesquisa; 202 com trabalho e progresso |
+| OSINT | `POST /api/osint/varrer/{pessoa_id}` | Enfileirar pesquisa (aceita `{"expandir_compativeis":true}`); 202 com trabalho, progresso e `fontes_buscadas` |
+| OSINT | `GET, PUT /api/osint/configuracao` | Consultar/alterar configurações e status das fontes de pesquisa pública |
 | OSINT | `GET /api/osint/trabalhos/pessoa/{pessoa_id}` | Últimos dez trabalhos da conta para esta pessoa |
 | OSINT | `POST /api/osint/trabalhos/{id}/cancelar` | Cancelar trabalho da própria conta; 204 |
 | OSINT | `POST /api/osint/trabalhos/{id}/retomar` | Retomar trabalho interrompido, cancelado ou com erro; 204 |
@@ -170,8 +173,8 @@ curl -i http://localhost:12000/api/auth/login \
 ```
 
 Os tipos aceitos são `NOME`, `CPF`, `CNPJ`, `EMAIL`, `TELEFONE`, `TERMO` e `PROCESSO`.
-Os providers são `SEARXNG`, `QUERIDO_DIARIO`, `INLABS`, `OPENALEX` e `DATAJUD`. A omissão de
-`provider` usa `SEARXNG`, preservando clientes e registros anteriores. O mesmo
+Os providers são `COMPATIVEIS`, `SEARXNG`, `QUERIDO_DIARIO`, `INLABS`, `OPENALEX`, `DATAJUD`, `PNCP`, `CGU` e `TSE`. A omissão de
+`provider` usa `SEARXNG`, preservando clientes e registros anteriores. Quando `provider` é `COMPATIVEIS` (ou quando `expandir_compativeis: true` é enviado em `POST /api/osint/varrer/{pessoa_id}`), cada parâmetro é automaticamente reaproveitado em todos os sistemas compatíveis ativos e configurados, e a resposta do trabalho inclui `fontes_buscadas` com a relação detalhada das fontes consultadas. O mesmo
 campo é aceito no `PUT` e devolvido na listagem; assim a edição conserva a fonte.
 
 A varredura pesquisa nomes com e sem correspondência exata e normaliza CPF, CNPJ

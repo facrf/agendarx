@@ -7,7 +7,7 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
-Versão atual: **v0.7.3**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
+Versão atual: **v0.7.4**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
 
 ## Funcionalidades
 
@@ -51,9 +51,12 @@ Versão atual: **v0.7.3**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAF
   das sessões existentes.
 - Ícone privado do administrador personalizável, independente do ícone global do
   sistema e visível no painel da sessão.
-- Pesquisas públicas por pessoa via SearXNG, Querido Diário, INLABS/DOU ou
-  OpenAlex, com histórico pesquisável e paginado, exclusão de achados e
-  arquivamento de PDFs.
+- Pesquisas públicas por pessoa via **PNCP** (Portal Nacional de Contratações Públicas),
+  **APIs da CGU** (Portal da Transparência Federal: CEIS, CNEP, CEPIM, Servidores e Contratos),
+  **DivulgaCandContas (TSE)**, **SearXNG**, **Querido Diário**, **INLABS/DOU**, **DataJud/CNJ**
+  e **OpenAlex**, com modo automático de reaproveitamento em todos os sistemas compatíveis,
+  importação com um clique a partir do perfil, configurações dinâmicas em **Configurações**,
+  histórico pesquisável e paginado, exclusão de achados e arquivamento de PDFs.
 - Senhas com Argon2 e sessões JWT revogáveis persistidas no SQLite.
 - Interface React, TypeScript, Tailwind CSS, Lucide e Cytoscape.js.
 - HP psicossocial com desconto do risco próprio e impactos de 1º/2º grau,
@@ -107,13 +110,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.7.3
+docker pull ghcr.io/facrf/agendarx:0.7.4
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.7.3
+  ghcr.io/facrf/agendarx:0.7.4
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -144,7 +147,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.7.3
+    image: ghcr.io/facrf/agendarx:0.7.4
     restart: unless-stopped
     ports:
       - "12000:12000"
@@ -189,20 +192,22 @@ Se o pacote GHCR for privado, registre primeiro as credenciais em **Registries**
 
 ## Pesquisa pública
 
-Cada pesquisa salva possui sua própria fonte. Pesquisas criadas antes desta
-funcionalidade continuam usando SearXNG automaticamente.
+Ao cadastrar um parâmetro de pesquisa (`NOME`, `CPF`, `CNPJ`, `TERMO`, `PROCESSO`, `EMAIL` ou `TELEFONE`), você pode selecionar **Automático (Todos os sistemas compatíveis)** (`COMPATIVEIS`) ou uma fonte específica. Além disso, o botão **Iniciar varredura** exibe uma prévia dos sistemas compatíveis e permite reaproveitar parâmetros já cadastrados em todas as fontes compatíveis ativas. Todas as credenciais, janelas e filtros das integrações podem ser alterados dinamicamente em **Configurações > Pesquisa Pública (OSINT)**.
 
+- **PNCP (Portal Nacional de Contratações Públicas)** — editais, atas de registro de preços e contratos públicos nacionais via API oficial do PNCP (`/api/search/` e `/api/consulta/v1/contratos`). Compatível com `CNPJ`, `NOME`, `TERMO` e `PROCESSO`.
+- **APIs da CGU (Portal da Transparência Federal)** — consulta a sanções (**CEIS**, **CNEP**, **CEPIM**), **Servidores do Executivo Federal** e **Contratos Federais** mediante `chave-api-dados` configurável em **Configurações**. Compatível com `CPF`, `CNPJ` e `NOME`.
+- **DivulgaCandContas (TSE)** — consulta de candidaturas, coligações/partidos, situação de registro, CNPJ de campanha e declaração de bens na Justiça Eleitoral para os anos e abrangências configurados. Compatível com `NOME`, `CPF` e `CNPJ`.
 - **SearXNG** — busca geral na web. A Stack do Portainer inclui uma instância
   privada e configura `SEARXNG_URL` automaticamente. Nomes e identificadores
   preservam as variantes de consulta já existentes.
 - **Querido Diário** — diários oficiais municipais brasileiros pela
   [API pública oficial](https://docs.queridodiario.ok.org.br/pt-br/latest/utilizando/api-publica.html).
 - **INLABS / DOU** — publicações recentes do Diário Oficial da União. Exige
-  `INLABS_USERNAME` e `INLABS_PASSWORD`; `INLABS_LOOKBACK_DAYS` controla de 1 a 7
+  credenciais do INLABS (em **Configurações** ou variáveis `INLABS_USERNAME` e `INLABS_PASSWORD`); `INLABS_LOOKBACK_DAYS` controla de 1 a 7
   dias consultados por varredura.
-- **DataJud / CNJ** — metadados de processos pela [API Pública do CNJ](https://datajud-wiki.cnj.jus.br/api-publica/). Selecione o tipo **Número do processo (CNJ)** e informe os 20 dígitos, com ou sem pontuação. O tribunal é identificado automaticamente. A API pública resguarda dados das partes; não há busca por nome ou CPF nesta fonte. A chave pública está incluída; `DATAJUD_API_KEY` permite substituí-la quando o CNJ fizer rotação.
+- **DataJud / CNJ** — metadados de processos pela [API Pública do CNJ](https://datajud-wiki.cnj.jus.br/api-publica/). Selecione o tipo **Número do processo (CNJ)** e informe os 20 dígitos, com ou sem pontuação. O tribunal é identificado automaticamente. A API pública resguarda dados das partes; não há busca por nome ou CPF nesta fonte. A chave pública está incluída; pode ser alterada em **Configurações** ou via `DATAJUD_API_KEY`.
 - **OpenAlex** — literatura e citações acadêmicas pela
-  [API oficial](https://help.openalex.org/api/). `OPENALEX_API_KEY` é opcional e
+  [API oficial](https://help.openalex.org/api/). A chave de API é opcional e
   amplia os limites oferecidos pela plataforma.
 
 Os resultados são normalizados em título, trecho, data, fonte e URL, mantendo

@@ -16,6 +16,7 @@ use tokio::net::lookup_host;
 
 mod providers;
 mod trabalhos;
+pub use providers::OsintConfiguracao;
 pub use trabalhos::{iniciar_rotina, interromper_trabalhos};
 
 use providers::{PublicSearchProviders, SearchProvider};
@@ -43,8 +44,16 @@ const USER_AGENT: &str = concat!(
 pub fn rotas() -> Router<AppState> {
     Router::new()
         .route(
+            "/configuracao",
+            get(obter_configuracao).put(atualizar_configuracao),
+        )
+        .route(
             "/parametros/{pessoa_id}",
             get(listar_parametros).post(criar_parametro),
+        )
+        .route(
+            "/parametros/{pessoa_id}/importar-perfil",
+            post(importar_parametros_perfil),
         )
         .route(
             "/parametros/item/{id}",
@@ -61,6 +70,293 @@ pub fn rotas() -> Router<AppState> {
         )
 }
 
+#[derive(Debug, Default, serde::Deserialize)]
+pub struct OsintConfigUpdateInput {
+    pub searxng_url: Option<String>,
+    pub cgu_api_key: Option<String>,
+    #[serde(default)]
+    pub limpar_cgu_api_key: bool,
+    pub datajud_api_key: Option<String>,
+    #[serde(default)]
+    pub limpar_datajud_api_key: bool,
+    pub openalex_api_key: Option<String>,
+    #[serde(default)]
+    pub limpar_openalex_api_key: bool,
+    pub inlabs_username: Option<String>,
+    pub inlabs_password: Option<String>,
+    #[serde(default)]
+    pub limpar_inlabs_credenciais: bool,
+    pub inlabs_lookback_days: Option<u64>,
+    pub pncp_base_url: Option<String>,
+    pub pncp_tipos_documento: Option<String>,
+    pub pncp_retroativo_dias: Option<u64>,
+    pub cgu_base_url: Option<String>,
+    pub tse_base_url: Option<String>,
+    pub tse_anos: Option<String>,
+    pub tse_abrangencias: Option<String>,
+    pub tse_cargos: Option<String>,
+    pub osint_timeout_seconds: Option<u64>,
+    pub osint_max_results: Option<usize>,
+    pub fontes_ativas: Option<Vec<String>>,
+}
+
+pub(crate) async fn carregar_osint_config(state: &AppState) -> Result<OsintConfiguracao, AppError> {
+    let mut cfg = OsintConfiguracao::from_config(&state.config);
+    let json_db: Option<String> =
+        sqlx::query_scalar("SELECT config_json FROM osint_configuracao WHERE id = 1")
+            .fetch_optional(&state.pool)
+            .await?;
+    if let Some(json_str) = json_db {
+        cfg.aplicar_json_db(&json_str);
+    }
+    Ok(cfg)
+}
+
+fn mascarar_segredo(segredo: Option<&str>) -> Option<String> {
+    let valor = segredo?.trim();
+    if valor.is_empty() {
+        return None;
+    }
+    let chars: Vec<char> = valor.chars().collect();
+    if chars.len() <= 6 {
+        return Some("••••••••".to_owned());
+    }
+    let inicio: String = chars.iter().take(4).collect();
+    let fim: String = chars.iter().skip(chars.len() - 2).collect();
+    Some(format!("{inicio}••••••••{fim}"))
+}
+
+fn serializar_config_resposta(cfg: &OsintConfiguracao) -> serde_json::Value {
+    let fontes_status: Vec<serde_json::Value> = SearchProvider::ALL
+        .into_iter()
+        .map(|provider| {
+            let tipos_compativeis: Vec<&str> = TIPOS_VALIDOS
+                .into_iter()
+                .filter(|tipo| provider.suporta_tipo(tipo))
+                .collect();
+            let requer_credencial = matches!(
+                provider,
+                SearchProvider::Cgu | SearchProvider::Searxng | SearchProvider::Inlabs
+            );
+            serde_json::json!({
+                "provider": provider.as_str(),
+                "label": provider.label(),
+                "ativo": cfg.provider_ativo(provider),
+                "configurado": cfg.provider_configurado(provider),
+                "requer_credencial": requer_credencial,
+                "tipos_compativeis": tipos_compativeis,
+            })
+        })
+        .collect();
+
+    serde_json::json!({
+        "searxng_url": cfg.searxng_url.clone().unwrap_or_default(),
+        "searxng_configurado": cfg.provider_configurado(SearchProvider::Searxng),
+        "cgu_api_key_configurada": cfg.provider_configurado(SearchProvider::Cgu),
+        "cgu_api_key_mascarada": mascarar_segredo(cfg.cgu_api_key.as_deref()),
+        "datajud_api_key_configurada": cfg.datajud_api_key.as_deref().is_some_and(|v| !v.trim().is_empty()),
+        "datajud_api_key_mascarada": mascarar_segredo(cfg.datajud_api_key.as_deref()),
+        "openalex_api_key_configurada": cfg.openalex_api_key.as_deref().is_some_and(|v| !v.trim().is_empty()),
+        "openalex_api_key_mascarada": mascarar_segredo(cfg.openalex_api_key.as_deref()),
+        "inlabs_username": cfg.inlabs_username.clone().unwrap_or_default(),
+        "inlabs_configurado": cfg.provider_configurado(SearchProvider::Inlabs),
+        "inlabs_lookback_days": cfg.inlabs_lookback_days,
+        "pncp_base_url": cfg.pncp_base_url,
+        "pncp_tipos_documento": cfg.pncp_tipos_documento,
+        "pncp_retroativo_dias": cfg.pncp_retroativo_dias,
+        "cgu_base_url": cfg.cgu_base_url,
+        "tse_base_url": cfg.tse_base_url,
+        "tse_anos": cfg.tse_anos,
+        "tse_abrangencias": cfg.tse_abrangencias,
+        "tse_cargos": cfg.tse_cargos,
+        "osint_timeout_seconds": cfg.osint_timeout_seconds,
+        "osint_max_results": cfg.osint_max_results,
+        "fontes_ativas": cfg.fontes_ativas,
+        "fontes_status": fontes_status,
+    })
+}
+
+pub(crate) async fn obter_configuracao(
+    State(state): State<AppState>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let cfg = carregar_osint_config(&state).await?;
+    Ok(Json(serializar_config_resposta(&cfg)))
+}
+
+pub(crate) async fn atualizar_configuracao(
+    State(state): State<AppState>,
+    Json(input): Json<OsintConfigUpdateInput>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    let mut cfg = carregar_osint_config(&state).await?;
+
+    if let Some(url) = input.searxng_url {
+        let trimmed = url.trim().trim_end_matches('/').to_owned();
+        if trimmed.is_empty() {
+            cfg.searxng_url = None;
+        } else {
+            let parsed = Url::parse(&trimmed)
+                .map_err(|_| AppError::BadRequest("URL do SearXNG inválida".into()))?;
+            if !matches!(parsed.scheme(), "http" | "https") || parsed.host_str().is_none() {
+                return Err(AppError::BadRequest(
+                    "URL do SearXNG deve usar HTTP ou HTTPS".into(),
+                ));
+            }
+            cfg.searxng_url = Some(trimmed);
+        }
+    }
+
+    if input.limpar_cgu_api_key {
+        cfg.cgu_api_key = None;
+    } else if let Some(key) = input.cgu_api_key {
+        let trimmed = key.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.cgu_api_key = Some(trimmed);
+        }
+    }
+
+    if input.limpar_datajud_api_key {
+        cfg.datajud_api_key = None;
+    } else if let Some(key) = input.datajud_api_key {
+        let trimmed = key.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.datajud_api_key = Some(trimmed);
+        }
+    }
+
+    if input.limpar_openalex_api_key {
+        cfg.openalex_api_key = None;
+    } else if let Some(key) = input.openalex_api_key {
+        let trimmed = key.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.openalex_api_key = Some(trimmed);
+        }
+    }
+
+    if input.limpar_inlabs_credenciais {
+        cfg.inlabs_username = None;
+        cfg.inlabs_password = None;
+    } else {
+        if let Some(user) = input.inlabs_username {
+            let trimmed = user.trim().to_owned();
+            if trimmed.is_empty() {
+                cfg.inlabs_username = None;
+                cfg.inlabs_password = None;
+            } else {
+                cfg.inlabs_username = Some(trimmed);
+            }
+        }
+        if let Some(pass) = input.inlabs_password {
+            let trimmed = pass.trim().to_owned();
+            if !trimmed.is_empty() {
+                cfg.inlabs_password = Some(trimmed);
+            }
+        }
+    }
+
+    if let Some(days) = input.inlabs_lookback_days {
+        if !(1..=7).contains(&days) {
+            return Err(AppError::BadRequest(
+                "Janela do INLABS deve estar entre 1 e 7 dias".into(),
+            ));
+        }
+        cfg.inlabs_lookback_days = days;
+    }
+
+    if let Some(url) = input.pncp_base_url {
+        let trimmed = url.trim().trim_end_matches('/').to_owned();
+        if !trimmed.is_empty() {
+            cfg.pncp_base_url = trimmed;
+        }
+    }
+    if let Some(tipos) = input.pncp_tipos_documento {
+        let trimmed = tipos.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.pncp_tipos_documento = trimmed;
+        }
+    }
+    if let Some(dias) = input.pncp_retroativo_dias {
+        if !(1..=3650).contains(&dias) {
+            return Err(AppError::BadRequest(
+                "Janela retroativa do PNCP deve estar entre 1 e 3650 dias".into(),
+            ));
+        }
+        cfg.pncp_retroativo_dias = dias;
+    }
+    if let Some(url) = input.cgu_base_url {
+        let trimmed = url.trim().trim_end_matches('/').to_owned();
+        if !trimmed.is_empty() {
+            cfg.cgu_base_url = trimmed;
+        }
+    }
+    if let Some(url) = input.tse_base_url {
+        let trimmed = url.trim().trim_end_matches('/').to_owned();
+        if !trimmed.is_empty() {
+            cfg.tse_base_url = trimmed;
+        }
+    }
+    if let Some(anos) = input.tse_anos {
+        let trimmed = anos.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.tse_anos = trimmed;
+        }
+    }
+    if let Some(abr) = input.tse_abrangencias {
+        let trimmed = abr.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.tse_abrangencias = trimmed;
+        }
+    }
+    if let Some(cargos) = input.tse_cargos {
+        let trimmed = cargos.trim().to_owned();
+        if !trimmed.is_empty() {
+            cfg.tse_cargos = trimmed;
+        }
+    }
+    if let Some(timeout) = input.osint_timeout_seconds {
+        if !(5..=120).contains(&timeout) {
+            return Err(AppError::BadRequest(
+                "Tempo limite OSINT deve estar entre 5 e 120 segundos".into(),
+            ));
+        }
+        cfg.osint_timeout_seconds = timeout;
+    }
+    if let Some(max) = input.osint_max_results {
+        if !(1..=100).contains(&max) {
+            return Err(AppError::BadRequest(
+                "Máximo de resultados por fonte deve estar entre 1 e 100".into(),
+            ));
+        }
+        cfg.osint_max_results = max;
+    }
+    if let Some(fontes) = input.fontes_ativas {
+        let mut validas = Vec::new();
+        for item in fontes {
+            let provider = SearchProvider::parse(&item).map_err(AppError::BadRequest)?;
+            let code = provider.as_str().to_owned();
+            if !validas.contains(&code) {
+                validas.push(code);
+            }
+        }
+        if validas.is_empty() {
+            return Err(AppError::BadRequest(
+                "Mantenha ao menos uma fonte de pesquisa pública ativa".into(),
+            ));
+        }
+        cfg.fontes_ativas = validas;
+    }
+
+    let json_str = serde_json::to_string(&cfg).map_err(|e| AppError::interno(e.to_string()))?;
+    sqlx::query(
+        "INSERT INTO osint_configuracao (id, config_json, atualizado_em) VALUES (1, ?, CURRENT_TIMESTAMP) \
+         ON CONFLICT(id) DO UPDATE SET config_json = excluded.config_json, atualizado_em = CURRENT_TIMESTAMP",
+    )
+    .bind(json_str)
+    .execute(&state.pool)
+    .await?;
+
+    Ok(Json(serializar_config_resposta(&cfg)))
+}
+
 async fn listar_parametros(
     State(state): State<AppState>,
     Path(pessoa_id): Path<i64>,
@@ -74,6 +370,111 @@ async fn listar_parametros(
     .fetch_all(&state.pool)
     .await?;
     Ok(Json(parametros))
+}
+
+async fn importar_parametros_perfil(
+    State(state): State<AppState>,
+    Path(pessoa_id): Path<i64>,
+) -> Result<Json<serde_json::Value>, AppError> {
+    garantir_pessoa(&state, pessoa_id).await?;
+    let (nome, _descricao): (String, Option<String>) =
+        sqlx::query_as("SELECT nome, descricao FROM pessoa WHERE id = ?")
+            .bind(pessoa_id)
+            .fetch_one(&state.pool)
+            .await?;
+    let contatos: Vec<(String, String)> = sqlx::query_as(
+        "SELECT t.nome_tipo, c.valor FROM contato c \
+         JOIN tipo_meio_contato t ON t.id = c.tipo_contato_id \
+         WHERE c.pessoa_id = ? ORDER BY c.id",
+    )
+    .bind(pessoa_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    let mut candidatos: Vec<(String, String)> = Vec::new();
+    if !nome.trim().is_empty() {
+        candidatos.push(("NOME".to_owned(), nome.trim().to_owned()));
+    }
+    for (nome_tipo, valor) in contatos {
+        let val = valor.trim();
+        if val.is_empty() {
+            continue;
+        }
+        let digitos: String = val.chars().filter(char::is_ascii_digit).collect();
+        let tipo_upper = nome_tipo.to_ascii_uppercase();
+        if tipo_upper.contains("CPF")
+            || (digitos.len() == 11
+                && !tipo_upper.contains("TEL")
+                && !tipo_upper.contains("CEL")
+                && !tipo_upper.contains("WHATS")
+                && !tipo_upper.contains("FONE"))
+        {
+            candidatos.push(("CPF".to_owned(), val.to_owned()));
+        } else if tipo_upper.contains("CNPJ") || digitos.len() == 14 {
+            candidatos.push(("CNPJ".to_owned(), val.to_owned()));
+        } else if tipo_upper.contains("MAIL") || val.contains('@') {
+            candidatos.push(("EMAIL".to_owned(), val.to_owned()));
+        } else if (tipo_upper.contains("TEL")
+            || tipo_upper.contains("CEL")
+            || tipo_upper.contains("WHATS")
+            || tipo_upper.contains("FONE"))
+            && (7..=15).contains(&digitos.len())
+        {
+            candidatos.push(("TELEFONE".to_owned(), val.to_owned()));
+        } else if tipo_upper.contains("PROCESSO") {
+            candidatos.push(("PROCESSO".to_owned(), val.to_owned()));
+        }
+    }
+
+    let mut importados = 0usize;
+    for (tipo_cand, valor_cand) in candidatos {
+        let Ok((tipo_norm, valor_norm, provider_norm, _)) =
+            normalizar_parametro(ParametroBuscaInput {
+                tipo: tipo_cand,
+                valor: valor_cand,
+                provider: "COMPATIVEIS".to_owned(),
+                ativo: Some(true),
+            })
+        else {
+            continue;
+        };
+        let ja_existe: bool = sqlx::query_scalar(
+            "SELECT EXISTS(SELECT 1 FROM parametro_busca WHERE pessoa_id = ? AND tipo = ? AND lower(trim(valor)) = lower(trim(?)))",
+        )
+        .bind(pessoa_id)
+        .bind(&tipo_norm)
+        .bind(&valor_norm)
+        .fetch_one(&state.pool)
+        .await?;
+        if ja_existe {
+            continue;
+        }
+        let res = sqlx::query(
+            "INSERT OR IGNORE INTO parametro_busca (pessoa_id, tipo, valor, provider, ativo) VALUES (?, ?, ?, ?, 1)",
+        )
+        .bind(pessoa_id)
+        .bind(&tipo_norm)
+        .bind(&valor_norm)
+        .bind(&provider_norm)
+        .execute(&state.pool)
+        .await?;
+        if res.rows_affected() > 0 {
+            importados += 1;
+        }
+    }
+
+    let parametros = sqlx::query_as::<_, ParametroBusca>(
+        "SELECT id, pessoa_id, tipo, valor, provider, ativo FROM parametro_busca \
+         WHERE pessoa_id = ? ORDER BY ativo DESC, provider, tipo, valor",
+    )
+    .bind(pessoa_id)
+    .fetch_all(&state.pool)
+    .await?;
+
+    Ok(Json(serde_json::json!({
+        "importados": importados,
+        "parametros": parametros,
+    })))
 }
 
 async fn criar_parametro(
@@ -278,6 +679,15 @@ async fn executar_parametros(
     contexto: &trabalhos::Contexto,
     providers: &mut PublicSearchProviders,
 ) -> Result<(VarreduraResponse, HashSet<String>), AppError> {
+    let parametros = if parametros
+        .iter()
+        .any(|p| p.provider.eq_ignore_ascii_case("COMPATIVEIS"))
+    {
+        let cfg = carregar_osint_config(&state).await?;
+        cfg.expandir_parametros(parametros, false)
+    } else {
+        parametros
+    };
     let inicio_varredura = Instant::now();
     let mut resposta = VarreduraResponse {
         situacao: "concluida".to_owned(),
@@ -701,22 +1111,31 @@ fn normalizar_parametro(
             "telefone deve possuir entre 7 e 15 dígitos".to_owned(),
         ));
     }
-    let provider = SearchProvider::parse(&input.provider).map_err(AppError::BadRequest)?;
-    if provider == SearchProvider::Datajud {
-        if tipo != "PROCESSO" {
-            return Err(AppError::BadRequest(
-                "DataJud público exige o número do processo; não pesquisa nomes ou CPF das partes"
-                    .into(),
-            ));
+    let provider_str = if matches!(
+        input.provider.trim().to_ascii_uppercase().as_str(),
+        "COMPATIVEIS" | "AUTO"
+    ) {
+        "COMPATIVEIS".to_owned()
+    } else {
+        let provider = SearchProvider::parse(&input.provider).map_err(AppError::BadRequest)?;
+        if provider == SearchProvider::Datajud {
+            if tipo != "PROCESSO" {
+                return Err(AppError::BadRequest(
+                    "DataJud público exige o número do processo; não pesquisa nomes ou CPF das partes"
+                        .into(),
+                ));
+            }
+            providers::datajud_query(&valor).map_err(AppError::BadRequest)?;
+        } else if !provider.suporta_tipo(&tipo) {
+            return Err(AppError::BadRequest(format!(
+                "{} não aceita parâmetros do tipo {}; use o modo Automático (Compatíveis) ou selecione um tipo compatível",
+                provider.label(),
+                tipo
+            )));
         }
-        providers::datajud_query(&valor).map_err(AppError::BadRequest)?;
-    }
-    Ok((
-        tipo,
-        valor,
-        provider.as_str().to_owned(),
-        input.ativo.unwrap_or(true),
-    ))
+        provider.as_str().to_owned()
+    };
+    Ok((tipo, valor, provider_str, input.ativo.unwrap_or(true)))
 }
 
 fn classificar_varredura(
@@ -805,10 +1224,27 @@ mod tests {
 
     #[test]
     fn normalizacao_preserva_cada_provider() {
-        for provider in ["SEARXNG", "QUERIDO_DIARIO", "INLABS", "OPENALEX"] {
+        for provider in [
+            "COMPATIVEIS",
+            "SEARXNG",
+            "QUERIDO_DIARIO",
+            "INLABS",
+            "OPENALEX",
+            "PNCP",
+        ] {
             let input: ParametroBuscaInput = serde_json::from_value(serde_json::json!({
                 "tipo": "TERMO",
                 "valor": "pesquisa",
+                "provider": provider
+            }))
+            .unwrap();
+            let (_, _, normalized, _) = normalizar_parametro(input).unwrap();
+            assert_eq!(normalized, provider);
+        }
+        for provider in ["CGU", "TSE", "PNCP", "COMPATIVEIS"] {
+            let input: ParametroBuscaInput = serde_json::from_value(serde_json::json!({
+                "tipo": "CNPJ",
+                "valor": "00.394.460/0001-41",
                 "provider": provider
             }))
             .unwrap();
