@@ -29,13 +29,19 @@ export function OSINTSettings() {
   useEffect(() => {
     api
       .get<OsintConfiguracao>("/api/configuracoes/osint")
-      .then(setConfig)
+      .then((dados) => {
+        if (dados && Array.isArray(dados.fontes_status) && Array.isArray(dados.fontes_ativas)) {
+          setConfig(dados);
+        } else {
+          setConfig(null);
+        }
+      })
       .catch((error) => notify(errorMessage(error), "erro"))
       .finally(() => setCarregando(false));
   }, [notify]);
 
   const alternarFonte = (provider: FontePesquisaPublica) => {
-    if (!config) return;
+    if (!config || !Array.isArray(config.fontes_ativas)) return;
     const ativa = config.fontes_ativas.includes(provider);
     if (ativa && config.fontes_ativas.length <= 1) {
       notify("Mantenha ao menos um sistema de busca ativo", "erro");
@@ -126,7 +132,7 @@ export function OSINTSettings() {
         </div>
       </header>
 
-      {carregando || !config ? (
+      {carregando || !config || !Array.isArray(config.fontes_status) ? (
         <div className="p-6">
           <Spinner label="Carregando configurações OSINT" />
         </div>
@@ -140,8 +146,8 @@ export function OSINTSettings() {
               Selecione quais bases públicas devem ser consultadas quando um parâmetro (ex.: Nome, CPF, CNPJ) usar a busca em sistemas compatíveis.
             </p>
             <div className="mt-3 grid gap-2.5 sm:grid-cols-2 lg:grid-cols-4">
-              {config.fontes_status.map((item) => {
-                const ativo = config.fontes_ativas.includes(item.provider);
+              {(config.fontes_status ?? []).map((item) => {
+                const ativo = (config.fontes_ativas ?? []).includes(item.provider);
                 return (
                   <label
                     key={item.provider}
@@ -162,7 +168,7 @@ export function OSINTSettings() {
                       />
                     </div>
                     <div className="mt-2 flex flex-wrap gap-1">
-                      {item.tipos_compativeis.map((t) => (
+                      {(item.tipos_compativeis ?? []).map((t) => (
                         <span
                           key={t}
                           className="rounded bg-white px-1.5 py-0.5 text-[0.6rem] font-semibold text-slate-600 shadow-2xs"

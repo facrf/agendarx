@@ -180,7 +180,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
         api.get<OsintConfiguracao>("/api/configuracoes/osint").catch(() => null),
       ]);
       setParametros(paramsData);
-      if (cfgData) setOsintConfig(cfgData);
+      if (cfgData && Array.isArray(cfgData.fontes_status)) setOsintConfig(cfgData);
     } catch (error) {
       notify(errorMessage(error), "erro");
     } finally {
@@ -194,7 +194,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
 
   const statusFonte = useCallback(
     (fonte: FontePesquisaPublica) => {
-      const encontrado = osintConfig?.fontes_status.find((item) => item.provider === fonte);
+      const encontrado = osintConfig?.fontes_status?.find((item) => item.provider === fonte);
       if (encontrado) return encontrado;
       return {
         provider: fonte,
@@ -616,6 +616,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
             <label className="field-label" htmlFor="tipo-parametro-osint">Tipo de parâmetro</label>
             <select
               id="tipo-parametro-osint"
+              aria-label="Tipo"
               className="field"
               value={tipo}
               onChange={(event) => {
@@ -635,6 +636,7 @@ export function OSINTTab({ pessoaId }: { pessoaId: number }) {
             <label className="field-label mt-3" htmlFor="provider-parametro-osint">Modo / Sistema de busca</label>
             <select
               id="provider-parametro-osint"
+              aria-label="Fonte de pesquisa"
               className="field"
               value={provider}
               onChange={(event) => {

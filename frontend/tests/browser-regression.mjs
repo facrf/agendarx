@@ -23,6 +23,41 @@ page.setDefaultTimeout(30_000);
 const errors = [];
 page.on('pageerror', error => errors.push(error.message));
 const hpConfig = { versao: 1, ativo: true, toxicidade_min: 0.1, toxicidade_max: 0.5, hp_base: 1, hp_min: 0.05, fator_segundo_grau: 0.2, peso_padrao: 0.5, pesos_vinculo: { família: 1, profissional: 0.5 }, faixas_aura: [{ min: 0, nome: 'Estável', cor_hex: '#22C55E', pulsante: false }, { min: 0.1, nome: 'Elevado', cor_hex: '#EAB308', pulsante: false }, { min: 0.25, nome: 'Observação', cor_hex: '#F97316', pulsante: false }, { min: 0.4, nome: 'Crítico', cor_hex: '#EF4444', pulsante: true }], faixas_vitalidade: [{ min: 0, nome: 'Impactada', cor_hex: '#EF4444', pulsante: false }, { min: 0.75, nome: 'Preservada', cor_hex: '#22C55E', pulsante: false }] };
+const osintConfig = {
+  searxng_url: 'http://searxng:8080',
+  searxng_configurado: true,
+  cgu_api_key_configurada: true,
+  cgu_api_key_mascarada: '***key***',
+  datajud_api_key_configurada: false,
+  datajud_api_key_mascarada: null,
+  openalex_api_key_configurada: false,
+  openalex_api_key_mascarada: null,
+  inlabs_username: '',
+  inlabs_configurado: false,
+  inlabs_lookback_days: 30,
+  pncp_base_url: 'https://pncp.gov.br/api/consulta/v1',
+  pncp_tipos_documento: '1,2',
+  pncp_retroativo_dias: 90,
+  cgu_base_url: 'https://api.portaldatransparencia.gov.br/api-de-dados',
+  tse_base_url: 'https://divulgacandcontas.tse.jus.br/divulga/rest/v1',
+  tse_anos: '2024,2022',
+  tse_abrangencias: 'BR,SP',
+  tse_cargos: '1,3',
+  osint_timeout_seconds: 30,
+  osint_max_results: 20,
+  fontes_ativas: ['PNCP', 'CGU', 'TSE', 'QUERIDO_DIARIO', 'DATAJUD', 'OPENALEX', 'SEARXNG', 'INLABS'],
+  fontes_status: [
+    { provider: 'COMPATIVEIS', label: 'Automático (Todos os sistemas compatíveis)', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['NOME', 'CPF', 'CNPJ', 'EMAIL', 'TELEFONE', 'PROCESSO', 'TERMO'] },
+    { provider: 'PNCP', label: 'PNCP (Portal Nacional de Contratações Públicas)', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['CNPJ', 'NOME', 'TERMO', 'PROCESSO'] },
+    { provider: 'CGU', label: 'APIs da CGU (Portal da Transparência Federal)', ativo: true, configurado: true, requer_credencial: true, tipos_compativeis: ['CPF', 'CNPJ', 'NOME'] },
+    { provider: 'TSE', label: 'DivulgaCandContas (TSE)', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['NOME', 'CPF', 'CNPJ'] },
+    { provider: 'QUERIDO_DIARIO', label: 'Querido Diário', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['NOME', 'CPF', 'CNPJ', 'EMAIL', 'TELEFONE', 'PROCESSO', 'TERMO'] },
+    { provider: 'DATAJUD', label: 'DataJud / CNJ', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['PROCESSO'] },
+    { provider: 'OPENALEX', label: 'OpenAlex', ativo: true, configurado: true, requer_credencial: false, tipos_compativeis: ['NOME', 'TERMO'] },
+    { provider: 'SEARXNG', label: 'SearXNG', ativo: true, configurado: true, requer_credencial: true, tipos_compativeis: ['NOME', 'CPF', 'CNPJ', 'EMAIL', 'TELEFONE', 'PROCESSO', 'TERMO'] },
+    { provider: 'INLABS', label: 'INLABS / DOU', ativo: true, configurado: true, requer_credencial: true, tipos_compativeis: ['NOME', 'CPF', 'CNPJ', 'EMAIL', 'TELEFONE', 'PROCESSO', 'TERMO'] },
+  ]
+};
 const indicators = { hp: 1, hp_percentual: 100, hp_base: 1, hp_min: 0.05, penalidade_propria: 0, penalidade_direta: 0, penalidade_residual: 0, aura_nome: 'Crítico', aura_cor_hex: '#EF4444', aura_pulsante: true, vitalidade_nome: 'Preservada', vitalidade_cor_hex: '#22C55E', calculo_ativo: true, configuracao_versao: 1, contribuicoes: [] };
 let currentHp = 1;
 const metrics = () => ({ ...indicators, hp: currentHp, hp_percentual: currentHp * 100, penalidade_direta: 1 - currentHp, vitalidade_nome: currentHp < 0.25 ? 'Impactada' : 'Preservada', vitalidade_cor_hex: currentHp < 0.25 ? '#EF4444' : '#22C55E' });
@@ -81,6 +116,7 @@ await page.context().route('**/api/**', async route => {
   else if (path === '/api/configuracoes/backups/configuracao') data = { ativo: false, horario: '03:00', manter_diarios: 7, manter_semanais: 4, manter_mensais: 12, max_upload_bytes: 1000000 };
   else if (path.endsWith('/admin/diagnostico-armazenamento')) data = { banco_bytes: 0, dossie_bytes: 0, vinculos_bytes: 0, tarefas_bytes: 0, midia_total_bytes: 0, anexos_total: 0, pessoas_total: people.length, limite_usuario_tarefas_bytes: 1, max_arquivo_bytes: 1, usuarios: [] };
   else if (path === '/api/configuracoes/hp-psicossocial') { if (req.method() === 'PUT') { Object.assign(hpConfig, req.postDataJSON(), { versao: hpConfig.versao + 1 }); } data = hpConfig; }
+  else if (path === '/api/configuracoes/osint') { if (req.method() === 'PUT') { Object.assign(osintConfig, req.postDataJSON()); } data = osintConfig; }
   else if (path.startsWith('/api/produtividade/grafo/posicoes/')) {
     if (req.method() === 'PUT') { savedPositions.set(path, req.postDataJSON()); return route.fulfill({ status: 204 }); }
     data = savedPositions.get(path) ?? people.map(p => ({ pessoa_id: p.id, x: p.id * 10000, y: -p.id * 10000 }));
@@ -602,9 +638,9 @@ try {
   await page.goto('http://127.0.0.1:4179/calendario');
   await page.getByRole('heading', { name: 'Calendário', exact: true }).waitFor();
   await page.goto('http://127.0.0.1:4179/pessoas/1?aba=osint');
-  await page.getByLabel('Fonte de pesquisa').selectOption('DATAJUD');
-  assert.equal(await page.getByLabel('Tipo', { exact: true }).inputValue(), 'PROCESSO');
-  assert.equal(await page.getByLabel('Tipo', { exact: true }).locator('option').count(), 1);
+  await page.getByLabel(/Fonte de pesquisa|Modo \/ Sistema de busca/).selectOption('DATAJUD');
+  assert.equal(await page.getByLabel(/Tipo de parâmetro|Tipo/, { exact: true }).inputValue(), 'PROCESSO');
+  assert.equal(await page.getByLabel(/Tipo de parâmetro|Tipo/, { exact: true }).locator('option').count(), 1);
   await page.getByLabel('Valor pesquisado').fill('0000832-35.2018.4.01.3202');
   await page.getByRole('button', { name: 'Adicionar parâmetro' }).click();
   await page.getByText('0000832-35.2018.4.01.3202', { exact: true }).waitFor();
@@ -874,14 +910,14 @@ try {
   assert.deepEqual(chosenImportDecisions, [{ indice: 0, acao: 'atualizar', pessoa_id: 1 }, { indice: 1, acao: 'criar' }]);
   if (!parameters.some(p => p.ativo)) parameters.push({ id: 900, pessoa_id: 1, tipo: 'TERMO', valor: 'Pesquisa', provider: 'SEARXNG', ativo: true });
   await page.goto('http://127.0.0.1:4179/pessoas/1?aba=osint');
-  await page.getByRole('heading', { name: 'Pesquisa em fontes públicas', exact: true }).waitFor();
+  await page.getByRole('heading', { name: /Pesquisa em fontes públicas/ }).waitFor();
   await page.getByRole('button', { name: 'Iniciar varredura', exact: true }).click();
-  await page.getByText('Na fila · 0 de 2 parâmetros', { exact: true }).waitFor();
+  await page.getByText(/Na fila · 0 de 2 (parâmetros|consultas)/).waitFor();
   await page.getByRole('button', { name: 'Cancelar pesquisa', exact: true }).click();
-  await page.getByText('Cancelada · 0 de 2 parâmetros', { exact: true }).waitFor();
+  await page.getByText(/Cancelada · 0 de 2 (parâmetros|consultas)/).waitFor();
   await page.reload();
   await page.getByRole('button', { name: 'Retomar pesquisa', exact: true }).click();
-  await page.getByText('Na fila · 0 de 2 parâmetros', { exact: true }).waitFor();
+  await page.getByText(/Na fila · 0 de 2 (parâmetros|consultas)/).waitFor();
 
   console.log("Browser: lembretes e falha transitória");
   await page.clock.install();
