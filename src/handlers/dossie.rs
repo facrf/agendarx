@@ -10,7 +10,10 @@ use axum::{
 use crate::{
     AppState,
     error::AppError,
-    models::{AnexoDossie, AnexoNomeInput, AnexoResumo, MensagemResponse},
+    models::{
+        AnexoDossie, AnexoNomeInput, AnexoResumo, DocumentoDetalhes, DocumentoInput,
+        MensagemResponse,
+    },
 };
 
 pub fn rotas() -> Router<AppState> {
@@ -20,10 +23,18 @@ pub fn rotas() -> Router<AppState> {
             get(listar_anexos).post(enviar_anexo),
         )
         .route(
+            "/pessoas/{pessoa_id}/documentos",
+            axum::routing::post(criar_documento),
+        )
+        .route(
             "/anexos/{id}",
             get(obter_metadados)
                 .put(atualizar_nome_anexo)
                 .delete(excluir_anexo),
+        )
+        .route(
+            "/anexos/{id}/documento",
+            get(obter_documento).put(atualizar_documento),
         )
         .route("/anexos/{id}/stream", get(stream_anexo))
         .route("/anexos/{id}/notas", get(obter_notas).put(salvar_notas))
@@ -181,6 +192,166 @@ async fn atualizar_nome_anexo(
     .fetch_optional(&state.pool)
     .await?
     .ok_or_else(|| AppError::nao_encontrado("anexo"))?;
+    Ok(Json(linha.into()))
+}
+
+async fn criar_documento(
+    State(state): State<AppState>,
+    Path(pessoa_id): Path<i64>,
+    Json(input): Json<DocumentoInput>,
+) -> Result<(StatusCode, Json<AnexoResumo>), AppError> {
+    garantir_pessoa(&state, pessoa_id).await?;
+    let mut nome = input.nome_arquivo.trim().to_owned();
+    if nome.is_empty() {
+        return Err(AppError::BadRequest(
+            "nome_arquivo é obrigatório".to_owned(),
+        ));
+    }
+    let formato = input.formato.as_deref().unwrap_or("").to_lowercase();
+    let is_html = formato == "html"
+        || nome.to_lowercase().ends_with(".html")
+        || nome.to_lowercase().ends_with(".htm");
+    if is_html {
+        if !nome.to_lowercase().ends_with(".html") && !nome.to_lowercase().ends_with(".htm") {
+            nome = format!("{nome}.html");
+        }
+    } else if !nome.to_lowercase().ends_with(".md")
+        && !nome.to_lowercase().ends_with(".markdown")
+        && !nome.to_lowercase().ends_with(".txt")
+    {
+        nome = format!("{nome}.md");
+    }
+    let nome_arquivo = normalizar_nome_arquivo(&nome)?;
+    let mime_type = if is_html {
+        "text/html; charset=utf-8".to_owned()
+    } else if nome_arquivo.to_lowercase().ends_with(".txt") {
+        "text/plain; charset=utf-8".to_owned()
+    } else {
+        "text/markdown; charset=utf-8".to_owned()
+    };
+
+    let conteudo_bytes = input.conteudo.into_bytes();
+    if conteudo_bytes.len() > state.config.max_upload_bytes {
+        return Err(AppError::PayloadTooLarge);
+    }
+    let tamanho = conteudo_bytes.len() as i64;
+
+    let mut tx = state.pool.begin_with("BEGIN IMMEDIATE").await?;
+    let ativa: bool = sqlx::query_scalar(
+        "SELECT EXISTS(SELECT 1 FROM pessoa WHERE id=? AND excluida_em IS NULL)",
+    )
+    .bind(pessoa_id)
+    .fetch_one(&mut *tx)
+    .await?;
+    if !ativa {
+        return Err(AppError::nao_encontrado("pessoa ativa"));
+    }
+    let linha = sqlx::query_as::<_, AnexoLinha>(
+        "INSERT INTO anexo_dossie \
+            (pessoa_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes) \
+         VALUES (?, ?, ?, ?, ?) \
+         RETURNING id, pessoa_id, nome_arquivo, mime_type, tamanho_bytes, data_upload",
+    )
+    .bind(pessoa_id)
+    .bind(nome_arquivo)
+    .bind(mime_type)
+    .bind(&conteudo_bytes)
+    .bind(tamanho)
+    .fetch_one(&mut *tx)
+    .await?;
+    tx.commit().await?;
+
+    Ok((StatusCode::CREATED, Json(linha.into())))
+}
+
+async fn obter_documento(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+) -> Result<Json<DocumentoDetalhes>, AppError> {
+    let linha = sqlx::query_as::<_, (i64, i64, String, String, Vec<u8>, i64, String)>(
+        "SELECT id, pessoa_id, nome_arquivo, mime_type, conteudo_blob, tamanho_bytes, data_upload \
+         FROM anexo_dossie WHERE id = ?",
+    )
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::nao_encontrado("documento"))?;
+
+    let (id, pessoa_id, nome_arquivo, mime_type, blob, tamanho_bytes, data_upload) = linha;
+    let conteudo = String::from_utf8(blob).map_err(|_| {
+        AppError::BadRequest(
+            "O anexo selecionado não é um arquivo de texto válido (UTF-8)".to_owned(),
+        )
+    })?;
+
+    Ok(Json(DocumentoDetalhes {
+        id,
+        pessoa_id,
+        nome_arquivo,
+        mime_type,
+        conteudo,
+        tamanho_bytes,
+        data_upload,
+        url_stream: format!("/api/dossie/anexos/{id}/stream"),
+        url_download: format!("/api/dossie/anexos/{id}/download"),
+    }))
+}
+
+async fn atualizar_documento(
+    State(state): State<AppState>,
+    Path(id): Path<i64>,
+    Json(input): Json<DocumentoInput>,
+) -> Result<Json<AnexoResumo>, AppError> {
+    let mut nome = input.nome_arquivo.trim().to_owned();
+    if nome.is_empty() {
+        return Err(AppError::BadRequest(
+            "nome_arquivo é obrigatório".to_owned(),
+        ));
+    }
+    let formato = input.formato.as_deref().unwrap_or("").to_lowercase();
+    let is_html = formato == "html"
+        || (formato.is_empty()
+            && (nome.to_lowercase().ends_with(".html") || nome.to_lowercase().ends_with(".htm")));
+    if is_html {
+        if !nome.to_lowercase().ends_with(".html") && !nome.to_lowercase().ends_with(".htm") {
+            nome = format!("{nome}.html");
+        }
+    } else if (formato == "markdown" || formato == "md")
+        && !nome.to_lowercase().ends_with(".md")
+        && !nome.to_lowercase().ends_with(".markdown")
+    {
+        nome = format!("{nome}.md");
+    }
+    let nome_arquivo = normalizar_nome_arquivo(&nome)?;
+    let mime_type = if is_html {
+        "text/html; charset=utf-8"
+    } else if nome_arquivo.to_lowercase().ends_with(".txt") {
+        "text/plain; charset=utf-8"
+    } else {
+        "text/markdown; charset=utf-8"
+    };
+
+    let conteudo_bytes = input.conteudo.into_bytes();
+    if conteudo_bytes.len() > state.config.max_upload_bytes {
+        return Err(AppError::PayloadTooLarge);
+    }
+    let tamanho = conteudo_bytes.len() as i64;
+
+    let linha = sqlx::query_as::<_, AnexoLinha>(
+        "UPDATE anexo_dossie \
+         SET nome_arquivo = ?, conteudo_blob = ?, tamanho_bytes = ?, mime_type = ? \
+         WHERE id = ? \
+         RETURNING id, pessoa_id, nome_arquivo, mime_type, tamanho_bytes, data_upload",
+    )
+    .bind(nome_arquivo)
+    .bind(&conteudo_bytes)
+    .bind(tamanho)
+    .bind(mime_type)
+    .bind(id)
+    .fetch_optional(&state.pool)
+    .await?
+    .ok_or_else(|| AppError::nao_encontrado("documento"))?;
+
     Ok(Json(linha.into()))
 }
 

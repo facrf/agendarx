@@ -1,5 +1,5 @@
 /* Developed with care by FACRF - https://github.com/facrf */
-const CACHE_VERSION = "0.7.2";
+const CACHE_VERSION = "0.7.3";
 const CACHE_NAME = `agendarx-shell-v${CACHE_VERSION}`;
 const STATIC_ASSETS = ["/", "/index.html", "/manifest.webmanifest"];
 

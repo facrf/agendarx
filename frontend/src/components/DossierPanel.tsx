@@ -8,6 +8,7 @@ import {
   Eye,
   File,
   FileAudio,
+  FilePenLine,
   FileText,
   FileVideo,
   ImageIcon,
@@ -25,6 +26,7 @@ import { dataTransferHasFiles, droppedFiles } from "../utils/dropFiles";
 import { formatBytes, formatDate } from "../utils/format";
 import { useToast } from "../contexts/ToastContext";
 import { AttachmentPreviewModal, AttachmentThumbnail, previewKind } from "./AttachmentPreview";
+import { DocumentEditorModal } from "./DocumentEditorModal";
 import { Button, EmptyState, Spinner, cn } from "./ui";
 
 export function DossierPanel({ pessoaId }: { pessoaId: number }) {
@@ -51,8 +53,42 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
   const ativo = useRef(true);
   const [arrastando, setArrastando] = useState(false);
   const [arquivoAberto, setArquivoAberto] = useState<AnexoDossie | null>(null);
+  const [editorAberto, setEditorAberto] = useState(false);
+  const [documentoEditandoId, setDocumentoEditandoId] = useState<number | null>(null);
+  const [formatoInicial, setFormatoInicial] = useState<"markdown" | "html">("markdown");
   const inputRef = useRef<HTMLInputElement>(null);
   const { notify } = useToast();
+
+  const abrirCriarDocumento = (fmt: "markdown" | "html" = "markdown") => {
+    setDocumentoEditandoId(null);
+    setFormatoInicial(fmt);
+    setEditorAberto(true);
+  };
+
+  const abrirEditarDocumento = (id: number) => {
+    setDocumentoEditandoId(id);
+    setEditorAberto(true);
+  };
+
+  const isTextDocument = (anexo: Pick<AnexoDossie, "nome_arquivo" | "mime_type">) => {
+    const mime = anexo.mime_type.toLowerCase();
+    const name = anexo.nome_arquivo.toLowerCase();
+    return mime.startsWith("text/") || /\.(csv|html?|json|log|md|txt|xml|ya?ml)$/i.test(name);
+  };
+
+  const documentoSalvo = (doc: AnexoDossie) => {
+    setAnexos((atuais) => [doc, ...atuais.filter((item) => item.id !== doc.id)]);
+    if (arquivoAberto?.id === doc.id) {
+      setArquivoAberto(doc);
+    }
+  };
+
+  const documentoExcluido = (id: number) => {
+    setAnexos((atuais) => atuais.filter((item) => item.id !== id));
+    if (arquivoAberto?.id === id) {
+      setArquivoAberto(null);
+    }
+  };
 
   useEffect(() => {
     ativo.current = true;
@@ -210,8 +246,19 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
           <div className="grid size-12 place-items-center rounded-2xl bg-white text-teal-700 shadow-sm"><UploadCloud className="size-6" /></div>
           <div><h3 className="font-display text-lg font-semibold text-slate-950">{arrastando ? "Solte os arquivos aqui" : "Adicionar ao dossiê"}</h3><p className="text-sm text-slate-500">Fotos, áudios, PDFs, ZIPs ou qualquer arquivo relevante.</p></div>
         </div>
-        <input ref={inputRef} className="sr-only" type="file" multiple disabled={enviando} onChange={enviar} />
-        <Button type="button" loading={enviando} onClick={() => inputRef.current?.click()}><Plus className="size-4" /> Selecionar arquivo</Button>
+        <div className="flex flex-wrap items-center gap-2">
+          <input ref={inputRef} className="sr-only" type="file" multiple disabled={enviando} onChange={enviar} />
+          <Button
+            type="button"
+            variant="secondary"
+            disabled={enviando}
+            onClick={() => abrirCriarDocumento("markdown")}
+            title="Criar documento de texto estilo Word (HTML ou Markdown)"
+          >
+            <FilePenLine className="size-4" /> Escrever documento
+          </Button>
+          <Button type="button" loading={enviando} onClick={() => inputRef.current?.click()}><Plus className="size-4" /> Selecionar arquivo</Button>
+        </div>
       </section>
 
       <LinkedEventFields value={agenda.draft} onChange={agenda.setDraft} disabled={enviando} />
@@ -295,25 +342,73 @@ function DossierContent({ pessoaId }: { pessoaId: number }) {
           {grupos.arquivos.length > 0 && (
             <MediaSection icon={<FileText />} title="Documentos e anexos" count={grupos.arquivos.length}>
               <div className="divide-y divide-slate-100 overflow-hidden rounded-2xl border border-slate-100">
-                {grupos.arquivos.map((anexo) => (
-                  <article key={anexo.id} className="flex flex-wrap items-center gap-3 bg-white p-3.5 transition hover:bg-slate-50 sm:flex-nowrap sm:px-4">
-                    <FileIcon mime={anexo.mime_type} nome={anexo.nome_arquivo} />
-                    <button type="button" className="min-w-0 flex-1 basis-[12rem] text-left" onClick={() => setArquivoAberto(anexo)} title="Abrir pré-visualização"><p className="truncate text-sm font-semibold text-slate-800">{anexo.nome_arquivo}</p><p className="text-xs text-slate-400">{anexo.mime_type} · {formatBytes(anexo.tamanho_bytes)}</p></button>
-                    <div className="ml-auto flex items-center gap-2">
-                      <button className="icon-button" onClick={() => setArquivoAberto(anexo)} title="Visualizar arquivo"><Eye className="size-4" /></button>
-                      <a className="icon-button" href={apiUrl(anexo.url_download)} title="Baixar arquivo"><Download className="size-4" /></a>
-                      <button className="icon-button" onClick={() => void renomear(anexo)} title="Renomear"><Edit3 className="size-4" /></button>
-                      <button className="icon-button text-rose-600" onClick={() => void excluir(anexo)} title="Excluir"><Trash2 className="size-4" /></button>
-                    </div>
-                  </article>
-                ))}
+                {grupos.arquivos.map((anexo) => {
+                  const isDoc = isTextDocument(anexo);
+                  return (
+                    <article key={anexo.id} className="flex flex-wrap items-center gap-3 bg-white p-3.5 transition hover:bg-slate-50 sm:flex-nowrap sm:px-4">
+                      <FileIcon mime={anexo.mime_type} nome={anexo.nome_arquivo} />
+                      <button
+                        type="button"
+                        className="min-w-0 flex-1 basis-[12rem] text-left"
+                        onClick={() => (isDoc ? abrirEditarDocumento(anexo.id) : setArquivoAberto(anexo))}
+                        title={isDoc ? "Editar documento estilo Word" : "Abrir pré-visualização"}
+                      >
+                        <div className="flex items-center gap-2">
+                          <p className="truncate text-sm font-semibold text-slate-800">{anexo.nome_arquivo}</p>
+                          {isDoc && (
+                            <span className="rounded-md bg-teal-50 px-1.5 py-0.5 text-[10px] font-semibold text-teal-700">
+                              Documento
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs text-slate-400">{anexo.mime_type} · {formatBytes(anexo.tamanho_bytes)}</p>
+                      </button>
+                      <div className="ml-auto flex items-center gap-2">
+                        {isDoc && (
+                          <button
+                            className="icon-button text-teal-700 hover:bg-teal-50"
+                            onClick={() => abrirEditarDocumento(anexo.id)}
+                            title="Editar no editor estilo Word"
+                          >
+                            <FilePenLine className="size-4" />
+                          </button>
+                        )}
+                        <button className="icon-button" onClick={() => setArquivoAberto(anexo)} title="Visualizar arquivo"><Eye className="size-4" /></button>
+                        <a className="icon-button" href={apiUrl(anexo.url_download)} title="Baixar arquivo"><Download className="size-4" /></a>
+                        <button className="icon-button" onClick={() => void renomear(anexo)} title="Renomear"><Edit3 className="size-4" /></button>
+                        <button className="icon-button text-rose-600" onClick={() => void excluir(anexo)} title="Excluir"><Trash2 className="size-4" /></button>
+                      </div>
+                    </article>
+                  );
+                })}
               </div>
             </MediaSection>
           )}
         </>
       )}
 
-      <AttachmentPreviewModal attachment={arquivoAberto} attachments={anexos} onClose={() => setArquivoAberto(null)} />
+      <AttachmentPreviewModal
+        attachment={arquivoAberto}
+        attachments={anexos}
+        onClose={() => setArquivoAberto(null)}
+        onEditDocument={(item) => {
+          const match = item.url_stream.match(/\/anexos\/(\d+)\/stream/);
+          if (match) {
+            setArquivoAberto(null);
+            abrirEditarDocumento(Number(match[1]));
+          }
+        }}
+      />
+
+      <DocumentEditorModal
+        open={editorAberto}
+        pessoaId={pessoaId}
+        documentoId={documentoEditandoId}
+        initialFormat={formatoInicial}
+        onClose={() => setEditorAberto(false)}
+        onSaved={documentoSalvo}
+        onDeleted={documentoExcluido}
+      />
     </div>
   );
 }

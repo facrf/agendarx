@@ -570,6 +570,116 @@ async fn uploads_persistencia_transacoes_e_permissoes() {
     )
     .await;
 
+    // Testes de criação, alteração, leitura e exclusão de documentos (HTML e Markdown) no Dossiê
+    let doc_md = api
+        .json(
+            Method::POST,
+            &format!("/api/dossie/pessoas/{id}/documentos"),
+            user,
+            json!({
+                "nome_arquivo": "laudo_psicologico",
+                "conteudo": "# Laudo Psicológico\n\nPaciente em bom estado geral.",
+                "formato": "markdown"
+            }),
+            StatusCode::CREATED,
+        )
+        .await;
+    let doc_md_id = doc_md["id"].as_i64().unwrap();
+    assert_eq!(doc_md["nome_arquivo"], "laudo_psicologico.md");
+    assert_eq!(doc_md["mime_type"], "text/markdown; charset=utf-8");
+
+    let doc_detalhes = api
+        .json(
+            Method::GET,
+            &format!("/api/dossie/anexos/{doc_md_id}/documento"),
+            user,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(doc_detalhes["id"], doc_md_id);
+    assert_eq!(
+        doc_detalhes["conteudo"],
+        "# Laudo Psicológico\n\nPaciente em bom estado geral."
+    );
+
+    let doc_atualizado = api
+        .json(
+            Method::PUT,
+            &format!("/api/dossie/anexos/{doc_md_id}/documento"),
+            user,
+            json!({
+                "nome_arquivo": "laudo_psicologico_revisado.md",
+                "conteudo": "# Laudo Revisado\n\nRevisão concluída com sucesso."
+            }),
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(
+        doc_atualizado["nome_arquivo"],
+        "laudo_psicologico_revisado.md"
+    );
+
+    let doc_revisado_detalhes = api
+        .json(
+            Method::GET,
+            &format!("/api/dossie/anexos/{doc_md_id}/documento"),
+            user,
+            Value::Null,
+            StatusCode::OK,
+        )
+        .await;
+    assert_eq!(
+        doc_revisado_detalhes["conteudo"],
+        "# Laudo Revisado\n\nRevisão concluída com sucesso."
+    );
+
+    api.json(
+        Method::DELETE,
+        &format!("/api/dossie/anexos/{doc_md_id}"),
+        user,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+
+    // Documento HTML
+    let doc_html = api
+        .json(
+            Method::POST,
+            &format!("/api/dossie/pessoas/{id}/documentos"),
+            user,
+            json!({
+                "nome_arquivo": "relatorio_final",
+                "conteudo": "<h1>Relatório</h1><p>Texto formatado estilo Word.</p>",
+                "formato": "html"
+            }),
+            StatusCode::CREATED,
+        )
+        .await;
+    let doc_html_id = doc_html["id"].as_i64().unwrap();
+    assert_eq!(doc_html["nome_arquivo"], "relatorio_final.html");
+    assert_eq!(doc_html["mime_type"], "text/html; charset=utf-8");
+
+    // Exclusão do documento
+    api.json(
+        Method::DELETE,
+        &format!("/api/dossie/anexos/{doc_html_id}"),
+        user,
+        Value::Null,
+        StatusCode::NO_CONTENT,
+    )
+    .await;
+
+    api.json(
+        Method::GET,
+        &format!("/api/dossie/anexos/{doc_html_id}/documento"),
+        user,
+        Value::Null,
+        StatusCode::NOT_FOUND,
+    )
+    .await;
+
     // Calendar notes retain the same ownership checks as attachment downloads.
     let task_id: i64 = sqlx::query_scalar("INSERT INTO tarefa_calendario (usuario_id, titulo, inicio_em) SELECT id, 'Notas', '2026-09-14T10:00:00Z' FROM usuario WHERE login = 'admin-teste' RETURNING id")
         .fetch_one(&pool).await.unwrap();

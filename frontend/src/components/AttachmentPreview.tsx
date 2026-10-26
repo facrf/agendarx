@@ -3,7 +3,7 @@ import { LinkedEventFields } from "./LinkedEventFields";
 import { useLinkedEvent } from "../hooks/useLinkedEvent";
 import { useCallback, useEffect, useState } from "react";
 import type { ImgHTMLAttributes } from "react";
-import { Camera, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileAudio, FileText, FileVideo, ImageIcon, LoaderCircle, MapPin } from "lucide-react";
+import { Camera, ChevronLeft, ChevronRight, Download, ExternalLink, File, FileAudio, FilePenLine, FileText, FileVideo, ImageIcon, LoaderCircle, MapPin } from "lucide-react";
 import { api, apiUrl, errorMessage } from "../services/api";
 import { useToast } from "../contexts/ToastContext";
 import { MarkdownText } from "./MarkdownText";
@@ -28,14 +28,15 @@ export function previewKind(attachment: Pick<PreviewAttachment, "nome_arquivo" |
   if (mime.startsWith("audio/") || /\.(aac|flac|m4a|mp3|oga|ogg|wav)$/.test(name)) return "audio";
   if (mime.startsWith("video/") || /\.(m4v|mkv|mov|mp4|ogv|webm)$/.test(name)) return "video";
   if (mime === "application/pdf" || name.endsWith(".pdf")) return "pdf";
-  if (mime.startsWith("text/") || /\.(csv|json|log|md|txt|xml|ya?ml)$/.test(name)) return "text";
+  if (mime.startsWith("text/") || /\.(csv|html?|json|log|md|txt|xml|ya?ml)$/.test(name)) return "text";
   return "file";
 }
 
-export function AttachmentPreviewModal({ attachment, attachments = [], onClose }: {
+export function AttachmentPreviewModal({ attachment, attachments = [], onClose, onEditDocument }: {
   attachment: PreviewAttachment | null;
   attachments?: PreviewAttachment[];
   onClose: () => void;
+  onEditDocument?: (attachment: PreviewAttachment) => void;
 }) {
   const [selection, setSelection] = useState<{ origin: string; url: string } | null>(null);
   const [drafts, setDrafts] = useState<Record<string, string>>({});
@@ -94,6 +95,11 @@ export function AttachmentPreviewModal({ attachment, attachments = [], onClose }
               <Button type="button" variant="secondary" disabled={savingNote} onClick={() => navigate(1)} aria-label="Próxima imagem"><ChevronRight className="size-4" /></Button>
             </div>}
             <p className="min-w-0 flex-1 truncate text-xs text-slate-400">{active.mime_type || "Tipo não informado"}</p>
+            {onEditDocument && (active.mime_type.toLowerCase().startsWith("text/") || /\.(csv|html?|json|log|md|txt|xml|ya?ml)$/i.test(active.nome_arquivo)) && (
+              <Button type="button" onClick={() => onEditDocument(active)} title="Editar no editor de texto estilo Word">
+                <FilePenLine className="size-4" /> <span className="hidden sm:inline">Editar documento</span><span className="sm:hidden">Editar</span>
+              </Button>
+            )}
             <a className="btn btn-ghost" href={apiUrl(active.url_stream)} target="_blank" rel="noopener noreferrer">
               <ExternalLink className="size-4" /> <span className="hidden sm:inline">Abrir em nova aba</span><span className="sm:hidden">Abrir</span>
             </a>

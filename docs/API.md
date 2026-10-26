@@ -84,7 +84,9 @@ e persistência de mídia privada no cache do navegador.
 | Contatos | `GET, POST /api/pessoas/{pessoa_id}/contatos` | Listar/criar contatos |
 | Contatos | `GET, PUT, DELETE /api/pessoas/contatos/{id}` | CRUD de contato |
 | Dossiê | `GET, POST /api/dossie/pessoas/{id}/anexos` | Listar/upload multipart (`arquivo`) |
+| Dossiê | `POST /api/dossie/pessoas/{id}/documentos` | Criar documento de texto (`markdown` ou `html`) |
 | Dossiê | `GET, PUT, DELETE /api/dossie/anexos/{id}` | Metadados/renomeação/exclusão |
+| Dossiê | `GET, PUT /api/dossie/anexos/{id}/documento` | Obter conteúdo textual e atualizar documento |
 | Dossiê | `GET /api/dossie/anexos/{id}/stream` | Conteúdo inline com HTTP Range |
 | Dossiê | `GET /api/dossie/anexos/{id}/download` | Download com HTTP Range |
 | Dossiê | `GET /api/dossie/anexos/{id}/thumbnail` | Miniatura WebP da imagem |

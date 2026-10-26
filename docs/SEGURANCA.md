@@ -1,7 +1,7 @@
 # Auditoria e Endurecimento de Segurança — AgendarX
 
-Data da auditoria: 25/10/2026  
-Versão auditada: 0.7.2  
+Data da auditoria: 26/10/2026  
+Versão auditada: 0.7.3  
 Status: Implementado e verificado
 
 Este documento consolida a análise de segurança do código-fonte do **AgendarX**, detalhando as fragilidades identificadas, as medidas corretivas aplicadas e as diretrizes operacionais de proteção.

@@ -7,10 +7,11 @@ Rust/Axum, SQLite embarcado e uma interface React responsiva em um único servi�
 Código-fonte e versões: [github.com/facrf/agendarx](https://github.com/facrf/agendarx).
 Automação de publicação: [workflow Publicar versão](https://github.com/facrf/agendarx/actions/workflows/release.yml).
 
-Versão atual: **v0.7.2**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
+Versão atual: **v0.7.3**. [Mudanças](CHANGELOG.md) · [Uso do grafo](docs/GRAFO.md) · [Capturas da interface](docs/screenshots/README.md).
 
 ## Funcionalidades
 
+- Editor de documentos de texto estilo Word no Dossiê de Pessoas, com suporte nativo a HTML e Markdown, barra de ferramentas de formatação rica, tabelas, folha A4 visual WYSIWYG, visualização dividida e indexação automática na busca global.
 - Painel inicial com tarefas de hoje, atrasadas e próximos sete dias, incluindo conclusão rápida.
 - Busca global em pessoas, tarefas, vínculos e arquivos, com índice textual FTS5 e paginação.
 - Recuperação de rascunhos nos formulários de pessoas, tarefas e vínculos.
@@ -106,13 +107,13 @@ porta `12000`. Defina `VITE_API_PROXY_TARGET` para usar outro destino.
 Após a publicação de uma versão pelo GitHub Actions, execute a imagem com:
 
 ```bash
-docker pull ghcr.io/facrf/agendarx:0.7.2
+docker pull ghcr.io/facrf/agendarx:0.7.3
 docker run --rm -p 12000:12000 \
   -v agendarx-data:/app/data \
   -e JWT_SECRET="$(openssl rand -hex 32)" \
   -e ADMIN_LOGIN=admin \
   -e ADMIN_PASSWORD='uma-senha-forte' \
-  ghcr.io/facrf/agendarx:0.7.2
+  ghcr.io/facrf/agendarx:0.7.3
 ```
 
 O primeiro pacote GHCR de uma conta pessoal costuma nascer privado. Depois do
@@ -143,7 +144,7 @@ O exemplo completo e endurecido está em
 ```yaml
 services:
   agendarx:
-    image: ghcr.io/facrf/agendarx:0.7.2
+    image: ghcr.io/facrf/agendarx:0.7.3
     restart: unless-stopped
     ports:
       - "12000:12000"

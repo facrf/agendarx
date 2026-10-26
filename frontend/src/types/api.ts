@@ -111,6 +111,18 @@ export interface AnexoDossie {
   url_thumbnail: string | null;
 }
 
+export interface DocumentoDossie {
+  id: number;
+  pessoa_id: number;
+  nome_arquivo: string;
+  mime_type: string;
+  conteudo: string;
+  tamanho_bytes: number;
+  data_upload: string;
+  url_stream: string;
+  url_download: string;
+}
+
 export interface PessoaVinculo {
   versao?: number;
   id: number;

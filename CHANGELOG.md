@@ -4,6 +4,32 @@ O formato segue [Keep a Changelog](https://keepachangelog.com/pt-BR/1.1.0/) e o
 versionamento dos pacotes segue SemVer; tags com sufixo alfabético usam a
 grafia de publicação solicitada (por exemplo, `v0.6.5a` = pacote `0.6.5-a`).
 
+## [0.7.3] - 2026-10-26
+
+### Adicionado
+
+- **Editor de documentos de texto estilo Word no Dossiê de Pessoas**:
+  - Novo componente de edição de documentos (`DocumentEditorModal`) com layout de folha de papel A4 centralizada, sombra realista e tipografia nítida estilo Microsoft Word / Google Docs.
+  - Suporte a arquivos de texto nos formatos **HTML (`.html`)** e **Markdown (`.md`)**, com alternador rápido de formato e conversor bidirecional inteligente (`documentConverter.ts`).
+  - Barra de ferramentas rica de formatação (Ribbon):
+    - Parágrafos e títulos hierárquicos (H1, H2, H3).
+    - Formatação inline: Negrito (`Ctrl+B`), Itálico (`Ctrl+I`), Sublinhado (`Ctrl+U`), Tachado.
+    - Alinhamento de parágrafo: Esquerda, Centro, Direita e Justificado.
+    - Listas com marcadores e numeradas.
+    - Inserção de tabelas com linhas e colunas formatadas, citações em bloco, blocos de código pré-formatados, linhas horizontais divisórias e links.
+    - Desfazer (`Ctrl+Z`), Refazer (`Ctrl+Y`) e limpeza rápida de formatação.
+  - Modos de exibição alternáveis: **Visual** (WYSIWYG Word), **Código** (edição direta do fonte HTML/Markdown com atalhos), **Dividido** (Split: editor Markdown à esquerda e prévia ao vivo na folha à direita) e **Prévia** (leitura final da folha).
+  - Rodapé com estatísticas em tempo real (contagem de palavras e caracteres), indicador de status de gravação ("Salvo" / "Alterações não salvas"), dicas de atalhos e atalho global `Ctrl+S` para salvar.
+  - Acesso direto pelo painel Dossiê através do botão **"Escrever documento"**, botão de edição na lista de anexos e botão **"Editar documento"** no modal de pré-visualização de anexo.
+  - Exclusão com confirmação tanto no editor quanto na lista do dossiê.
+
+- **Novos endpoints de documentos de texto no backend (`src/handlers/dossie.rs`)**:
+  - `POST /api/dossie/pessoas/{pessoa_id}/documentos`: criação de documentos de texto estruturados em JSON, com normalização de nome e extensão (.md/.html), definição automática de `mime_type` e validação do limite de upload.
+  - `GET /api/dossie/anexos/{id}/documento`: obtenção do conteúdo textual e metadados do documento em UTF-8.
+  - `PUT /api/dossie/anexos/{id}/documento`: alteração do conteúdo, nome e formato do documento existente.
+  - Indexação instantânea no motor de busca textual FTS5 do SQLite via triggers automáticos.
+  - Cobertura por testes automatizados de integração em `src/integration_tests.rs`.
+
 ## [0.7.2] - 2026-10-25
 
 ### Segurança

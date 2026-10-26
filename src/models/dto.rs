@@ -258,6 +258,26 @@ pub struct AnexoNomeInput {
 }
 
 #[derive(Debug, Deserialize)]
+pub struct DocumentoInput {
+    pub nome_arquivo: String,
+    pub conteudo: String,
+    pub formato: Option<String>,
+}
+
+#[derive(Debug, Clone, Serialize)]
+pub struct DocumentoDetalhes {
+    pub id: i64,
+    pub pessoa_id: i64,
+    pub nome_arquivo: String,
+    pub mime_type: String,
+    pub conteudo: String,
+    pub tamanho_bytes: i64,
+    pub data_upload: String,
+    pub url_stream: String,
+    pub url_download: String,
+}
+
+#[derive(Debug, Deserialize)]
 pub struct VinculoInput {
     pub pessoa_origem_id: i64,
     pub pessoa_destino_id: i64,
